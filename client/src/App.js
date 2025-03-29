@@ -197,6 +197,17 @@ function App() {
           >
             📥 Export CSV
           </button>
+          <button
+            onClick={() => {
+              window.open(
+                `http://localhost:5000/api/export-xlsx?ticker=${encodeURIComponent(
+                  ticker
+                )}`
+              );
+            }}
+          >
+            📥 Export Excel (with formatting)
+          </button>
         </div>
       )}
     </div>

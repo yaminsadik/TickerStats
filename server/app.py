@@ -2,9 +2,12 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import yfinance as yf
 from routes.export import export_bp
+from routes.exportXl import export_xl_bp
+
 
 app = Flask(__name__)
 app.register_blueprint(export_bp)
+app.register_blueprint(export_xl_bp)
 
 CORS(app)
 

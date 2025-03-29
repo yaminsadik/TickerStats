@@ -22,19 +22,19 @@ def export_csv():
             record = {
                 "Ticker": ticker,
                 "Company": info.get("longName"),
-                "Share Price": info.get("currentPrice"),
-                "Market Cap (B)": info.get("marketCap", 0) / 1e9,
-                "Enterprise Value (B)": info.get("enterpriseValue", 0) / 1e9,
-                "Forward P/E": info.get("forwardPE"),
-                "Price/Sales": info.get("priceToSalesTrailing12Months"),
-                "Price/Book": info.get("priceToBook"),
-                "EV/EBITDA": info.get("enterpriseToEbitda"),
-                "EV/Revenue": info.get("enterpriseToRevenue"),
-                "Profit Margin (%)": info.get("profitMargins") * 100 if info.get("profitMargins") else None,
-                "ROA (%)": info.get("returnOnAssets") * 100 if info.get("returnOnAssets") else None,
-                "ROE (%)": info.get("returnOnEquity") * 100 if info.get("returnOnEquity") else None,
-                "Debt/Equity (%)": info.get("debtToEquity"),
-                "Beta": info.get("beta")
+                "Share Price": round(info.get("currentPrice", 0), 2),
+                "Market Cap (B)": round(info.get("marketCap", 0) / 1e9, 2),
+                "Enterprise Value (B)": round(info.get("enterpriseValue", 0) / 1e9, 2),
+                "Forward P/E": round(info.get("forwardPE", 0), 2),
+                "Price/Sales": round(info.get("priceToSalesTrailing12Months", 0), 2),
+                "Price/Book": round(info.get("priceToBook", 0), 2),
+                "EV/EBITDA": round(info.get("enterpriseToEbitda", 0), 2),
+                "EV/Revenue": round(info.get("enterpriseToRevenue", 0), 2),
+                "Profit Margin (%)": f"{round(info.get('profitMargins', 0) * 100, 2)}%",
+                "ROA (%)": f"{round(info.get('returnOnAssets', 0) * 100, 2)}%",
+                "ROE (%)": f"{round(info.get('returnOnEquity', 0) * 100, 2)}%",
+                "Debt/Equity (%)": f"{round(info.get('debtToEquity', 0), 2)}%",
+                "Beta": round(info.get("beta", 0), 2)
             }
             records.append(record)
         except Exception as e:
