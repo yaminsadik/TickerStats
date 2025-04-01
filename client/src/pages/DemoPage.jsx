@@ -14,7 +14,7 @@ const DemoPage = () => {
     setLoading(true);
     try {
       const res = await axios.get(
-        `http://localhost:5000/api/metrics?ticker=${ticker}`
+        `https://tickerstats-22rs.onrender.com/api/metrics?ticker=${ticker}`
       );
       setData(res.data);
       setError("");
@@ -198,9 +198,7 @@ const DemoPage = () => {
             <div className="export-buttons">
               <button
                 onClick={() => {
-                  window.location.href = `http://localhost:5000/api/export?ticker=${encodeURIComponent(
-                    ticker
-                  )}`;
+                  window.location.href = `https://tickerstats-22rs.onrender.com/api/export?ticker=${encodeURIComponent(ticker)}`;
                 }}
               >
                 📥 Export CSV
@@ -208,9 +206,7 @@ const DemoPage = () => {
               <button
                 onClick={() => {
                   window.open(
-                    `http://localhost:5000/api/export-xlsx?ticker=${encodeURIComponent(
-                      ticker
-                    )}`
+                    `https://tickerstats-22rs.onrender.com/api/export-xlsx?ticker=${encodeURIComponent(ticker)}`
                   );
                 }}
               >

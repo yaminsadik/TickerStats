@@ -45,3 +45,40 @@
     color: #333;
   }
   
+
+  .threshold-toggle-container {
+    text-align: center;
+    margin-top: 2rem;
+  }
+  
+  .toggle-btn {
+    background-color: #1a73e8;
+    color: white;
+    padding: 10px 18px;
+    font-size: 1rem;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.3s ease;
+  }
+  
+  .toggle-btn:hover {
+    background-color: #155dc1;
+  }
+  
+  .threshold-slide {
+    margin-top: 1rem;
+    animation: fadeIn 0.4s ease-in-out;
+  }
+  
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: scaleY(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: scaleY(1);
+    }
+  }
+  
