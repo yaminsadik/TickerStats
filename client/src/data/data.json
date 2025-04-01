@@ -1,0 +1,88 @@
+{
+    "Header": {
+      "title": "Equity Data Simplified",
+      "paragraph": "Instantly generate accurate financial data about equity for analysis. Just input stock ticker and receive a detailed report - perfect for fast, reliable investment research."
+    },
+    "About": {
+      "paragraph": "We’re a student-driven startup dedicated to transforming how equity analysis is done. Born out of the Bulldogs Students Investment Fund (BSIF), our mission is to simplify financial research through automation. Our platform empowers users to create accurate, relative valuation models using just stock tickers - no spreadsheets, no hassle. With live data visualization, smart exports, and scalable performance, we help investors focus on insights, not inputs. Whether you're analyzing one stock or one hundred, we make financial data more accessible, efficient, and actionable."
+      
+    },
+    "Services": [
+      {
+        
+        "name": "Relative Valuation",
+        "text": "Compare firms side-by-side to assess true market value using key financial metrics."
+      },
+      {
+        
+        "name": "Data Automation",
+        "text": "Enter a stock ticker and instantly generate valuation data - no manual input required."
+      },
+      {
+   
+        "name": "Export Options",
+        "text": "Download insights in CSV or XLSX formats, ready for deeper analysis in RStudio, Jupyter Notebook, or Excel."
+      },
+      {
+        "name": "Scalable Analysis",
+        "text": "Analyze one or hundreds of tickers at once without sacrificing speed or accuracy."
+      },
+      {
+        "name": "More Incoming",
+        "text": "We’re constantly evolving - expect more advanced analytics, visualizations, and platform integrations soon."
+      }
+    ],
+    "Team": [
+      {
+        "img": "img/team/01.jpg",
+        "name": "Sadik Yamin",
+        "job": "Bodybuilder"
+      },
+      {
+        "img": "img/team/02.jpg",
+        "name": "Xavier Hall",
+        "job": "Basketball Player"
+      },
+      {
+        "img": "img/team/03.jpg",
+        "name": "Gerald Obush",
+        "job": "Soccer Player"
+      },
+      {
+        "img": "img/team/04.jpg",
+        "name": "Tyler Bryan",
+        "job": "Project Manager"
+      }
+    ],
+    "Contact": {
+      "address": "Chicken Dinner Road, Idaho, USA ",
+      "phone": "+1 660 232 4577",
+      "email": "tickerstats2025@gmail.com",
+      "facebook": "fb.com",
+      "twitter": "twitter.com",
+      "youtube": "youtube.com"
+    },
+    "Features": [
+      {
+        "icon": "bolt",
+        "title": "Instant Valuation",
+        "text": "Generate a complete relative valuation model from just stock ticker."
+      },
+      {
+        "icon": "file-export",
+        "title": "Smart Exports",
+        "text": "Download results instantly in CSV or XLSX formats for easy analysis."
+      },
+      {
+        "icon": "tower-broadcast",
+        "title": "Live Insights",
+        "text": "View valuation data live with built-in conditional formatting highlights."
+      },
+      {
+        "icon": "up-right-and-down-left-from-center",
+        "title": "Scalable Power",
+        "text": "Handle unlimited tickers without performance issues or slowdowns."
+      }
+    ]
+  }
+  

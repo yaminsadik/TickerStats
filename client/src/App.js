@@ -1,15 +1,44 @@
-import React from "react";
-import { Routes, Route } from "react-router-dom";
-import LandingPage from "./components/LandingPage.jsx";
-import Dashboard from "./components/Dashboard.jsx"; // <-- new file
+import React, { useState, useEffect } from "react";
+import SmoothScroll from "smooth-scroll";
+import JsonData from "./data/data.json"
+import { Navigation } from "./components/navigation";
+import { Header } from "./components/header";
+import { Features } from "./components/features";
+import { About } from "./components/about";
+import { Services } from "./components/services";
+import { TryUs } from "./components/Demo";
+import { Team } from "./components/team";
+import { Contact } from "./components/contact";
 
-function App() {
+
+import "./App.css";
+
+
+export const scroll = new SmoothScroll('a[href*="#"]', {
+  speed: 1000,
+  speedAsDuration: true,
+});
+
+
+const App = () => {
+  const [landingPageData, setLandingPageData] = useState({});
+  useEffect(() => {
+    setLandingPageData(JsonData);
+  }, []);
+
   return (
-    <Routes>
-      <Route path="/" element={<LandingPage />} />
-      <Route path="/dashboard" element={<Dashboard />} />
-    </Routes>
+    <div>
+      <Navigation />
+      <Header data={landingPageData.Header} />
+      <Features data={landingPageData.Features} />
+      <About data={landingPageData.About} />
+      <Services data={landingPageData.Services} />
+      <TryUs />
+      <Team data={landingPageData.Team} />
+      <Contact data={landingPageData.Contact} />
+      
+    </div>
   );
-}
+};
 
 export default App;
