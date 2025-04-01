@@ -3,3 +3,5 @@ yfinance
 flask-cors
 pandas
 openpyxl
+numpy
+gunicorn
