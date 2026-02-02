@@ -39,36 +39,36 @@ export function Controls({
       {/* Performance Toggle */}
       <div className="flex items-center gap-2">
         <label className="flex items-center gap-2 cursor-pointer">
-        <div className="relative">
-          <input
-            type="checkbox"
-            checked={showPerf}
-            onChange={(e) => onShowPerfChange(e.target.checked)}
-            className="sr-only"
-          />
-          <div
-            className={`w-10 h-6 rounded-full transition-colors ${
-              showPerf ? "bg-green-500" : "bg-gray-300"
-            }`}
-          />
-          <div
-            className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
-              showPerf ? "translate-x-4" : "translate-x-0"
-            }`}
-          />
-        </div>
-        <span className="text-sm font-medium text-gray-700">
-          Include Performance
-        </span>
-      </label>
-      <button
-        onClick={() => setShowPerfExplainer(true)}
-        className="p-1 text-green-600 hover:text-green-700 hover:bg-green-50 rounded transition-colors"
-        title="Learn how performance metrics are calculated"
-      >
-        <HelpCircle className="w-4 h-4" />
-      </button>
-    </div>
+          <div className="relative">
+            <input
+              type="checkbox"
+              checked={showPerf}
+              onChange={(e) => onShowPerfChange(e.target.checked)}
+              className="sr-only"
+            />
+            <div
+              className={`w-10 h-6 rounded-full transition-colors ${
+                showPerf ? "bg-green-500" : "bg-gray-300"
+              }`}
+            />
+            <div
+              className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                showPerf ? "translate-x-4" : "translate-x-0"
+              }`}
+            />
+          </div>
+          <span className="text-sm font-medium text-gray-700">
+            Include Performance
+          </span>
+        </label>
+        <button
+          onClick={() => setShowPerfExplainer(true)}
+          className="p-1 text-green-600 hover:text-green-700 hover:bg-green-50 rounded transition-colors"
+          title="Learn how performance metrics are calculated"
+        >
+          <HelpCircle className="w-4 h-4" />
+        </button>
+      </div>
 
       {/* DCF Toggle */}
       <div className="flex items-center gap-2">

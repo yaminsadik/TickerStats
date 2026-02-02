@@ -1,4 +1,4 @@
-import { useState, useCallback, KeyboardEvent, ClipboardEvent } from 'react';
+import { useState, useCallback, KeyboardEvent, ClipboardEvent } from "react";
 
 interface TickerInputProps {
   tickers: string[];
@@ -6,8 +6,12 @@ interface TickerInputProps {
   disabled?: boolean;
 }
 
-export function TickerInput({ tickers, onTickersChange, disabled }: TickerInputProps) {
-  const [inputValue, setInputValue] = useState('');
+export function TickerInput({
+  tickers,
+  onTickersChange,
+  disabled,
+}: TickerInputProps) {
+  const [inputValue, setInputValue] = useState("");
 
   const parseTickers = useCallback((text: string): string[] => {
     // Support comma, space, tab, newline separated tickers
@@ -25,29 +29,38 @@ export function TickerInput({ tickers, onTickersChange, disabled }: TickerInputP
         onTickersChange([...tickers, ...uniqueNew]);
       }
     },
-    [tickers, onTickersChange]
+    [tickers, onTickersChange],
   );
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' || e.key === ',' || e.key === ' ' || e.key === 'Tab') {
+    if (
+      e.key === "Enter" ||
+      e.key === "," ||
+      e.key === " " ||
+      e.key === "Tab"
+    ) {
       e.preventDefault();
       const parsed = parseTickers(inputValue);
       if (parsed.length > 0) {
         addTickers(parsed);
-        setInputValue('');
+        setInputValue("");
       }
-    } else if (e.key === 'Backspace' && inputValue === '' && tickers.length > 0) {
+    } else if (
+      e.key === "Backspace" &&
+      inputValue === "" &&
+      tickers.length > 0
+    ) {
       onTickersChange(tickers.slice(0, -1));
     }
   };
 
   const handlePaste = (e: ClipboardEvent<HTMLInputElement>) => {
     e.preventDefault();
-    const pastedText = e.clipboardData.getData('text');
+    const pastedText = e.clipboardData.getData("text");
     const parsed = parseTickers(pastedText);
     if (parsed.length > 0) {
       addTickers(parsed);
-      setInputValue('');
+      setInputValue("");
     }
   };
 
@@ -55,7 +68,7 @@ export function TickerInput({ tickers, onTickersChange, disabled }: TickerInputP
     const parsed = parseTickers(inputValue);
     if (parsed.length > 0) {
       addTickers(parsed);
-      setInputValue('');
+      setInputValue("");
     }
   };
 
@@ -70,7 +83,7 @@ export function TickerInput({ tickers, onTickersChange, disabled }: TickerInputP
       </label>
       <div
         className={`flex flex-wrap gap-1.5 p-2 bg-white border border-gray-300 rounded-lg focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 min-h-[44px] ${
-          disabled ? 'bg-gray-50 cursor-not-allowed' : ''
+          disabled ? "bg-gray-50 cursor-not-allowed" : ""
         }`}
       >
         {tickers.map((ticker) => (
@@ -111,7 +124,11 @@ export function TickerInput({ tickers, onTickersChange, disabled }: TickerInputP
           onPaste={handlePaste}
           onBlur={handleBlur}
           disabled={disabled}
-          placeholder={tickers.length === 0 ? 'Type or paste tickers (e.g., AAPL MSFT NVDA)' : ''}
+          placeholder={
+            tickers.length === 0
+              ? "Type or paste tickers (e.g., AAPL MSFT NVDA)"
+              : ""
+          }
           className="flex-1 min-w-[150px] outline-none text-sm text-gray-900 placeholder:text-gray-400 bg-transparent disabled:cursor-not-allowed"
         />
       </div>
