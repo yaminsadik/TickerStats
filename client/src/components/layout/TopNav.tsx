@@ -16,7 +16,7 @@ export default function TopNav() {
           <div className="flex items-center space-x-8">
             <Link to="/" className="flex items-center space-x-2">
               <BarChart3 className="w-8 h-8 text-blue-500" />
-              <span className="text-xl font-bold text-white">TicketStats</span>
+              <span className="text-xl font-bold text-white">TickerStats</span>
             </Link>
             <div className="hidden md:flex items-center space-x-1">
               {navItems.map(({ path, label, icon: Icon }) => {

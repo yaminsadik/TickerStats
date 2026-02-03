@@ -1,9 +1,11 @@
-import type { SignalSettings } from '../types/signals';
+import { useState } from "react";
+import type { SignalSettings } from "../types/signals";
+import ComparisonExplainerModal from "./ComparisonExplainerModal";
 
 interface SignalControlsProps {
   settings: SignalSettings;
   onToggle: () => void;
-  onModeChange: (mode: 'percentile' | 'absolute') => void;
+  onModeChange: (mode: "percentile" | "absolute") => void;
   onConfigure: () => void;
 }
 
@@ -13,6 +15,8 @@ export default function SignalControls({
   onModeChange,
   onConfigure,
 }: SignalControlsProps) {
+  const [showExplainer, setShowExplainer] = useState(false);
+
   return (
     <div className="flex items-center gap-4">
       {/* Enable/Disable Toggle */}
@@ -34,33 +38,56 @@ export default function SignalControls({
       {settings.enabled && (
         <>
           <div className="h-5 w-px bg-slate-300" />
-          
-          <div className="flex items-center gap-1 bg-slate-100 rounded-md p-0.5">
+
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-md p-0.5">
+              <button
+                onClick={() => onModeChange("percentile")}
+                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
+                  settings.globalMode === "percentile"
+                    ? "bg-slate-700 text-white shadow-sm"
+                    : "text-slate-200 hover:text-white"
+                }`}
+              >
+                Percentile
+              </button>
+              <button
+                onClick={() => onModeChange("absolute")}
+                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
+                  settings.globalMode === "absolute"
+                    ? "bg-slate-700 text-white shadow-sm"
+                    : "text-slate-200 hover:text-white"
+                }`}
+              >
+                Absolute
+              </button>
+            </div>
+
+            {/* Help Icon */}
             <button
-              onClick={() => onModeChange('percentile')}
-              className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
-                settings.globalMode === 'percentile'
-                  ? 'bg-white text-slate-900 shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
+              onClick={() => setShowExplainer(true)}
+              className="flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 hover:bg-blue-200 text-blue-600 transition-colors"
+              title="Explain comparison modes"
             >
-              Percentile
-            </button>
-            <button
-              onClick={() => onModeChange('absolute')}
-              className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
-                settings.globalMode === 'absolute'
-                  ? 'bg-white text-slate-900 shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Absolute
+              <svg
+                className="w-3 h-3"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z"
+                />
+              </svg>
             </button>
           </div>
 
           <button
             onClick={onConfigure}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded transition-colors"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-200 hover:text-white hover:bg-slate-800 rounded transition-colors"
           >
             <svg
               className="w-3.5 h-3.5"
@@ -85,6 +112,12 @@ export default function SignalControls({
           </button>
         </>
       )}
+
+      {/* Comparison Explainer Modal */}
+      <ComparisonExplainerModal
+        isOpen={showExplainer}
+        onClose={() => setShowExplainer(false)}
+      />
     </div>
   );
 }

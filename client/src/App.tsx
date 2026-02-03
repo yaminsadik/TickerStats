@@ -169,7 +169,6 @@ function App() {
           <SignalControls
             settings={signalSettings}
             onToggle={toggleSignals}
-            onModeChange={setSignalMode}
             onConfigure={() => setShowSignalConfig(true)}
           />
         </div>
@@ -284,6 +283,7 @@ function App() {
           onClose={() => setShowSignalConfig(false)}
           settings={signalSettings}
           onUpdateRule={updateSignalRule}
+          onModeChange={setSignalMode}
           onReset={resetSignalSettings}
         />
       </main>

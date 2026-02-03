@@ -1,4 +1,4 @@
-import { SNAPSHOT_FIELDS, PERF_METRICS, FIELD_LABELS } from '../types/api';
+import { SNAPSHOT_FIELDS, PERF_METRICS, FIELD_LABELS } from "../types/api";
 
 interface ColumnPickerProps {
   selectedFields: string[];
@@ -44,12 +44,12 @@ export function ColumnPicker({
   };
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+    <div className="bg-slate-800 border border-slate-700 rounded-lg p-4 shadow-sm">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-gray-900">Snapshot Columns</h3>
+        <h3 className="text-sm font-semibold text-white">Snapshot Columns</h3>
         <button
           onClick={selectAllFields}
-          className="text-xs text-blue-600 hover:text-blue-800"
+          className="text-xs text-blue-400 hover:text-blue-300"
         >
           Select All
         </button>
@@ -64,9 +64,9 @@ export function ColumnPicker({
               type="checkbox"
               checked={selectedFields.includes(field)}
               onChange={() => toggleField(field)}
-              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+              className="w-4 h-4 text-blue-600 bg-slate-700 border-slate-600 rounded focus:ring-blue-500"
             />
-            <span className="text-gray-700 group-hover:text-gray-900 truncate">
+            <span className="text-slate-300 group-hover:text-white truncate">
               {FIELD_LABELS[field] || field}
             </span>
           </label>
@@ -76,12 +76,12 @@ export function ColumnPicker({
       {showPerf && (
         <>
           <div className="flex items-center justify-between mt-5 mb-3">
-            <h3 className="text-sm font-semibold text-gray-900">
+            <h3 className="text-sm font-semibold text-white">
               Performance Columns
             </h3>
             <button
               onClick={selectAllPerf}
-              className="text-xs text-blue-600 hover:text-blue-800"
+              className="text-xs text-blue-400 hover:text-blue-300"
             >
               Select All
             </button>
@@ -96,9 +96,9 @@ export function ColumnPicker({
                   type="checkbox"
                   checked={selectedPerfMetrics.includes(metric)}
                   onChange={() => togglePerfMetric(metric)}
-                  className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                  className="w-4 h-4 text-green-600 bg-slate-700 border-slate-600 rounded focus:ring-green-500"
                 />
-                <span className="text-gray-700 group-hover:text-gray-900">
+                <span className="text-slate-300 group-hover:text-white">
                   {FIELD_LABELS[metric] || metric}
                 </span>
               </label>

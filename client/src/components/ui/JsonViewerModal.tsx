@@ -7,6 +7,7 @@ import {
   ChevronRight,
   FileCode,
   Check,
+  X,
 } from "lucide-react";
 import Modal from "./Modal";
 import Badge from "./Badge";
@@ -93,12 +94,7 @@ interface JsonViewerModalProps {
   deckName: string;
   ticker: string;
   onDownload: () => void;
-  fallbackSections?: Array<{
-    section_id: string;
-    section_name?: string;
-    slides: ExportSlide[];
-    citations?: string[];
-  }>;
+  inline?: boolean;
 }
 
 type TabId = "rendered" | "raw";
@@ -110,7 +106,7 @@ export default function JsonViewerModal({
   deckName,
   ticker,
   onDownload,
-  fallbackSections,
+  inline = false,
 }: JsonViewerModalProps) {
   const [activeTab, setActiveTab] = useState<TabId>("rendered");
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(
@@ -123,29 +119,14 @@ export default function JsonViewerModal({
 
   // Normalize the export data to always use results format
   const normalizedSections = useMemo(() => {
-    if (!exportData) {
-      return fallbackSections
-        ? fallbackSections.map((s) => ({
-            section_id: s.section_id,
-            slides: s.slides || [],
-            needs_verification: false,
-            citations: s.citations,
-          }))
-        : [];
-    }
+    if (!exportData) return [];
 
-    // Prefer export results if present
+    // If results array exists, use it
     if (exportData.results && exportData.results.length > 0) {
-      return exportData.results.map((r) => ({
-        section_id: r.section_id,
-        slides: r.slides || [],
-        needs_verification: r.needs_verification,
-        citations: r.citations,
-        verification_notes: r.verification_notes,
-      }));
+      return exportData.results;
     }
 
-    // Fall back to internal sections format
+    // Fall back to sections (internal format) and convert
     if (exportData.sections && exportData.sections.length > 0) {
       return exportData.sections.map((s) => ({
         section_id: s.section_id,
@@ -155,17 +136,8 @@ export default function JsonViewerModal({
       }));
     }
 
-    if (fallbackSections && fallbackSections.length > 0) {
-      return fallbackSections.map((s) => ({
-        section_id: s.section_id,
-        slides: s.slides || [],
-        needs_verification: false,
-        citations: s.citations,
-      }));
-    }
-
     return [];
-  }, [exportData, fallbackSections]);
+  }, [exportData]);
 
   // Get metadata
   const exportMetadata = useMemo(() => {
@@ -278,65 +250,22 @@ export default function JsonViewerModal({
     0,
   );
 
-  const headerActions = (
-    <>
-      <button
-        onClick={handleCopy}
-        className={cn(
-          "inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors",
-          copied
-            ? "bg-green-600/20 text-green-400"
-            : "text-slate-300 hover:bg-slate-800",
-        )}
-        aria-label="Copy JSON to clipboard"
-      >
-        {copied ? (
-          <>
-            <Check className="w-4 h-4" />
-            Copied
-          </>
-        ) : (
-          <>
-            <Copy className="w-4 h-4" />
-            Copy
-          </>
-        )}
-      </button>
-      <button
-        onClick={onDownload}
-        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-300 hover:bg-slate-800 rounded-lg transition-colors"
-        aria-label="Download JSON file"
-      >
-        <Download className="w-4 h-4" />
-        Download
-      </button>
-    </>
-  );
-
-  return (
-    <Modal
-      isOpen={isOpen}
-      onClose={onClose}
-      title="Export JSON"
-      subtitle={`${deckName} • ${ticker} • Read-only`}
-      headerActions={headerActions}
-      size="xl"
-      fullScreenOnMobile
-    >
-      <div className="flex flex-col h-full min-h-0 overflow-hidden">
-        {/* Tabs */}
-        <div className="flex border-b border-slate-700 px-4 shrink-0">
-          <button
-            onClick={() => setActiveTab("rendered")}
-            className={cn(
-              "px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors",
-              activeTab === "rendered"
-                ? "border-blue-500 text-blue-400"
-                : "border-transparent text-slate-400 hover:text-white",
-            )}
-          >
-            Rendered
-          </button>
+  const content = (
+    <div className="flex flex-col h-[calc(90vh-120px)] max-md:h-[calc(100vh-120px)]">
+      {/* Tabs */}
+      <div className="flex border-b border-slate-700 px-4 shrink-0">
+        <button
+          onClick={() => setActiveTab("rendered")}
+          className={cn(
+            "px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors",
+            activeTab === "rendered"
+              ? "border-blue-500 text-blue-400"
+              : "border-transparent text-slate-400 hover:text-white",
+          )}
+        >
+          Slides
+        </button>
+        {import.meta.env.DEV && (
           <button
             onClick={() => setActiveTab("raw")}
             className={cn(
@@ -349,32 +278,63 @@ export default function JsonViewerModal({
             <FileCode className="w-4 h-4" />
             Raw JSON
           </button>
-        </div>
-
-        {/* Tab Content */}
-        <div
-          className={cn(
-            "flex-1 min-h-0",
-            activeTab === "raw" ? "overflow-y-auto" : "overflow-hidden",
-          )}
-        >
-          {activeTab === "rendered" ? (
-            <RenderedView
-              sections={normalizedSections}
-              selectedSectionId={selectedSectionId}
-              onSelectSection={setSelectedSectionId}
-              selectedSection={selectedSection}
-              expandedNotes={expandedNotes}
-              toggleNotes={toggleNotes}
-              toTitleCase={toTitleCase}
-              totalSlides={totalSlides}
-              metadata={exportMetadata}
-            />
-          ) : (
-            <RawJsonView json={rawJson} isLoading={isStringifying} />
-          )}
-        </div>
+        )}
       </div>
+
+      {/* Tab Content */}
+      <div className="flex-1 min-h-0 overflow-auto">
+        {activeTab === "rendered" ? (
+          <RenderedView
+            sections={normalizedSections}
+            selectedSectionId={selectedSectionId}
+            onSelectSection={setSelectedSectionId}
+            selectedSection={selectedSection}
+            expandedNotes={expandedNotes}
+            toggleNotes={toggleNotes}
+            toTitleCase={toTitleCase}
+            totalSlides={totalSlides}
+            metadata={exportMetadata}
+          />
+        ) : (
+          <RawJsonView json={rawJson} isLoading={isStringifying} />
+        )}
+      </div>
+    </div>
+  );
+
+  if (inline) {
+    return (
+      <div className="bg-slate-900 border border-slate-700 rounded-lg shadow-xl">
+        <div className="flex items-start justify-between p-4 border-b border-slate-700">
+          <div>
+            <h2 className="text-lg font-semibold text-white">Deck Details</h2>
+            <p className="text-sm text-slate-400 mt-0.5">
+              {deckName} ({ticker})
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+            aria-label="Close deck details"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="flex-1 min-h-0">{content}</div>
+      </div>
+    );
+  }
+
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Deck Details"
+      subtitle={`${deckName} (${ticker})`}
+      size="xl"
+      fullScreenOnMobile
+    >
+      {content}
     </Modal>
   );
 }
@@ -418,39 +378,8 @@ function RenderedView({
     );
   }
 
-  const porterForces = (() => {
-    if (!selectedSection || selectedSection.section_id !== "porters_five") {
-      return null;
-    }
-
-    const forceLabels = [
-      "New Entrants",
-      "Supplier Power",
-      "Buyer Power",
-      "Substitutes",
-      "Rivalry",
-    ];
-    const found = new Set<string>();
-
-    selectedSection.slides?.forEach((slide) => {
-      slide.bullets?.forEach((bullet) => {
-        const text = bullet.text || "";
-        const match = forceLabels.find((label) =>
-          text.toLowerCase().startsWith(label.toLowerCase()),
-        );
-        if (match) found.add(match);
-      });
-    });
-
-    return {
-      forceLabels,
-      found: Array.from(found),
-      missing: forceLabels.filter((label) => !found.has(label)),
-    };
-  })();
-
   return (
-    <div className="flex h-full min-h-0 overflow-hidden">
+    <div className="flex h-full overflow-hidden">
       {/* Left Sidebar - Section List */}
       <div className="w-64 border-r border-slate-700 flex flex-col shrink-0 max-md:hidden overflow-hidden">
         {/* Summary */}
@@ -547,28 +476,6 @@ function RenderedView({
                 </Badge>
               )}
             </div>
-
-            {porterForces && (
-              <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-3">
-                <div className="text-sm text-slate-300">
-                  Porter’s Five Forces coverage: {porterForces.found.length}/5
-                </div>
-                <div className="flex flex-wrap gap-2 mt-2">
-                  {porterForces.forceLabels.map((label) => (
-                    <Badge
-                      key={label}
-                      variant={
-                        porterForces.found.includes(label)
-                          ? "info"
-                          : "warning"
-                      }
-                    >
-                      {label}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            )}
 
             {/* Verification Notes */}
             {selectedSection.verification_notes &&
@@ -704,7 +611,7 @@ function RawJsonView({
   }
 
   return (
-    <div className="h-full min-h-0 p-4">
+    <div className="h-full min-h-0 overflow-auto p-4">
       <pre className="text-sm font-mono text-slate-300 whitespace-pre-wrap break-words">
         {json}
       </pre>

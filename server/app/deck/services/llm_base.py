@@ -10,7 +10,11 @@ from enum import Enum
 from typing import Any, Optional
 
 from app.deck.utils.logging import get_logger
-from app.deck.utils.validation import sanitize_llm_output, validate_json_schema
+from app.deck.utils.validation import (
+    sanitize_llm_output,
+    validate_json_schema,
+    clamp_to_schema_limits,
+)
 
 logger = get_logger(__name__)
 
@@ -189,6 +193,9 @@ class LLMProvider(ABC):
                 response.retries = attempt
                 
                 # Validate response against schema
+                clamped_content = clamp_to_schema_limits(response.content, json_schema)
+                if clamped_content is not response.content:
+                    response.content = clamped_content
                 validation = validate_json_schema(response.content, json_schema)
                 if validation.valid:
                     return response

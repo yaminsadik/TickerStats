@@ -347,6 +347,7 @@ class GenerationError(BaseModel):
 class DeckGenerateResponse(BaseModel):
     """Response schema for POST /api/v1/deck/generate."""
     ticker: str
+    company_name: str = Field(..., description="Company name for the ticker")
     provider_used: ProviderInfo
     generated_at: str = Field(
         default_factory=lambda: datetime.utcnow().isoformat() + "Z",

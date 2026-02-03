@@ -55,8 +55,29 @@ export interface DeckMetadata {
 }
 
 export interface GenerateDeckResponse {
-  metadata: DeckMetadata;
-  sections: GeneratedSection[];
+  ticker: string;
+  company_name: string;
+  generated_at: string;
+  provider_used: {
+    provider: string;
+    model: string;
+    reasoning_level: string;
+  };
+  computed_inputs?: {
+    comps_table?: unknown;
+  };
+  results: GeneratedSection[];
+  errors?: string[];
+  request_id?: string;
+  // Legacy format support
+  metadata?: {
+    ticker: string;
+    company_name: string;
+    generated_at: string;
+    provider: string;
+    model: string;
+  };
+  sections?: GeneratedSection[];
   warnings?: string[];
 }
 

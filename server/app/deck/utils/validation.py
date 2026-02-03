@@ -27,6 +27,47 @@ class ValidationResult:
         return self.valid
 
 
+def clamp_to_schema_limits(data: Any, schema: dict) -> Any:
+    """
+    Clamp array fields to schema maxItems limits (non-destructive copy).
+
+    Args:
+        data: Parsed JSON data
+        schema: JSON schema
+
+    Returns:
+        Data with arrays trimmed to maxItems where applicable
+    """
+    if not isinstance(data, dict) or not isinstance(schema, dict):
+        return data
+
+    properties = schema.get("properties", {}) if isinstance(schema.get("properties"), dict) else {}
+    if not properties:
+        return data
+
+    sanitized = dict(data)
+    for key, prop_schema in properties.items():
+        if key not in sanitized:
+            continue
+
+        value = sanitized.get(key)
+        if isinstance(value, list) and isinstance(prop_schema, dict):
+            max_items = prop_schema.get("maxItems")
+            if isinstance(max_items, int) and max_items >= 0:
+                sanitized[key] = value[:max_items]
+            # Optionally recurse into array items if they are objects
+            item_schema = prop_schema.get("items")
+            if isinstance(item_schema, dict):
+                sanitized[key] = [
+                    clamp_to_schema_limits(item, item_schema) if isinstance(item, dict) else item
+                    for item in sanitized[key]
+                ]
+        elif isinstance(value, dict) and isinstance(prop_schema, dict):
+            sanitized[key] = clamp_to_schema_limits(value, prop_schema)
+
+    return sanitized
+
+
 def validate_ticker(ticker: str) -> ValidationResult:
     """
     Validate stock ticker format.

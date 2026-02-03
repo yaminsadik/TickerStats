@@ -201,6 +201,7 @@ class DeckGenerator:
         
         return DeckGenerateResponse(
             ticker=request.ticker,
+            company_name=request.company_name,
             provider_used=ProviderInfo(
                 provider=request.provider.value,
                 model=model_used,

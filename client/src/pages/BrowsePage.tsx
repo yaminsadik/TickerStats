@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { FileText, ChevronRight, TrendingUp } from "lucide-react";
 import { TickerInput } from "../components/TickerInput";
@@ -13,19 +13,9 @@ import { getExportUrl } from "../api/client";
 import { Button, Card, Alert } from "../components/ui";
 import { SNAPSHOT_FIELDS, PERF_METRICS, type PerfPeriod } from "../types/api";
 import type { FetchRelativeParams } from "../api/client";
-import {
-  createDraft,
-  saveDraftContent,
-  type DeckDraftBasics,
-  type DeckDraftConfig,
-} from "../stores/deckDraft";
-import type { GenerateDeckResponse, GeneratedSection } from "../api/deckApi";
 
 export default function BrowsePage() {
   const navigate = useNavigate();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [importError, setImportError] = useState<string | null>(null);
-  const [isImporting, setIsImporting] = useState(false);
 
   // Ticker input state
   const [tickers, setTickers] = useState<string[]>([]);
@@ -78,8 +68,7 @@ export default function BrowsePage() {
     };
 
     if (showPerf && selectedPerfMetrics.length > 0) {
-      params.perf = selectedPerfMetrics;
-      params.perfPeriod = perfPeriod;
+      params.perf = perfPeriod;
     }
 
     if (showDcf) {
@@ -123,129 +112,6 @@ export default function BrowsePage() {
     [navigate, tickers],
   );
 
-  const toTitleCase = (value: string) =>
-    value.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-
-  const normalizeImportedDeck = (
-    payload: any,
-  ): {
-    response: GenerateDeckResponse;
-    basics: DeckDraftBasics;
-    config: DeckDraftConfig;
-  } => {
-    if (payload?.metadata && payload?.sections) {
-      const response = payload as GenerateDeckResponse;
-      const ticker = response.metadata?.ticker || payload.ticker || "UNKNOWN";
-      const basics: DeckDraftBasics = {
-        ticker,
-        companyName: response.metadata?.company_name || ticker,
-        sector: payload.sector || "Technology",
-      };
-      const config: DeckDraftConfig = {
-        sections: response.sections?.map((s) => s.section_id) || [],
-        provider: (response.metadata?.provider || "openai") as
-          | "openai"
-          | "gemini",
-        quality: (payload.provider_used?.reasoning_level || "medium") as
-          | "low"
-          | "medium"
-          | "high",
-      };
-      return { response, basics, config };
-    }
-
-    if (!payload?.results || !Array.isArray(payload.results)) {
-      throw new Error("Unsupported deck JSON format");
-    }
-
-    const ticker = payload.ticker || "UNKNOWN";
-    const providerUsed = payload.provider_used || {};
-
-    const sections: GeneratedSection[] = payload.results.map(
-      (section: any) => ({
-        section_id: section.section_id || "unknown",
-        section_name: toTitleCase(section.section_id || "Section"),
-        slides: (section.slides || []).map((slide: any) => ({
-          title: slide.title || "Untitled",
-          bullets: (slide.bullets || []).map((bullet: any) => ({
-            text: bullet.text || "",
-            source_needed: Boolean(bullet.source_needed),
-          })),
-          speaker_notes: slide.speaker_notes,
-        })),
-        citations:
-          section.citations && section.citations.length > 0
-            ? section.citations
-            : undefined,
-      }),
-    );
-
-    if (sections.length === 0) {
-      throw new Error("No sections found in deck JSON");
-    }
-
-    const response: GenerateDeckResponse = {
-      metadata: {
-        ticker,
-        company_name: payload.company_name || ticker,
-        generated_at: payload.generated_at || new Date().toISOString(),
-        provider: providerUsed.provider || "openai",
-        model: providerUsed.model || "unknown",
-      },
-      sections,
-      warnings:
-        payload.errors && payload.errors.length > 0
-          ? payload.errors
-          : undefined,
-    };
-
-    const basics: DeckDraftBasics = {
-      ticker,
-      companyName: response.metadata.company_name || ticker,
-      sector: payload.sector || "Technology",
-      companyContext: payload.company_context,
-      investmentThesis: payload.investment_thesis,
-    };
-
-    const config: DeckDraftConfig = {
-      sections: sections.map((s) => s.section_id),
-      provider: (providerUsed.provider || "openai") as "openai" | "gemini",
-      quality: (providerUsed.reasoning_level || "medium") as
-        | "low"
-        | "medium"
-        | "high",
-    };
-
-    return { response, basics, config };
-  };
-
-  const handleImportDeck = async (
-    event: React.ChangeEvent<HTMLInputElement>,
-  ) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    setIsImporting(true);
-    setImportError(null);
-
-    try {
-      const text = await file.text();
-      const payload = JSON.parse(text);
-      const { response, basics, config } = normalizeImportedDeck(payload);
-
-      const draft = createDraft(basics, config);
-      saveDraftContent(draft.id, response);
-      navigate(`/deck/${draft.id}`);
-    } catch (error) {
-      setImportError(
-        error instanceof Error ? error.message : "Failed to import deck JSON",
-      );
-    } finally {
-      setIsImporting(false);
-      event.target.value = "";
-    }
-  };
-
   return (
     <div className="space-y-6">
       {/* Page Header with CTA */}
@@ -257,20 +123,6 @@ export default function BrowsePage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="application/json"
-            className="hidden"
-            onChange={handleImportDeck}
-          />
-          <Button
-            variant="outline"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isImporting}
-          >
-            {isImporting ? "Importing..." : "Import Deck JSON"}
-          </Button>
           <Button
             onClick={() => handleGenerateDeck()}
             size="lg"
@@ -348,12 +200,6 @@ export default function BrowsePage() {
       {error && (
         <Alert variant="error" title="Error loading data">
           {error instanceof Error ? error.message : "An error occurred"}
-        </Alert>
-      )}
-
-      {importError && (
-        <Alert variant="error" title="Import failed">
-          {importError}
         </Alert>
       )}
 

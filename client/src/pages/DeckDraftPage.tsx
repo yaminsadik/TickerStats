@@ -32,7 +32,6 @@ import {
   type GeneratedSection,
   type Slide,
   type BulletPoint,
-  type SectionResult,
 } from "../api/deckApi";
 
 export default function DeckDraftPage() {
@@ -61,10 +60,6 @@ export default function DeckDraftPage() {
             loadedDraft.generatedContent.sections.map((s) => s.section_id),
           ),
         );
-      } else if ((loadedDraft?.generatedContent as any)?.results) {
-        const results = (loadedDraft?.generatedContent as any)
-          ?.results as SectionResult[];
-        setExpandedSections(new Set(results.map((r) => r.section_id)));
       }
     }
     setLoading(false);
@@ -142,7 +137,7 @@ export default function DeckDraftPage() {
     const gc = draft.generatedContent;
 
     // If data already has results array, it's in export format
-    if (Array.isArray(gc.results) && gc.results.length > 0) {
+    if ((gc as any).results) {
       return gc as unknown as DeckExportData;
     }
 
@@ -154,6 +149,13 @@ export default function DeckDraftPage() {
         provider: gc.metadata?.provider || draft.config.provider,
         model: gc.metadata?.model || "unknown",
         reasoning_level: draft.config.quality,
+      },
+      metadata: {
+        ticker: gc.metadata?.ticker || draft.basics.ticker,
+        company_name: gc.metadata?.company_name || draft.basics.ticker,
+        generated_at: gc.metadata?.generated_at || new Date().toISOString(),
+        provider: gc.metadata?.provider || draft.config.provider,
+        model: gc.metadata?.model || "unknown",
       },
       results: (gc.sections || []).map((section) => ({
         section_id: section.section_id,
@@ -232,103 +234,84 @@ export default function DeckDraftPage() {
     );
   }
 
-  const { metadata, sections, warnings, results, provider_used, generated_at } =
-    draft.generatedContent as any;
+  const { metadata, sections, warnings } = draft.generatedContent;
 
   const safeMetadata = metadata ?? {
-    ticker: draft.basics.ticker,
+    ticker: draft.generatedContent?.ticker || draft.basics.ticker,
     company_name:
-      draft.basics.companyName ||
+      draft.generatedContent?.company_name ||
       draft.generatedContent?.metadata?.company_name ||
       draft.basics.ticker,
-    generated_at: generated_at || new Date().toISOString(),
-    provider: provider_used?.provider || draft.config.provider,
-    model: provider_used?.model || "unknown",
+    generated_at:
+      draft.generatedContent?.generated_at || new Date().toISOString(),
+    provider:
+      draft.generatedContent?.provider_used?.provider || draft.config.provider,
+    model: draft.generatedContent?.provider_used?.model || "unknown",
   };
 
-  const toTitleCase = (value: string) =>
-    value.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-
-  const safeSections: GeneratedSection[] = sections
-    ? sections
-    : (results || []).map((r: SectionResult) => ({
-        section_id: r.section_id,
-        section_name: toTitleCase(r.section_id),
-        slides: r.slides || [],
-        citations: r.citations,
-      }));
-
-  const rawWarnings: string[] | undefined = warnings
-    ? warnings.map((w: any) =>
-        typeof w === "string"
-          ? w
-          : w?.message || JSON.stringify(w, null, 2),
-      )
-    : Array.isArray((draft.generatedContent as any)?.errors)
-      ? (draft.generatedContent as any).errors.map((e: any) =>
-          typeof e === "string"
-            ? e
-            : e?.message || JSON.stringify(e, null, 2),
-        )
-      : undefined;
-
-  const safeWarnings = rawWarnings
-    ? rawWarnings.filter((w) => w !== "unhashable type: 'list'")
-    : undefined;
+  const safeSections = sections ?? [];
 
   return (
-    <div className="max-w-4xl mx-auto">
-      {/* Header */}
-      <div className="flex items-start justify-between mb-6">
-        <div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate(-1)}
-            className="mb-2"
-          >
+    <div className="max-w-6xl mx-auto pb-8">
+      {/* Success Banner */}
+      <div className="bg-gradient-to-r from-emerald-600/20 to-blue-600/20 border border-emerald-500/30 rounded-lg p-6 mb-6">
+        <div className="flex items-start gap-4">
+          <div className="bg-emerald-500/20 p-3 rounded-lg">
+            <FileCode className="w-6 h-6 text-emerald-400" />
+          </div>
+          <div className="flex-1">
+            <h1 className="text-2xl font-bold text-white mb-2">
+              Deck Generated Successfully!
+            </h1>
+            <p className="text-slate-300">
+              Your pitch deck for <strong>{safeMetadata.company_name}</strong> (
+              {safeMetadata.ticker}) is ready. Review the sections below and
+              regenerate any section if needed.
+            </p>
+            <div className="flex items-center gap-4 mt-3 text-sm text-slate-400">
+              <span>📊 {sectionsCount} sections</span>
+              <span>•</span>
+              <span>📄 {slidesCount} slides</span>
+              <span>•</span>
+              <span>🤖 {safeMetadata.provider}</span>
+              <span>•</span>
+              <span>
+                📅 {new Date(safeMetadata.generated_at).toLocaleDateString()}
+              </span>
+            </div>
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => navigate(-1)}>
             <ArrowLeft className="w-4 h-4 mr-2" />
             Back
           </Button>
-          <h1 className="text-2xl font-bold text-white">
-            {safeMetadata.company_name}
-          </h1>
-          <div className="flex items-center gap-3 mt-2">
-            <Badge>{safeMetadata.ticker}</Badge>
-            <span className="text-slate-400 text-sm">
-              Generated{" "}
-              {new Date(safeMetadata.generated_at).toLocaleDateString()}
-            </span>
-            <span className="text-slate-500 text-sm">
-              • {safeMetadata.provider}
-            </span>
-          </div>
         </div>
-        <div className="flex gap-2">
+      </div>
+
+      {/* Quick Actions */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-2">
           <Button
             variant="outline"
             size="sm"
             onClick={() => setShowJsonViewer(true)}
           >
             <FileCode className="w-4 h-4 mr-2" />
-            View JSON
+            View Deck
           </Button>
-          <Button variant="outline" size="sm" onClick={handleExportJSON}>
-            <Download className="w-4 h-4 mr-2" />
-            Export JSON
-          </Button>
+        </div>
+        <div className="flex items-center gap-2">
           <Button variant="danger" size="sm" onClick={handleDelete}>
             <Trash2 className="w-4 h-4 mr-2" />
-            Delete
+            Delete Draft
           </Button>
         </div>
       </div>
 
       {/* Warnings */}
-      {safeWarnings && safeWarnings.length > 0 && (
+      {warnings && warnings.length > 0 && (
         <Alert variant="warning" title="Warnings" className="mb-6">
           <ul className="list-disc list-inside space-y-1">
-            {safeWarnings.map((warning, i) => (
+            {warnings.map((warning, i) => (
               <li key={i}>{warning}</li>
             ))}
           </ul>
@@ -349,44 +332,17 @@ export default function DeckDraftPage() {
         ))}
       </div>
 
-      {/* Metadata Footer */}
-      <Card className="mt-8">
-        <div className="grid grid-cols-2 gap-4 text-sm">
-          <div>
-            <span className="text-slate-400">Model:</span>
-            <span className="ml-2 text-white">{safeMetadata.model}</span>
-          </div>
-          <div>
-            <span className="text-slate-400">Provider:</span>
-            <span className="ml-2 text-white">{safeMetadata.provider}</span>
-          </div>
-          <div>
-            <span className="text-slate-400">Generated:</span>
-            <span className="ml-2 text-white">
-              {new Date(safeMetadata.generated_at).toLocaleString()}
-            </span>
-          </div>
-          <div>
-            <span className="text-slate-400">Sections:</span>
-            <span className="ml-2 text-white">{sectionsCount}</span>
-          </div>
-          <div>
-            <span className="text-slate-400">Total Slides:</span>
-            <span className="ml-2 text-white">{slidesCount}</span>
-          </div>
-        </div>
-      </Card>
-
       {/* JSON Viewer Modal */}
-      <JsonViewerModal
-        isOpen={showJsonViewer}
-        onClose={() => setShowJsonViewer(false)}
-        exportData={exportData}
-        deckName={safeMetadata.company_name}
-        ticker={safeMetadata.ticker}
-        onDownload={handleExportJSON}
-        fallbackSections={safeSections}
-      />
+      {showJsonViewer && exportData && (
+        <JsonViewerModal
+          isOpen={showJsonViewer}
+          onClose={() => setShowJsonViewer(false)}
+          exportData={exportData}
+          deckName={safeMetadata.company_name}
+          ticker={safeMetadata.ticker}
+          onDownload={handleExportJSON}
+        />
+      )}
     </div>
   );
 }
@@ -405,23 +361,51 @@ function SectionCard({
   regenerating: boolean;
   onRegenerate: () => void;
 }) {
+  const needsVerification = section.slides?.some((s) =>
+    s.bullets?.some((b) => b.source_needed),
+  );
+
   return (
-    <Card padding="none">
+    <Card padding="none" className="overflow-hidden">
       {/* Section Header */}
       <button
         onClick={onToggle}
-        className="w-full flex items-center justify-between p-4 hover:bg-slate-800/50 transition-colors"
+        className="w-full flex items-center justify-between p-5 hover:bg-slate-800/50 transition-colors group"
       >
-        <div className="flex items-center gap-3">
-          {expanded ? (
-            <ChevronDown className="w-5 h-5 text-slate-400" />
-          ) : (
-            <ChevronRight className="w-5 h-5 text-slate-400" />
-          )}
-          <h3 className="text-lg font-medium text-white">
-            {section.section_name}
-          </h3>
-          <Badge variant="default">{section.slides.length} slides</Badge>
+        <div className="flex items-center gap-4">
+          <div
+            className={`p-2 rounded-lg transition-colors ${
+              expanded
+                ? "bg-blue-600/20"
+                : "bg-slate-700/50 group-hover:bg-slate-700"
+            }`}
+          >
+            {expanded ? (
+              <ChevronDown className="w-5 h-5 text-blue-400" />
+            ) : (
+              <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-slate-300" />
+            )}
+          </div>
+          <div className="text-left">
+            <h3 className="text-lg font-semibold text-white group-hover:text-blue-400 transition-colors">
+              {section.section_name}
+            </h3>
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-sm text-slate-400">
+                {section.slides.length}{" "}
+                {section.slides.length === 1 ? "slide" : "slides"}
+              </span>
+              {needsVerification && (
+                <>
+                  <span className="text-slate-600">•</span>
+                  <span className="flex items-center gap-1 text-xs text-yellow-500">
+                    <AlertTriangle className="w-3 h-3" />
+                    Needs verification
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
         </div>
         <Button
           variant="ghost"
@@ -431,47 +415,59 @@ function SectionCard({
             onRegenerate();
           }}
           disabled={regenerating}
+          className="opacity-0 group-hover:opacity-100 transition-opacity"
         >
           <RefreshCw
             className={`w-4 h-4 mr-2 ${regenerating ? "animate-spin" : ""}`}
           />
-          Regenerate
+          {regenerating ? "Regenerating..." : "Regenerate"}
         </Button>
       </button>
 
       {/* Section Content */}
       {expanded && (
-        <div className="border-t border-slate-800 p-4 space-y-6">
+        <div className="border-t border-slate-800">
           {regenerating ? (
-            <div className="flex items-center justify-center py-8">
-              <Spinner size="md" />
-              <span className="ml-3 text-slate-400">
-                Regenerating section...
+            <div className="flex flex-col items-center justify-center py-12 px-4">
+              <Spinner size="lg" />
+              <span className="mt-4 text-slate-400 text-sm">
+                Regenerating section with fresh content...
               </span>
             </div>
           ) : (
-            section.slides.map((slide, slideIndex) => (
-              <SlideContent key={slideIndex} slide={slide} index={slideIndex} />
-            ))
-          )}
+            <div className="p-5 space-y-5 bg-slate-900/30">
+              {section.slides.map((slide, slideIndex) => (
+                <SlideContent
+                  key={slideIndex}
+                  slide={slide}
+                  index={slideIndex}
+                />
+              ))}
 
-          {/* Citations */}
-          {section.citations && section.citations.length > 0 && (
-            <div className="border-t border-slate-800 pt-4">
-              <h5 className="text-sm font-medium text-slate-300 mb-2">
-                Citations
-              </h5>
-              <ul className="space-y-1">
-                {section.citations.map((citation, i) => (
-                  <li
-                    key={i}
-                    className="text-sm text-slate-400 flex items-start gap-2"
-                  >
-                    <ExternalLink className="w-3 h-3 mt-1 flex-shrink-0" />
-                    <span>{citation}</span>
-                  </li>
-                ))}
-              </ul>
+              {/* Citations */}
+              {section.citations && section.citations.length > 0 && (
+                <div className="border-t border-slate-800 pt-5 mt-5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <ExternalLink className="w-4 h-4 text-slate-400" />
+                    <h5 className="text-sm font-semibold text-slate-300">
+                      Sources & Citations
+                    </h5>
+                  </div>
+                  <ul className="space-y-2">
+                    {section.citations.map((citation, i) => (
+                      <li
+                        key={i}
+                        className="text-sm text-slate-400 flex items-start gap-2 pl-6"
+                      >
+                        <span className="text-blue-500 font-mono">
+                          [{i + 1}]
+                        </span>
+                        <span>{citation}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -482,25 +478,45 @@ function SectionCard({
 
 // Slide content component
 function SlideContent({ slide, index }: { slide: Slide; index: number }) {
+  const [notesExpanded, setNotesExpanded] = useState(false);
+
   return (
-    <div className="bg-slate-800/30 rounded-lg p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h4 className="font-medium text-white">{slide.title}</h4>
-        <span className="text-xs text-slate-500">Slide {index + 1}</span>
+    <div className="bg-slate-800/40 border border-slate-700/50 rounded-lg p-5 hover:border-slate-600/50 transition-colors">
+      <div className="flex items-start justify-between mb-4">
+        <h4 className="text-base font-semibold text-white flex-1">
+          {slide.title}
+        </h4>
+        <span className="text-xs font-mono text-slate-500 bg-slate-900/50 px-2 py-1 rounded">
+          #{index + 1}
+        </span>
       </div>
 
-      <ul className="space-y-2">
+      <ul className="space-y-2.5 mb-4">
         {slide.bullets.map((bullet, bulletIndex) => (
           <BulletItem key={bulletIndex} bullet={bullet} />
         ))}
       </ul>
 
       {slide.speaker_notes && (
-        <div className="mt-4 pt-3 border-t border-slate-700">
-          <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">
-            Speaker Notes
-          </p>
-          <p className="text-sm text-slate-400 italic">{slide.speaker_notes}</p>
+        <div className="mt-4 pt-4 border-t border-slate-700/50">
+          <button
+            onClick={() => setNotesExpanded(!notesExpanded)}
+            className="flex items-center gap-2 text-xs text-slate-400 hover:text-slate-300 transition-colors mb-2"
+          >
+            {notesExpanded ? (
+              <ChevronDown className="w-3 h-3" />
+            ) : (
+              <ChevronRight className="w-3 h-3" />
+            )}
+            <span className="uppercase tracking-wide font-medium">
+              Speaker Notes
+            </span>
+          </button>
+          {notesExpanded && (
+            <p className="text-sm text-slate-400 leading-relaxed pl-5">
+              {slide.speaker_notes}
+            </p>
+          )}
         </div>
       )}
     </div>
@@ -510,15 +526,17 @@ function SlideContent({ slide, index }: { slide: Slide; index: number }) {
 // Bullet point component
 function BulletItem({ bullet }: { bullet: BulletPoint }) {
   return (
-    <li className="flex items-start gap-2 text-slate-300">
-      <span className="text-blue-500 mt-1.5">•</span>
-      <span>{bullet.text}</span>
-      {bullet.source_needed && (
-        <span className="inline-flex items-center gap-1 text-yellow-500 text-xs">
-          <AlertTriangle className="w-3 h-3" />
-          <span>Needs verification</span>
-        </span>
-      )}
+    <li className="flex items-start gap-3 text-slate-200">
+      <span className="text-blue-400 mt-1.5 text-lg leading-none">•</span>
+      <div className="flex-1">
+        <span className="leading-relaxed">{bullet.text}</span>
+        {bullet.source_needed && (
+          <span className="inline-flex items-center gap-1.5 ml-2 text-yellow-500 text-xs bg-yellow-500/10 px-2 py-0.5 rounded">
+            <AlertTriangle className="w-3 h-3" />
+            Needs source
+          </span>
+        )}
+      </div>
     </li>
   );
 }
