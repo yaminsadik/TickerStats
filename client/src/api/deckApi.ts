@@ -95,6 +95,7 @@ export interface GenerateDeckRequest {
   provider?: 'openai' | 'gemini';
   reasoning_level?: 'low' | 'medium' | 'high';
   include_comps?: boolean;
+  comp_tickers?: string[];
 }
 
 // ----- API Calls -----

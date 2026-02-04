@@ -8,6 +8,7 @@ import {
   Loader2,
   AlertTriangle,
   RefreshCw,
+  Users,
 } from "lucide-react";
 import {
   Button,
@@ -18,6 +19,12 @@ import {
   Alert,
   Badge,
 } from "../components/ui";
+import { TickerInput } from "../components/TickerInput";
+import { RelativeTable } from "../components/RelativeTable";
+import { useRelativeTable } from "../hooks/useRelativeTable";
+import { SNAPSHOT_FIELDS } from "../types/api";
+import type { FetchRelativeParams } from "../api/client";
+import { useSignalSettings } from "../hooks/useSignalSettings";
 import {
   fetchSections,
   generateDeck,
@@ -37,10 +44,11 @@ import {
   type FundConstraints,
 } from "../stores/deckDraft";
 
-type WizardStep = "basics" | "sections" | "provider" | "generate" | "save";
+type WizardStep = "basics" | "comparables" | "sections" | "provider" | "generate" | "save";
 
 const STEPS: { id: WizardStep; label: string }[] = [
   { id: "basics", label: "Basics" },
+  { id: "comparables", label: "Comparables" },
   { id: "sections", label: "Sections" },
   { id: "provider", label: "Provider" },
   { id: "generate", label: "Generate" },
@@ -51,9 +59,10 @@ export default function DeckWizardPage() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Get pre-filled ticker from navigation state
-  const initialTicker =
-    (location.state as { ticker?: string } | null)?.ticker || "";
+  // Get pre-filled ticker and comparables from navigation state
+  const locationState = location.state as { ticker?: string; comparables?: string[] } | null;
+  const initialTicker = locationState?.ticker || "";
+  const initialComparables = locationState?.comparables || [];
 
   // Current step
   const [currentStep, setCurrentStep] = useState<WizardStep>("basics");
@@ -84,6 +93,17 @@ export default function DeckWizardPage() {
     provider: "openai",
     quality: "medium",
   });
+
+  // Comparable companies state
+  const [compTickers, setCompTickers] = useState<string[]>(initialComparables);
+  const [showCompsPreview, setShowCompsPreview] = useState(false);
+  const [compsShowPerf, setCompsShowPerf] = useState(false);
+  const [compsShowDcf, setCompsShowDcf] = useState(false);
+
+  // Preview query for comparables (only fetch when preview is requested)
+  const [previewParams, setPreviewParams] = useState<FetchRelativeParams | null>(null);
+  const { data: compsPreview, isLoading: compsLoading } = useRelativeTable(previewParams);
+  const { settings: signalSettings } = useSignalSettings();
 
   // Generated content
   const [generatedDeck, setGeneratedDeck] =
@@ -159,6 +179,9 @@ export default function DeckWizardPage() {
       case "basics":
         // Only ticker is required now - company name and sector auto-fetch from backend
         return basics.ticker.trim().length > 0;
+      case "comparables":
+        // Comparables are optional - always valid
+        return true;
       case "sections":
         return config.sections.length > 0;
       case "provider":
@@ -217,6 +240,7 @@ export default function DeckWizardPage() {
       provider: config.provider,
       reasoning_level: config.quality,
       include_comps: true,
+      ...(compTickers.length > 0 && { comp_tickers: compTickers }),
     });
   };
 
@@ -410,7 +434,125 @@ export default function DeckWizardPage() {
           </div>
         )}
 
-        {/* Step 2: Sections */}
+        {/* Step 2: Comparables */}
+        {currentStep === "comparables" && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-xl font-semibold text-white mb-2">
+                <Users className="w-6 h-6 inline mr-2" />
+                Comparable Companies
+              </h2>
+              <p className="text-slate-400">
+                Select peer companies for relative valuation analysis. Leave empty to use auto-selected defaults based on sector.
+              </p>
+            </div>
+
+            {/* Ticker Input */}
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-2">
+                Peer Company Tickers
+              </label>
+              <TickerInput
+                tickers={compTickers}
+                onTickersChange={setCompTickers}
+                disabled={false}
+              />
+              <p className="text-xs text-slate-500 mt-2">
+                Enter comparable company tickers (e.g., AAPL, MSFT, GOOGL, META, NVDA). Add as many peers as needed for comprehensive analysis.
+              </p>
+            </div>
+
+            {/* Preview Options */}
+            {compTickers.length > 0 && (
+              <div className="space-y-3">
+                <div className="flex items-center gap-4">
+                  <label className="flex items-center gap-2 text-sm text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={compsShowPerf}
+                      onChange={(e) => setCompsShowPerf(e.target.checked)}
+                      className="rounded border-slate-600 bg-slate-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-slate-900"
+                    />
+                    Show Performance
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={compsShowDcf}
+                      onChange={(e) => setCompsShowDcf(e.target.checked)}
+                      className="rounded border-slate-600 bg-slate-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-slate-900"
+                    />
+                    Show DCF
+                  </label>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    if (!showCompsPreview) {
+                      const params: FetchRelativeParams = {
+                        symbols: [basics.ticker, ...compTickers],
+                        fields: [...SNAPSHOT_FIELDS],
+                      };
+                      if (compsShowPerf) {
+                        params.perf = ["return", "volatility"];
+                        params.perfPeriod = "3mo";
+                      }
+                      if (compsShowDcf) {
+                        params.dcf = true;
+                      }
+                      setPreviewParams(params);
+                    }
+                    setShowCompsPreview(!showCompsPreview);
+                  }}
+                >
+                  {showCompsPreview ? "Hide" : "Show"} Preview
+                  <ChevronRight
+                    className={`w-4 h-4 ml-2 transition-transform ${
+                      showCompsPreview ? "rotate-90" : ""
+                    }`}
+                  />
+                </Button>
+              </div>
+            )}
+
+            {/* Preview Table */}
+            {showCompsPreview && compsPreview && (
+              <Card padding="none" className="overflow-hidden">
+                <div className="p-4 border-b border-slate-700">
+                  <h3 className="text-sm font-medium text-white">
+                    Comparison Preview
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    This is how your comparables will appear in the deck
+                  </p>
+                </div>
+                <RelativeTable
+                  data={compsPreview}
+                  visibleFields={[...SNAPSHOT_FIELDS]}
+                  visiblePerfMetrics={compsShowPerf ? ["return", "volatility"] : []}
+                  showPerf={compsShowPerf}
+                  showDcf={compsShowDcf}
+                  signalSettings={signalSettings}
+                />
+              </Card>
+            )}
+
+            {/* Loading State */}
+            {showCompsPreview && compsLoading && (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
+                <span className="ml-2 text-slate-400">Loading preview...</span>
+              </div>
+            )}
+
+            {/* Info Alert */}
+            <Alert variant="info" title="Auto-Selection">
+              If you don't specify comparables, the system will automatically select peer companies based on the sector.
+            </Alert>
+          </div>
+        )}
+
+        {/* Step 3: Sections */}
         {currentStep === "sections" && (
           <div className="space-y-6">
             <div>
@@ -489,7 +631,7 @@ export default function DeckWizardPage() {
           </div>
         )}
 
-        {/* Step 3: Provider */}
+        {/* Step 4: Provider */}
         {currentStep === "provider" && (
           <div className="space-y-6">
             <div>
@@ -539,7 +681,7 @@ export default function DeckWizardPage() {
           </div>
         )}
 
-        {/* Step 4: Generate */}
+        {/* Step 5: Generate */}
         {currentStep === "generate" && (
           <div className="space-y-6">
             <div>
@@ -619,7 +761,7 @@ export default function DeckWizardPage() {
             {generatedDeck && generatedDeck.metadata && (
               <Alert variant="success" title="Deck Generated Successfully!">
                 <p>
-                  Generated {generatedDeck.sections.length} sections for{" "}
+                  Generated {(generatedDeck.sections || generatedDeck.results)?.length || 0} sections for{" "}
                   {generatedDeck.metadata.company_name} (
                   {generatedDeck.metadata.ticker})
                 </p>
@@ -649,7 +791,7 @@ export default function DeckWizardPage() {
           </div>
         )}
 
-        {/* Step 5: Save */}
+        {/* Step 6: Save */}
         {currentStep === "save" && generatedDeck && generatedDeck.metadata && (
           <div className="space-y-6">
             <div>
@@ -673,7 +815,7 @@ export default function DeckWizardPage() {
                 <div>
                   <span className="text-slate-400">Sections:</span>
                   <span className="ml-2 text-white">
-                    {generatedDeck.sections.length}
+                    {(generatedDeck.sections || generatedDeck.results)?.length || 0}
                   </span>
                 </div>
                 <div>
@@ -705,7 +847,7 @@ export default function DeckWizardPage() {
                 Generated Sections:
               </h4>
               <div className="grid gap-2">
-                {generatedDeck.sections.map((section) => (
+                {(generatedDeck.sections || generatedDeck.results || []).map((section) => (
                   <div
                     key={section.section_id}
                     className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg"
@@ -742,7 +884,7 @@ export default function DeckWizardPage() {
           </Button>
         )}
 
-        {(currentStep === "sections" || currentStep === "provider") && (
+        {(currentStep === "comparables" || currentStep === "sections" || currentStep === "provider") && (
           <Button onClick={handleConfigNext} disabled={!isStepValid()}>
             Next
             <ChevronRight className="w-4 h-4 ml-2" />

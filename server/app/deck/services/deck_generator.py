@@ -134,6 +134,7 @@ class DeckGenerator:
                 comps_data = comps_service.get_comps_table(
                     ticker=request.ticker,
                     sector=request.sector,
+                    comp_tickers=getattr(request, 'comp_tickers', None),
                 )
                 comps_summary = comps_service.format_for_prompt(comps_data)
                 comps_concise = comps_service.format_for_prompt_concise(comps_data)
@@ -160,13 +161,15 @@ class DeckGenerator:
         # Generate constraints hash for caching
         constraints_hash = compute_constraints_hash(request.fund_constraints.model_dump())
         
-        # Generate each section
+        # Generate each section IN PARALLEL for significant speedup
         results = []
         errors = []
         
         model_used = provider.get_model(request.model)
         
-        for section_id in request.sections:
+        # Prepare generation tasks
+        def generate_section_task(section_id: str):
+            """Task wrapper for parallel execution"""
             try:
                 # Use detailed DCF summary for valuation section, concise for bull/bear
                 dcf_for_section = dcf_detailed if section_id == "valuation" else dcf_summary
@@ -189,11 +192,11 @@ class DeckGenerator:
                     model=model_used,
                     computed_inputs=comps_data,  # Pass computed data for numbers gate
                 )
-                results.append(result)
+                return ('success', section_id, result)
                 
             except LLMError as e:
                 logger.error(f"Failed to generate section {section_id}: {e}")
-                errors.append(GenerationError(
+                return ('error', section_id, GenerationError(
                     section_id=section_id,
                     error_type=type(e).__name__,
                     message=str(e),
@@ -201,12 +204,33 @@ class DeckGenerator:
                 ))
             except Exception as e:
                 logger.error(f"Unexpected error for section {section_id}: {e}", exc_info=True)
-                errors.append(GenerationError(
+                return ('error', section_id, GenerationError(
                     section_id=section_id,
                     error_type="UnexpectedError",
                     message=str(e),
                     retries_attempted=0,
                 ))
+        
+        # Execute sections in parallel (max 5 concurrent to avoid rate limits)
+        max_workers = min(5, len(request.sections))
+        logger.info(f"Generating {len(request.sections)} sections in parallel with {max_workers} workers")
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            future_to_section = {
+                executor.submit(generate_section_task, section_id): section_id
+                for section_id in request.sections
+            }
+            
+            # Collect results as they complete
+            for future in as_completed(future_to_section):
+                status, section_id, result = future.result()
+                if status == 'success':
+                    results.append(result)
+                    logger.info(f"✓ Section {section_id} completed")
+                else:
+                    errors.append(result)
+                    logger.warning(f"✗ Section {section_id} failed")
         
         total_time = time.time() - start_time
         logger.info(f"Deck generation complete", extra={
@@ -453,8 +477,13 @@ class DeckGenerator:
                 flags=flags,
             ))
         
+        # Get section name from metadata
+        section_metadata = SECTION_METADATA.get(section_id, {})
+        section_name = section_metadata.get("label", section_id)
+        
         return SectionResult(
             section_id=section_id,
+            section_name=section_name,
             slides=slides,
             needs_verification=content.get("needs_verification", False),
             verification_notes=content.get("verification_notes", []),

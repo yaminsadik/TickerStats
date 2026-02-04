@@ -42,11 +42,13 @@ server/
 ### Installation
 
 1. Navigate to the server directory:
+
    ```bash
    cd server
    ```
 
 2. Create a virtual environment:
+
    ```bash
    python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
@@ -79,8 +81,9 @@ curl http://localhost:8000/health
 ```
 
 Response:
+
 ```json
-{"status": "ok"}
+{ "status": "ok" }
 ```
 
 ### 2. Relative Table (Snapshot Only)
@@ -136,7 +139,7 @@ curl "http://localhost:8000/api/relative/export?symbols=AAPL,MSFT&perf=return,vo
     {
       "symbol": "AAPL",
       "snapshot": {
-        "sharePrice": 185.50,
+        "sharePrice": 185.5,
         "marketCap": 2900000000000,
         "forwardPE": 28.5
       },
@@ -154,29 +157,29 @@ curl "http://localhost:8000/api/relative/export?symbols=AAPL,MSFT&perf=return,vo
 
 ### Snapshot Fields
 
-| Field | Description | YFinance Key |
-|-------|-------------|--------------|
-| `sharePrice` | Current stock price | currentPrice / regularMarketPrice |
-| `marketCap` | Market capitalization | marketCap |
-| `enterpriseValue` | Enterprise value | enterpriseValue |
-| `forwardPE` | Forward P/E ratio | forwardPE |
-| `priceSales` | Price to sales ratio | priceToSalesTrailing12Months |
-| `priceBook` | Price to book ratio | priceToBook |
-| `evEbitda` | EV/EBITDA | enterpriseToEbitda |
-| `evRevenue` | EV/Revenue | enterpriseToRevenue |
-| `profitMargin` | Profit margin (decimal) | profitMargins |
-| `roa` | Return on assets (decimal) | returnOnAssets |
-| `roe` | Return on equity (decimal) | returnOnEquity |
-| `debtEquity` | Debt to equity ratio | debtToEquity |
-| `beta` | Beta | beta |
+| Field             | Description                | YFinance Key                      |
+| ----------------- | -------------------------- | --------------------------------- |
+| `sharePrice`      | Current stock price        | currentPrice / regularMarketPrice |
+| `marketCap`       | Market capitalization      | marketCap                         |
+| `enterpriseValue` | Enterprise value           | enterpriseValue                   |
+| `forwardPE`       | Forward P/E ratio          | forwardPE                         |
+| `priceSales`      | Price to sales ratio       | priceToSalesTrailing12Months      |
+| `priceBook`       | Price to book ratio        | priceToBook                       |
+| `evEbitda`        | EV/EBITDA                  | enterpriseToEbitda                |
+| `evRevenue`       | EV/Revenue                 | enterpriseToRevenue               |
+| `profitMargin`    | Profit margin (decimal)    | profitMargins                     |
+| `roa`             | Return on assets (decimal) | returnOnAssets                    |
+| `roe`             | Return on equity (decimal) | returnOnEquity                    |
+| `debtEquity`      | Debt to equity ratio       | debtToEquity                      |
+| `beta`            | Beta                       | beta                              |
 
 ### Performance Metrics
 
-| Metric | Description | Formula |
-|--------|-------------|---------|
-| `return` | Total return | (last_close / first_close) - 1 |
-| `volatility` | Annualized volatility | std(daily_returns) × √252 |
-| `maxDrawdown` | Maximum drawdown | min(close / cummax(close) - 1) |
+| Metric        | Description           | Formula                        |
+| ------------- | --------------------- | ------------------------------ |
+| `return`      | Total return          | (last_close / first_close) - 1 |
+| `volatility`  | Annualized volatility | std(daily_returns) × √252      |
+| `maxDrawdown` | Maximum drawdown      | min(close / cummax(close) - 1) |
 
 ### Performance Periods
 
@@ -184,10 +187,10 @@ curl "http://localhost:8000/api/relative/export?symbols=AAPL,MSFT&perf=return,vo
 
 ## Response Headers
 
-| Header | Description |
-|--------|-------------|
+| Header    | Description                                           |
+| --------- | ----------------------------------------------------- |
 | `X-Cache` | `HIT` if all data served from cache, `MISS` otherwise |
-| `X-AsOf` | ISO timestamp (CSV export only) |
+| `X-AsOf`  | ISO timestamp (CSV export only)                       |
 
 ## Error Handling
 
@@ -281,17 +284,17 @@ POST /api/v1/valuation/dcf
 
 ### DCF Data Sources
 
-| Input | yfinance Source | Fallback |
-|-------|----------------|----------|
-| Market Price | `info.currentPrice`, `history` | Manual override required |
-| Shares Outstanding | `info.sharesOutstanding` | Manual override required |
-| Cash | `balance_sheet`, `info.totalCash` | Manual override required |
-| Debt | `balance_sheet`, `info.totalDebt` | Manual override required |
-| FCF (base) | `cashflow`: Operating CF - CapEx | Manual override required |
+| Input              | yfinance Source                   | Fallback                 |
+| ------------------ | --------------------------------- | ------------------------ |
+| Market Price       | `info.currentPrice`, `history`    | Manual override required |
+| Shares Outstanding | `info.sharesOutstanding`          | Manual override required |
+| Cash               | `balance_sheet`, `info.totalCash` | Manual override required |
+| Debt               | `balance_sheet`, `info.totalDebt` | Manual override required |
+| FCF (base)         | `cashflow`: Operating CF - CapEx  | Manual override required |
 
 ### Manual Overrides
 
-If yfinance is missing data, the API will return an error with `sources` showing `"manual_required"`. 
+If yfinance is missing data, the API will return an error with `sources` showing `"manual_required"`.
 Provide manual values in the `overrides` field to proceed:
 
 ```json
@@ -302,7 +305,7 @@ Provide manual values in the `overrides` field to proceed:
     "cash": 500000000,
     "debt": 200000000,
     "fcf0": 50000000,
-    "marketPrice": 25.00
+    "marketPrice": 25.0
   }
 }
 ```

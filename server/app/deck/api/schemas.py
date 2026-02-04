@@ -196,6 +196,11 @@ class DeckGenerateRequest(BaseModel):
         default=False,
         description="Include comparables table from yfinance",
     )
+    comp_tickers: Optional[list[str]] = Field(
+        None,
+        description="Optional explicit list of comparable tickers (auto-selected by sector if not provided)",
+        max_length=50,
+    )
     include_dcf: bool = Field(
         default=True,
         description="Include DCF target price calculation (deterministic)",
@@ -340,6 +345,7 @@ class Slide(BaseModel):
 class SectionResult(BaseModel):
     """Result for a single deck section."""
     section_id: str = Field(..., description="Section identifier")
+    section_name: str = Field(..., description="Human-readable section name")
     slides: list[Slide] = Field(..., description="Generated slides")
     needs_verification: bool = Field(
         default=False,
