@@ -65,17 +65,17 @@ class GeminiProvider(LLMProvider):
         configs = {
             "low": {
                 "temperature": 1.0,  # Structured Outputs work best with temperature=1
-                "max_output_tokens": 4096,
+                "max_output_tokens": 8192,  # Increased from 4096 to avoid truncation
                 "model": self.DEFAULT_MODELS["low"],
             },
             "medium": {
                 "temperature": 1.0,
-                "max_output_tokens": 8192,
+                "max_output_tokens": 16384,  # Increased from 8192 to avoid truncation
                 "model": self.DEFAULT_MODELS["medium"],
             },
             "high": {
                 "temperature": 1.0,
-                "max_output_tokens": 16384,
+                "max_output_tokens": 32768,  # Increased from 16384 to avoid truncation
                 "model": self.DEFAULT_MODELS["high"],
             },
         }
@@ -206,7 +206,29 @@ class GeminiProvider(LLMProvider):
             if not response.candidates:
                 raise InvalidResponseError("No candidates in Gemini response")
             
-            raw_content = response.text
+            # Check finish reason before accessing text
+            candidate = response.candidates[0]
+            finish_reason = getattr(candidate, "finish_reason", None)
+            
+            # Handle problematic finish reasons
+            if finish_reason == 4:  # RECITATION (copyrighted material)
+                logger.warning(f"Gemini flagged content as copyrighted (finish_reason=4), attempting to extract partial response")
+                # Try to get partial content if available
+                if hasattr(candidate, "content") and hasattr(candidate.content, "parts") and candidate.content.parts:
+                    try:
+                        raw_content = candidate.content.parts[0].text
+                    except:
+                        raise InvalidResponseError("Gemini blocked response due to potential copyright material. Try regenerating with different parameters.")
+                else:
+                    raise InvalidResponseError("Gemini blocked response due to potential copyright material. Try regenerating with different parameters.")
+            elif finish_reason == 3:  # SAFETY
+                raise InvalidResponseError("Gemini blocked response due to safety filters")
+            elif finish_reason == 2:  # MAX_TOKENS
+                logger.warning(f"Gemini hit max_tokens limit, response may be incomplete")
+                raw_content = response.text
+            else:
+                # Normal completion (finish_reason == 1 or 0)
+                raw_content = response.text
             
             # Parse JSON (should never fail with Structured Outputs)
             try:
@@ -214,8 +236,17 @@ class GeminiProvider(LLMProvider):
             except json.JSONDecodeError as e:
                 # This should be extremely rare with Structured Outputs
                 logger.error(f"JSON parse error despite Structured Outputs: {e}")
+                logger.error(f"Raw content length: {len(raw_content)} chars, finish_reason: {finish_reason}")
+                logger.error(f"Raw content preview: {raw_content[:500]}")
+                
+                # Try sanitization
                 parsed_content = sanitize_llm_output(raw_content)
                 if parsed_content is None:
+                    # If finish_reason was MAX_TOKENS, give more context
+                    if finish_reason == 2:
+                        raise InvalidResponseError(
+                            f"Gemini hit token limit and produced incomplete JSON. Consider using 'high' reasoning level or reducing prompt length."
+                        )
                     raise InvalidResponseError(
                         f"Failed to parse JSON from Gemini response: {raw_content[:200]}"
                     )

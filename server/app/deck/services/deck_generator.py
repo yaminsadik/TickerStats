@@ -110,6 +110,7 @@ class DeckGenerator:
         logger.info(f"Starting deck generation", extra={
             "sections": request.sections,
             "include_comps": request.include_comps,
+            "include_dcf": getattr(request, 'include_dcf', True),
         })
         
         start_time = time.time()
@@ -127,6 +128,7 @@ class DeckGenerator:
         # Get comps data if requested
         comps_data = None
         comps_summary = None
+        comps_concise = None
         if request.include_comps:
             try:
                 comps_data = comps_service.get_comps_table(
@@ -134,8 +136,26 @@ class DeckGenerator:
                     sector=request.sector,
                 )
                 comps_summary = comps_service.format_for_prompt(comps_data)
+                comps_concise = comps_service.format_for_prompt_concise(comps_data)
             except Exception as e:
                 logger.warning(f"Failed to fetch comps: {e}")
+        
+        # Get DCF valuation if requested (default True)
+        dcf_data = None
+        dcf_summary = None
+        dcf_detailed = None
+        if getattr(request, 'include_dcf', True):
+            try:
+                from app.deck.services.dcf_calculator import calculate_dcf
+                dcf_result = calculate_dcf(ticker=request.ticker)
+                if not dcf_result.get("error"):
+                    dcf_data = dcf_result
+                    dcf_summary = self._format_dcf_for_prompt(dcf_result)
+                    dcf_detailed = self._format_dcf_detailed(dcf_result)
+                else:
+                    logger.warning(f"DCF calculation error: {dcf_result.get('error')}")
+            except Exception as e:
+                logger.warning(f"Failed to calculate DCF: {e}")
         
         # Generate constraints hash for caching
         constraints_hash = compute_constraints_hash(request.fund_constraints.model_dump())
@@ -148,6 +168,12 @@ class DeckGenerator:
         
         for section_id in request.sections:
             try:
+                # Use detailed DCF summary for valuation section, concise for bull/bear
+                dcf_for_section = dcf_detailed if section_id == "valuation" else dcf_summary
+                
+                # Use concise comps for bull/bear to avoid token bloat
+                comps_for_section = comps_concise if section_id in ["bull_case", "bear_case"] else comps_summary
+                
                 result = self._generate_section(
                     provider=provider,
                     section_id=section_id,
@@ -156,7 +182,8 @@ class DeckGenerator:
                     sector=request.sector,
                     fund_constraints=request.fund_constraints.model_dump(),
                     reasoning_level=request.reasoning_level.value,
-                    comps_summary=comps_summary,
+                    comps_summary=comps_for_section,
+                    dcf_summary=dcf_for_section,
                     requested_sections=request.sections,
                     constraints_hash=constraints_hash,
                     model=model_used,
@@ -210,6 +237,7 @@ class DeckGenerator:
             generated_at=datetime.utcnow().isoformat() + "Z",
             computed_inputs=ComputedInputs(
                 comps_table=comps_data if comps_data else None,
+                dcf_valuation=dcf_data if dcf_data else None,
             ),
             results=results,
             errors=errors,
@@ -249,6 +277,7 @@ class DeckGenerator:
         fund_constraints: dict,
         reasoning_level: str,
         comps_summary: Optional[str],
+        dcf_summary: Optional[str],
         requested_sections: list[str],
         constraints_hash: str,
         model: str,
@@ -266,6 +295,7 @@ class DeckGenerator:
             fund_constraints: Fund constraints dict
             reasoning_level: Reasoning intensity
             comps_summary: Optional comps data for prompt
+            dcf_summary: Optional DCF valuation summary for prompt
             requested_sections: All requested sections
             constraints_hash: Hash for caching
             model: Model name
@@ -291,6 +321,7 @@ class DeckGenerator:
             sector=sector,
             fund_constraints=fund_constraints,
             comps_summary=comps_summary,
+            dcf_summary=dcf_summary,
             requested_sections=requested_sections,
         )
         
@@ -463,6 +494,9 @@ class DeckGenerator:
             SectionId.HISTORY,
             SectionId.SWOT,
             SectionId.PORTERS_FIVE,
+            SectionId.BULL_CASE,
+            SectionId.BEAR_CASE,
+            SectionId.VALUATION,
             SectionId.REBUTTALS,
             SectionId.LAYOUT,
         ]
@@ -506,6 +540,7 @@ class DeckGenerator:
             "history": "Provides context on company evolution and key milestones",
             "swot": "Critical framework for evaluating investment merit and risks",
             "porters_five": f"Important for understanding {sector} competitive dynamics",
+            "valuation": "Quantitative DCF analysis with transparent methodology and assumptions",
             "rebuttals": "Prepares the team for tough questions during Q&A",
             "layout": "Provides presentation guidance and structure recommendations",
         }
@@ -517,6 +552,85 @@ class DeckGenerator:
             base += ". Especially important given conservative risk profile."
         
         return base
+    
+    def _format_dcf_for_prompt(self, dcf_data: dict) -> str:
+        """
+        Format DCF data for prompt (concise version for bull/bear sections).
+        
+        Args:
+            dcf_data: DCF data dictionary
+            
+        Returns:
+            Formatted string for prompt
+        """
+        val = dcf_data.get("valuation", {})
+        target = val.get("targetPrice")
+        upside = val.get("upsidePct")
+        
+        if target and upside is not None:
+            return f"DCF Target: ${target:.2f} ({upside:+.1f}% vs market)"
+        return ""
+    
+    def _format_dcf_detailed(self, dcf_data: dict) -> str:
+        """
+        Format DCF data with full details for valuation section.
+        
+        Args:
+            dcf_data: DCF data dictionary
+            
+        Returns:
+            Detailed formatted string with all DCF components
+        """
+        if not dcf_data:
+            return ""
+        
+        inputs = dcf_data.get("inputs", {})
+        val = dcf_data.get("valuation", {})
+        breakdown = dcf_data.get("breakdown", {})
+        sources = dcf_data.get("sources", {})
+        
+        lines = ["DCF CALCULATION BREAKDOWN:"]
+        
+        # Inputs
+        lines.append("\nINPUTS (sourced from yfinance):")
+        if "freeCashFlow" in inputs:
+            lines.append(f"  - Free Cash Flow: ${inputs['freeCashFlow']/1e9:.2f}B")
+        if "growthRate" in inputs:
+            lines.append(f"  - Growth Rate: {inputs['growthRate']*100:.1f}%")
+        if "discountRate" in inputs:
+            lines.append(f"  - Discount Rate (WACC): {inputs['discountRate']*100:.1f}%")
+        if "terminalGrowthRate" in inputs:
+            lines.append(f"  - Terminal Growth Rate: {inputs['terminalGrowthRate']*100:.1f}%")
+        
+        # Calculation steps
+        if breakdown:
+            lines.append("\nCALCULATION STEPS:")
+            if "forecastPeriodPV" in breakdown:
+                lines.append(f"  - Forecast Period PV: ${breakdown['forecastPeriodPV']/1e9:.2f}B")
+            if "terminalValue" in breakdown:
+                lines.append(f"  - Terminal Value: ${breakdown['terminalValue']/1e9:.2f}B")
+            if "enterpriseValue" in breakdown:
+                lines.append(f"  - Enterprise Value: ${breakdown['enterpriseValue']/1e9:.2f}B")
+            if "equityValue" in breakdown:
+                lines.append(f"  - Equity Value: ${breakdown['equityValue']/1e9:.2f}B")
+        
+        # Target price
+        lines.append("\nTARGET PRICE:")
+        if "currentPrice" in val:
+            lines.append(f"  - Current Price: ${val['currentPrice']:.2f}")
+        if "targetPrice" in val:
+            lines.append(f"  - DCF Target Price: ${val['targetPrice']:.2f}")
+        if "upsidePct" in val:
+            lines.append(f"  - Implied Upside: {val['upsidePct']:+.1f}%")
+        
+        # Sources
+        if sources:
+            lines.append("\nDATA SOURCES:")
+            for key, source in sources.items():
+                lines.append(f"  - {key}: {source}")
+        
+        return "\n".join(lines)
+    
 
 
 # Singleton generator instance

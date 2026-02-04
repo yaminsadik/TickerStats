@@ -265,7 +265,7 @@ class CompsService:
     
     def format_for_prompt(self, comps_data: dict) -> str:
         """
-        Format comps data for inclusion in LLM prompts.
+        Format comps data for inclusion in LLM prompts (detailed version).
         
         Args:
             comps_data: Comps table data from get_comps_table
@@ -304,6 +304,40 @@ class CompsService:
         lines.append("If you need to cite a specific metric, mark it with (source needed).")
         
         return "\n".join(lines)
+    
+    def format_for_prompt_concise(self, comps_data: dict) -> str:
+        """
+        Format comps data in concise form for bull/bear sections (to avoid token bloat).
+        
+        Args:
+            comps_data: Comps table data from get_comps_table
+            
+        Returns:
+            Brief formatted string with key metrics only
+        """
+        lines = []
+        
+        target = comps_data.get("target")
+        summary = comps_data.get("summary", {})
+        median = summary.get("median", {})
+        
+        # Just show key valuation metrics vs peers
+        if target and median:
+            target_snapshot = target.get("snapshot", {})
+            
+            # P/E comparison
+            target_pe = target_snapshot.get("trailingPE")
+            median_pe = median.get("trailingPE")
+            if target_pe and median_pe:
+                lines.append(f"P/E: {target_pe:.1f}x vs peer median {median_pe:.1f}x")
+            
+            # EV/EBITDA comparison
+            target_ev_ebitda = target_snapshot.get("enterpriseToEbitda")
+            median_ev_ebitda = median.get("enterpriseToEbitda")
+            if target_ev_ebitda and median_ev_ebitda:
+                lines.append(f"EV/EBITDA: {target_ev_ebitda:.1f}x vs peer median {median_ev_ebitda:.1f}x")
+        
+        return "Comps: " + ", ".join(lines) if lines else ""
     
     def _format_value(self, key: str, value: float) -> str:
         """Format a metric value for display."""

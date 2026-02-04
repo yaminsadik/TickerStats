@@ -140,9 +140,11 @@ def _register_blueprints(app: Flask) -> None:
     """Register all blueprints."""
     from app.deck.api.routes_deck import deck_bp
     from app.deck.api.routes_relative import relative_bp
+    from app.deck.api.routes_dcf import dcf_bp
     
     app.register_blueprint(deck_bp)
     app.register_blueprint(relative_bp)
+    app.register_blueprint(dcf_bp)
     
     # Root health check
     @app.route("/")
@@ -154,6 +156,7 @@ def _register_blueprints(app: Flask) -> None:
             "endpoints": {
                 "deck": "/api/v1/deck/*",
                 "relative": "/api/relative",
+                "dcf": "/api/v1/valuation/dcf",
             }
         })
     

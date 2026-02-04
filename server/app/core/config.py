@@ -3,7 +3,7 @@ Centralized configuration constants for the TicketStats API.
 """
 
 # Request limits
-MAX_SYMBOLS_PER_REQUEST = 30
+MAX_SYMBOLS_PER_REQUEST = 100  # Increased from 30 to support larger relative tables
 
 # Cache TTL in seconds
 CACHE_TTL_SECONDS = 120

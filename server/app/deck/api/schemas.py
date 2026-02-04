@@ -33,6 +33,10 @@ class SectionId(str, Enum):
     HISTORY = "history"
     SWOT = "swot"
     PORTERS_FIVE = "porters_five"
+    BULL_CASE = "bull_case"
+    BEAR_CASE = "bear_case"
+    RELATIVE_HEATMAP = "relative_heatmap"
+    VALUATION = "valuation"
     REBUTTALS = "rebuttals"
     LAYOUT = "layout"
 
@@ -70,6 +74,36 @@ SECTION_METADATA = {
         "description": "Category-level competitive analysis and rationale",
         "min_slides": 1,
         "max_slides": 2,
+    },
+    SectionId.BULL_CASE: {
+        "id": "bull_case",
+        "label": "Bull Case",
+        "description": "Upside scenario with growth catalysts, multiple expansion, and price target",
+        "min_slides": 2,
+        "max_slides": 3,
+    },
+    SectionId.BEAR_CASE: {
+        "id": "bear_case",
+        "label": "Bear Case",
+        "description": "Downside risks, margin compression scenarios, and bear price target",
+        "min_slides": 2,
+        "max_slides": 3,
+    },
+    SectionId.RELATIVE_HEATMAP: {
+        "id": "relative_heatmap",
+        "label": "Relative Valuation",
+        "description": "Comparative metrics table showing target vs peers across key fundamentals",
+        "min_slides": 1,
+        "max_slides": 1,
+        "requires_comps": True,
+    },
+    SectionId.VALUATION: {
+        "id": "valuation",
+        "label": "DCF Valuation",
+        "description": "Deterministic DCF target price calculation with full breakdown",
+        "min_slides": 1,
+        "max_slides": 2,
+        "requires_dcf": True,
     },
     SectionId.REBUTTALS: {
         "id": "rebuttals",
@@ -161,6 +195,10 @@ class DeckGenerateRequest(BaseModel):
     include_comps: bool = Field(
         default=False,
         description="Include comparables table from yfinance",
+    )
+    include_dcf: bool = Field(
+        default=True,
+        description="Include DCF target price calculation (deterministic)",
     )
 
     @field_validator("ticker", mode="before")
@@ -334,6 +372,10 @@ class ComputedInputs(BaseModel):
         None,
         description="Comparables table from yfinance",
     )
+    dcf_valuation: Optional[dict[str, Any]] = Field(
+        None,
+        description="DCF valuation breakdown (deterministic, from yfinance data)",
+    )
 
 
 class GenerationError(BaseModel):
@@ -478,5 +520,9 @@ def get_section_schema(section_id: str) -> dict:
         schema["properties"]["needs_verification"] = {"type": "boolean", "const": True}
     elif section_id == SectionId.REBUTTALS.value:
         schema["properties"]["slides"]["maxItems"] = 2
+    elif section_id == SectionId.BULL_CASE.value:
+        schema["properties"]["slides"]["maxItems"] = 3
+    elif section_id == SectionId.BEAR_CASE.value:
+        schema["properties"]["slides"]["maxItems"] = 3
     
     return schema

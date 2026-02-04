@@ -25,4 +25,4 @@ if __name__ == "__main__":
     print(f"   • Health: http://{host}:{port}/health")
     print(f"   • Debug: {debug}\n")
     
-    app.run(host=host, port=port, debug=debug)
+    app.run(host=host, port=port, debug=debug, threaded=True)

@@ -6,6 +6,7 @@ A production-lean FastAPI backend that powers a "relative table" for student inv
 
 - **Snapshot Metrics**: Fetch fundamentals/valuation metrics for multiple tickers
 - **Performance Metrics**: Compute timeframe-based performance (return, volatility, max drawdown)
+- **DCF Valuation**: Deterministic Discounted Cash Flow target price calculator
 - **Batch Processing**: Support for up to 30 tickers per request
 - **In-Memory Caching**: TTLCache with 120s TTL for both snapshot and performance data
 - **CSV Export**: Export table data to CSV format
@@ -202,6 +203,117 @@ Configuration constants are centralized in `app/core/config.py`:
 - `CACHE_TTL_SECONDS`: 120
 - `MAX_WORKERS`: 10 (ThreadPoolExecutor)
 - `FETCH_TIMEOUT_SECONDS`: 30
+
+## DCF Valuation API
+
+The DCF calculator provides deterministic target price calculations using ONLY yfinance-sourced data.
+
+### Endpoint
+
+```bash
+POST /api/v1/valuation/dcf
+```
+
+### Request Body
+
+```json
+{
+  "ticker": "AAPL",
+  "assumptions": {
+    "forecastYears": 5,
+    "fcfGrowthRate": 0.08,
+    "terminalGrowthRate": 0.025,
+    "wacc": 0.09
+  },
+  "overrides": {
+    "sharesOutstanding": null,
+    "cash": null,
+    "debt": null,
+    "fcf0": null,
+    "marketPrice": null
+  }
+}
+```
+
+### Response
+
+```json
+{
+  "meta": {
+    "ticker": "AAPL",
+    "asOf": "2026-02-03T...",
+    "currency": "USD",
+    "provider": "yfinance"
+  },
+  "inputs": {
+    "market_price": 185.50,
+    "shares_outstanding": 15500000000,
+    "cash": 62000000000,
+    "debt": 110000000000,
+    "fcf_0": 105000000000
+  },
+  "valuation": {
+    "targetPrice": 215.30,
+    "marketPrice": 185.50,
+    "upsidePct": 0.1606
+  },
+  "calculationBreakdown": {
+    "fcf0": 105000000000,
+    "fcfForecast": [
+      {"year": 1, "fcf": 113400000000, "pvFcf": 104036697...}
+    ],
+    "terminalValue": 2145678900000,
+    "pvTerminal": 1394567890000,
+    "enterpriseValue": 1800000000000,
+    "equityValue": 1752000000000,
+    "targetPrice": 215.30
+  },
+  "warnings": [],
+  "sources": {
+    "market_price": "yfinance:history/info.currentPrice",
+    "shares_outstanding": "yfinance:info.sharesOutstanding",
+    "cash": "yfinance:balance_sheet/info.totalCash",
+    "debt": "yfinance:balance_sheet/info.totalDebt",
+    "fcf_0": "yfinance:cashflow(operatingCashFlow - capitalExpenditures)"
+  }
+}
+```
+
+### DCF Data Sources
+
+| Input | yfinance Source | Fallback |
+|-------|----------------|----------|
+| Market Price | `info.currentPrice`, `history` | Manual override required |
+| Shares Outstanding | `info.sharesOutstanding` | Manual override required |
+| Cash | `balance_sheet`, `info.totalCash` | Manual override required |
+| Debt | `balance_sheet`, `info.totalDebt` | Manual override required |
+| FCF (base) | `cashflow`: Operating CF - CapEx | Manual override required |
+
+### Manual Overrides
+
+If yfinance is missing data, the API will return an error with `sources` showing `"manual_required"`. 
+Provide manual values in the `overrides` field to proceed:
+
+```json
+{
+  "ticker": "PRIVATE_CO",
+  "overrides": {
+    "sharesOutstanding": 100000000,
+    "cash": 500000000,
+    "debt": 200000000,
+    "fcf0": 50000000,
+    "marketPrice": 25.00
+  }
+}
+```
+
+### Get Inputs Without Calculation
+
+```bash
+GET /api/v1/valuation/dcf/inputs/AAPL
+```
+
+Returns available inputs and their sources without calculating valuation.
 
 ## License
 
