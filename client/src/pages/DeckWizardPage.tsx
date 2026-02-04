@@ -44,7 +44,13 @@ import {
   type FundConstraints,
 } from "../stores/deckDraft";
 
-type WizardStep = "basics" | "comparables" | "sections" | "provider" | "generate" | "save";
+type WizardStep =
+  | "basics"
+  | "comparables"
+  | "sections"
+  | "provider"
+  | "generate"
+  | "save";
 
 const STEPS: { id: WizardStep; label: string }[] = [
   { id: "basics", label: "Basics" },
@@ -60,7 +66,10 @@ export default function DeckWizardPage() {
   const location = useLocation();
 
   // Get pre-filled ticker and comparables from navigation state
-  const locationState = location.state as { ticker?: string; comparables?: string[] } | null;
+  const locationState = location.state as {
+    ticker?: string;
+    comparables?: string[];
+  } | null;
   const initialTicker = locationState?.ticker || "";
   const initialComparables = locationState?.comparables || [];
 
@@ -101,8 +110,10 @@ export default function DeckWizardPage() {
   const [compsShowDcf, setCompsShowDcf] = useState(false);
 
   // Preview query for comparables (only fetch when preview is requested)
-  const [previewParams, setPreviewParams] = useState<FetchRelativeParams | null>(null);
-  const { data: compsPreview, isLoading: compsLoading } = useRelativeTable(previewParams);
+  const [previewParams, setPreviewParams] =
+    useState<FetchRelativeParams | null>(null);
+  const { data: compsPreview, isLoading: compsLoading } =
+    useRelativeTable(previewParams);
   const { settings: signalSettings } = useSignalSettings();
 
   // Generated content
@@ -443,7 +454,8 @@ export default function DeckWizardPage() {
                 Comparable Companies
               </h2>
               <p className="text-slate-400">
-                Select peer companies for relative valuation analysis. Leave empty to use auto-selected defaults based on sector.
+                Select peer companies for relative valuation analysis. Leave
+                empty to use auto-selected defaults based on sector.
               </p>
             </div>
 
@@ -458,7 +470,8 @@ export default function DeckWizardPage() {
                 disabled={false}
               />
               <p className="text-xs text-slate-500 mt-2">
-                Enter comparable company tickers (e.g., AAPL, MSFT, GOOGL, META, NVDA). Add as many peers as needed for comprehensive analysis.
+                Enter comparable company tickers (e.g., AAPL, MSFT, GOOGL, META,
+                NVDA). Add as many peers as needed for comprehensive analysis.
               </p>
             </div>
 
@@ -529,7 +542,9 @@ export default function DeckWizardPage() {
                 <RelativeTable
                   data={compsPreview}
                   visibleFields={[...SNAPSHOT_FIELDS]}
-                  visiblePerfMetrics={compsShowPerf ? ["return", "volatility"] : []}
+                  visiblePerfMetrics={
+                    compsShowPerf ? ["return", "volatility"] : []
+                  }
                   showPerf={compsShowPerf}
                   showDcf={compsShowDcf}
                   signalSettings={signalSettings}
@@ -547,7 +562,8 @@ export default function DeckWizardPage() {
 
             {/* Info Alert */}
             <Alert variant="info" title="Auto-Selection">
-              If you don't specify comparables, the system will automatically select peer companies based on the sector.
+              If you don't specify comparables, the system will automatically
+              select peer companies based on the sector.
             </Alert>
           </div>
         )}
@@ -761,8 +777,10 @@ export default function DeckWizardPage() {
             {generatedDeck && generatedDeck.metadata && (
               <Alert variant="success" title="Deck Generated Successfully!">
                 <p>
-                  Generated {(generatedDeck.sections || generatedDeck.results)?.length || 0} sections for{" "}
-                  {generatedDeck.metadata.company_name} (
+                  Generated{" "}
+                  {(generatedDeck.sections || generatedDeck.results)?.length ||
+                    0}{" "}
+                  sections for {generatedDeck.metadata.company_name} (
                   {generatedDeck.metadata.ticker})
                 </p>
                 {generatedDeck.warnings &&
@@ -815,7 +833,8 @@ export default function DeckWizardPage() {
                 <div>
                   <span className="text-slate-400">Sections:</span>
                   <span className="ml-2 text-white">
-                    {(generatedDeck.sections || generatedDeck.results)?.length || 0}
+                    {(generatedDeck.sections || generatedDeck.results)
+                      ?.length || 0}
                   </span>
                 </div>
                 <div>
@@ -847,18 +866,20 @@ export default function DeckWizardPage() {
                 Generated Sections:
               </h4>
               <div className="grid gap-2">
-                {(generatedDeck.sections || generatedDeck.results || []).map((section) => (
-                  <div
-                    key={section.section_id}
-                    className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg"
-                  >
-                    <span className="text-white">{section.section_name}</span>
-                    <span className="text-slate-400 text-sm">
-                      {section.slides.length} slide
-                      {section.slides.length !== 1 ? "s" : ""}
-                    </span>
-                  </div>
-                ))}
+                {(generatedDeck.sections || generatedDeck.results || []).map(
+                  (section) => (
+                    <div
+                      key={section.section_id}
+                      className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg"
+                    >
+                      <span className="text-white">{section.section_name}</span>
+                      <span className="text-slate-400 text-sm">
+                        {section.slides.length} slide
+                        {section.slides.length !== 1 ? "s" : ""}
+                      </span>
+                    </div>
+                  ),
+                )}
               </div>
             </div>
           </div>
@@ -884,7 +905,9 @@ export default function DeckWizardPage() {
           </Button>
         )}
 
-        {(currentStep === "comparables" || currentStep === "sections" || currentStep === "provider") && (
+        {(currentStep === "comparables" ||
+          currentStep === "sections" ||
+          currentStep === "provider") && (
           <Button onClick={handleConfigNext} disabled={!isStepValid()}>
             Next
             <ChevronRight className="w-4 h-4 ml-2" />

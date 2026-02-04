@@ -1,5 +1,6 @@
 import { createBrowserRouter, Navigate } from "react-router-dom";
 import PageShell from "./components/layout/PageShell";
+import LandingPage from "./pages/LandingPage";
 import BrowsePage from "./pages/BrowsePage";
 import DeckWizardPage from "./pages/DeckWizardPage";
 import DeckDraftPage from "./pages/DeckDraftPage";
@@ -7,22 +8,42 @@ import DeckDraftPage from "./pages/DeckDraftPage";
 export const router = createBrowserRouter([
   {
     path: "/",
+    element: <LandingPage />,
+  },
+  {
+    path: "/app",
+    element: <PageShell />,
+    children: [
+      {
+        path: "deck",
+        element: <Navigate to="/deck/new" replace />,
+      },
+      {
+        path: "compare",
+        element: <Navigate to="/browse" replace />,
+      },
+    ],
+  },
+  {
+    path: "/browse",
     element: <PageShell />,
     children: [
       {
         index: true,
-        element: <Navigate to="/browse" replace />,
-      },
-      {
-        path: "browse",
         element: <BrowsePage />,
       },
+    ],
+  },
+  {
+    path: "/deck",
+    element: <PageShell />,
+    children: [
       {
-        path: "deck/new",
+        path: "new",
         element: <DeckWizardPage />,
       },
       {
-        path: "deck/:id",
+        path: ":id",
         element: <DeckDraftPage />,
       },
     ],

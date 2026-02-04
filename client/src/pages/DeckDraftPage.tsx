@@ -47,7 +47,9 @@ import {
 /**
  * Convert comps_table format to RelativeTableResponse format
  */
-function convertCompsToRelativeTable(compsTable: any): RelativeTableResponse | null {
+function convertCompsToRelativeTable(
+  compsTable: any,
+): RelativeTableResponse | null {
   if (!compsTable || !compsTable.target || !compsTable.comparables) {
     return null;
   }
@@ -98,7 +100,7 @@ function convertCompsToRelativeTable(compsTable: any): RelativeTableResponse | n
       beta: "number",
     },
     requested: {
-      symbols: rows.map(r => r.symbol),
+      symbols: rows.map((r) => r.symbol),
       fields: compsTable.metrics_included?.snapshot || [...SNAPSHOT_FIELDS],
       perf: null,
       dcf: false,
@@ -309,7 +311,8 @@ export default function DeckDraftPage() {
   }
 
   // Handle both 'sections' (legacy) and 'results' (current) field names
-  const { metadata, sections, warnings, results, computed_inputs } = draft.generatedContent;
+  const { metadata, sections, warnings, results, computed_inputs } =
+    draft.generatedContent;
   const actualSections = sections ?? results ?? [];
 
   const safeMetadata = metadata ?? {
@@ -404,7 +407,9 @@ export default function DeckDraftPage() {
             onToggle={() => toggleSection(section.section_id)}
             regenerating={regeneratingSection === section.section_id}
             onRegenerate={() => regenerateMutation.mutate(section.section_id)}
-            computedInputs={computed_inputs || draft?.generatedContent?.computed_inputs}
+            computedInputs={
+              computed_inputs || draft?.generatedContent?.computed_inputs
+            }
             signalSettings={signalSettings}
           />
         ))}
@@ -447,10 +452,14 @@ function SectionCard({
   const [showPerf, setShowPerf] = useState(false);
   const [showDcf, setShowDcf] = useState(false);
   const [perfPeriod, setPerfPeriod] = useState<PerfPeriod>("3mo");
-  const [selectedFields, setSelectedFields] = useState<string[]>([...SNAPSHOT_FIELDS]);
-  const [selectedPerfMetrics, setSelectedPerfMetrics] = useState<string[]>([...PERF_METRICS]);
+  const [selectedFields, setSelectedFields] = useState<string[]>([
+    ...SNAPSHOT_FIELDS,
+  ]);
+  const [selectedPerfMetrics, setSelectedPerfMetrics] = useState<string[]>([
+    ...PERF_METRICS,
+  ]);
   const [showColumnPicker, setShowColumnPicker] = useState(false);
-  
+
   // Signal settings with toggles
   const {
     settings: localSignalSettings,
@@ -460,7 +469,7 @@ function SectionCard({
     resetToDefaults: resetSignalSettings,
   } = useSignalSettings();
   const [showSignalConfig, setShowSignalConfig] = useState(false);
-  
+
   const needsVerification = section.slides?.some((s) =>
     s.bullets?.some((b) => b.source_needed),
   );
@@ -468,12 +477,13 @@ function SectionCard({
   // Check if this is the relative_heatmap section with comps data
   const isRelativeHeatmap = section.section_id === "relative_heatmap";
   const compsTableData = computedInputs?.comps_table;
-  
+
   // Get symbols from comps table
   const symbols = useMemo(() => {
     if (!compsTableData) return [];
     const tickers: string[] = [];
-    if (compsTableData.target?.ticker) tickers.push(compsTableData.target.ticker);
+    if (compsTableData.target?.ticker)
+      tickers.push(compsTableData.target.ticker);
     if (compsTableData.comparables) {
       compsTableData.comparables.forEach((comp: any) => {
         if (comp.ticker) tickers.push(comp.ticker);
@@ -481,34 +491,45 @@ function SectionCard({
     }
     return tickers;
   }, [compsTableData]);
-  
+
   // Build query params for live data fetching
   const queryParams = useMemo<FetchRelativeParams | null>(() => {
     if (!isRelativeHeatmap || symbols.length === 0) return null;
-    
+
     const params: FetchRelativeParams = {
       symbols,
       fields: selectedFields,
     };
-    
+
     if (showPerf && selectedPerfMetrics.length > 0) {
       params.perf = selectedPerfMetrics;
       params.perfPeriod = perfPeriod;
     }
-    
+
     if (showDcf) {
       params.dcf = true;
     }
-    
+
     return params;
-  }, [isRelativeHeatmap, symbols, selectedFields, showPerf, selectedPerfMetrics, perfPeriod, showDcf]);
-  
+  }, [
+    isRelativeHeatmap,
+    symbols,
+    selectedFields,
+    showPerf,
+    selectedPerfMetrics,
+    perfPeriod,
+    showDcf,
+  ]);
+
   // Fetch live data with performance/DCF when toggled
-  const { data: liveTableData, isLoading: isLoadingTable } = useRelativeTable(queryParams);
-  
+  const { data: liveTableData, isLoading: isLoadingTable } =
+    useRelativeTable(queryParams);
+
   // Use live data if available, otherwise fallback to static converted data
-  const relativeTableData = liveTableData || (compsTableData ? convertCompsToRelativeTable(compsTableData) : null);
-  
+  const relativeTableData =
+    liveTableData ||
+    (compsTableData ? convertCompsToRelativeTable(compsTableData) : null);
+
   // Debug logging
   if (isRelativeHeatmap) {
     console.log("🔍 Relative Heatmap Debug:", {
@@ -518,7 +539,7 @@ function SectionCard({
       hasRelativeTableData: !!relativeTableData,
       computedInputsKeys: computedInputs ? Object.keys(computedInputs) : [],
       compsTableData: compsTableData,
-      relativeTableData: relativeTableData
+      relativeTableData: relativeTableData,
     });
   }
 
@@ -603,7 +624,7 @@ function SectionCard({
 
               {/* Render comparison table for relative_heatmap section */}
               {isRelativeHeatmap && relativeTableData && (
-                <div className="mt-6">
+                <div className="mt-6 p-4 bg-slate-950 rounded-lg border border-slate-800">
                   <div className="flex items-center justify-between mb-3">
                     <div>
                       <h4 className="text-sm font-semibold text-slate-300">
@@ -622,9 +643,9 @@ function SectionCard({
                       />
                     </div>
                   </div>
-                  
+
                   {/* Table Controls */}
-                  <Card className="mb-3">
+                  <Card className="mb-3 bg-slate-900/50">
                     <div className="space-y-3">
                       <div className="flex flex-wrap items-center gap-4">
                         {/* Performance Toggle */}
@@ -635,14 +656,18 @@ function SectionCard({
                             onChange={(e) => setShowPerf(e.target.checked)}
                             className="w-4 h-4 rounded border-slate-600 text-blue-500 focus:ring-blue-500"
                           />
-                          <span className="text-sm text-slate-300">Performance</span>
+                          <span className="text-sm text-slate-300">
+                            Performance
+                          </span>
                         </label>
-                        
+
                         {/* Performance Period */}
                         {showPerf && (
                           <select
                             value={perfPeriod}
-                            onChange={(e) => setPerfPeriod(e.target.value as PerfPeriod)}
+                            onChange={(e) =>
+                              setPerfPeriod(e.target.value as PerfPeriod)
+                            }
                             className="text-sm bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
                           >
                             <option value="1mo">1 Month</option>
@@ -653,7 +678,7 @@ function SectionCard({
                             <option value="5y">5 Years</option>
                           </select>
                         )}
-                        
+
                         {/* DCF Toggle */}
                         <label className="flex items-center gap-2 cursor-pointer">
                           <input
@@ -662,18 +687,20 @@ function SectionCard({
                             onChange={(e) => setShowDcf(e.target.checked)}
                             className="w-4 h-4 rounded border-slate-600 text-blue-500 focus:ring-blue-500"
                           />
-                          <span className="text-sm text-slate-300">DCF Valuation</span>
+                          <span className="text-sm text-slate-300">
+                            DCF Valuation
+                          </span>
                         </label>
-                        
+
                         {/* Column Picker Toggle */}
                         <button
                           onClick={() => setShowColumnPicker(!showColumnPicker)}
                           className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-300 transition-colors"
                         >
                           <Settings className="w-4 h-4" />
-                          {showColumnPicker ? 'Hide' : 'Show'} Columns
+                          {showColumnPicker ? "Hide" : "Show"} Columns
                         </button>
-                        
+
                         {isLoadingTable && (
                           <span className="text-xs text-blue-400 flex items-center gap-1">
                             <Spinner size="sm" />
@@ -681,14 +708,17 @@ function SectionCard({
                           </span>
                         )}
                       </div>
-                      
+
                       {/* Help Text for Signals */}
                       <div className="text-xs text-slate-500 bg-slate-800/50 rounded p-2">
-                        💡 <strong>Signals</strong> highlight values based on comparison to peers (green = better, red = worse). 
-                        Toggle between <strong>Absolute</strong> (direct values) and <strong>Percentile</strong> (rank) modes using the dropdown above.
+                        💡 <strong>Signals</strong> highlight values based on
+                        comparison to peers (green = better, red = worse).
+                        Toggle between <strong>Absolute</strong> (direct values)
+                        and <strong>Percentile</strong> (rank) modes using the
+                        dropdown above.
                       </div>
                     </div>
-                    
+
                     {/* Column Picker */}
                     {showColumnPicker && (
                       <div className="mt-4 pt-4 border-t border-slate-800">
@@ -702,9 +732,9 @@ function SectionCard({
                       </div>
                     )}
                   </Card>
-                  
+
                   {/* Table */}
-                  <Card padding="none" className="overflow-hidden">
+                  <div className="rounded-lg overflow-hidden bg-slate-900 border border-slate-800">
                     <RelativeTable
                       data={relativeTableData}
                       visibleFields={selectedFields}
@@ -713,8 +743,8 @@ function SectionCard({
                       showDcf={showDcf}
                       signalSettings={localSignalSettings}
                     />
-                  </Card>
-                  
+                  </div>
+
                   {/* Signal Config Drawer */}
                   <SignalConfigDrawer
                     isOpen={showSignalConfig}

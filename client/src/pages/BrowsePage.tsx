@@ -1,6 +1,12 @@
 import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { FileText, ChevronRight, TrendingUp, Settings, HelpCircle } from "lucide-react";
+import {
+  FileText,
+  ChevronRight,
+  TrendingUp,
+  Settings,
+  HelpCircle,
+} from "lucide-react";
 import { TickerInput } from "../components/TickerInput";
 import { ColumnPicker } from "../components/ColumnPicker";
 import { Controls } from "../components/Controls";
@@ -19,10 +25,10 @@ export default function BrowsePage() {
 
   // Ticker input state
   const [tickers, setTickers] = useState<string[]>([]);
-  
+
   // Tickers selected for relative valuation heatmap
   const [selectedForHeatmap, setSelectedForHeatmap] = useState<string[]>([]);
-  
+
   // Heatmap customization options
   const [heatmapShowPerf, setHeatmapShowPerf] = useState(false);
   const [heatmapShowDcf, setHeatmapShowDcf] = useState(false);
@@ -115,23 +121,35 @@ export default function BrowsePage() {
         ticker || (tickers.length > 0 ? tickers[0] : undefined);
       if (selectedTicker) {
         // Pass ticker and only the selected comparables for heatmap
-        const comparables = selectedForHeatmap.filter(t => t !== selectedTicker);
-        navigate("/deck/new", { 
-          state: { 
+        const comparables = selectedForHeatmap.filter(
+          (t) => t !== selectedTicker,
+        );
+        navigate("/deck/new", {
+          state: {
             ticker: selectedTicker,
             comparables: comparables.length > 0 ? comparables : undefined,
-            heatmapConfig: selectedForHeatmap.length > 0 ? {
-              showPerf: heatmapShowPerf,
-              showDcf: heatmapShowDcf,
-              perfPeriod: heatmapPerfPeriod
-            } : undefined
-          } 
+            heatmapConfig:
+              selectedForHeatmap.length > 0
+                ? {
+                    showPerf: heatmapShowPerf,
+                    showDcf: heatmapShowDcf,
+                    perfPeriod: heatmapPerfPeriod,
+                  }
+                : undefined,
+          },
         });
       } else {
         navigate("/deck/new");
       }
     },
-    [navigate, tickers, selectedForHeatmap, heatmapShowPerf, heatmapShowDcf, heatmapPerfPeriod],
+    [
+      navigate,
+      tickers,
+      selectedForHeatmap,
+      heatmapShowPerf,
+      heatmapShowDcf,
+      heatmapPerfPeriod,
+    ],
   );
 
   return (
@@ -189,7 +207,7 @@ export default function BrowsePage() {
                   </button>
                 </div>
               </div>
-              
+
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
                 {tickers.map((ticker) => (
                   <label
@@ -201,9 +219,14 @@ export default function BrowsePage() {
                       checked={selectedForHeatmap.includes(ticker)}
                       onChange={(e) => {
                         if (e.target.checked) {
-                          setSelectedForHeatmap([...selectedForHeatmap, ticker]);
+                          setSelectedForHeatmap([
+                            ...selectedForHeatmap,
+                            ticker,
+                          ]);
                         } else {
-                          setSelectedForHeatmap(selectedForHeatmap.filter(t => t !== ticker));
+                          setSelectedForHeatmap(
+                            selectedForHeatmap.filter((t) => t !== ticker),
+                          );
                         }
                       }}
                       className="w-4 h-4 rounded border-slate-600 text-blue-500 focus:ring-blue-500 focus:ring-offset-slate-900"
@@ -212,7 +235,7 @@ export default function BrowsePage() {
                   </label>
                 ))}
               </div>
-              
+
               {/* Selected tickers display */}
               <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
                 <div className="flex items-start gap-2">
@@ -231,7 +254,8 @@ export default function BrowsePage() {
                       </button>
                     </div>
                     <p className="text-xs text-blue-300/70 mb-2">
-                      These tickers will be used in the comparative analysis section of your deck
+                      These tickers will be used in the comparative analysis
+                      section of your deck
                     </p>
                     {selectedForHeatmap.length > 0 ? (
                       <div className="flex flex-wrap gap-1.5 mb-3">
@@ -246,10 +270,11 @@ export default function BrowsePage() {
                       </div>
                     ) : (
                       <p className="text-xs text-slate-400 italic mb-3">
-                        No tickers selected yet. Select tickers above to include them in the heatmap.
+                        No tickers selected yet. Select tickers above to include
+                        them in the heatmap.
                       </p>
                     )}
-                    
+
                     {/* Heatmap Configuration Options */}
                     {showHeatmapConfig && selectedForHeatmap.length > 0 && (
                       <div className="mt-3 pt-3 border-t border-blue-500/20">
@@ -261,12 +286,16 @@ export default function BrowsePage() {
                                 <input
                                   type="checkbox"
                                   checked={heatmapShowPerf}
-                                  onChange={(e) => setHeatmapShowPerf(e.target.checked)}
+                                  onChange={(e) =>
+                                    setHeatmapShowPerf(e.target.checked)
+                                  }
                                   className="sr-only peer"
                                 />
                                 <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
                               </label>
-                              <span className="text-xs text-slate-300">Performance Metrics</span>
+                              <span className="text-xs text-slate-300">
+                                Performance Metrics
+                              </span>
                               <button
                                 className="text-slate-500 hover:text-slate-400"
                                 title="Include performance metrics like returns and volatility"
@@ -277,7 +306,11 @@ export default function BrowsePage() {
                             {heatmapShowPerf && (
                               <select
                                 value={heatmapPerfPeriod}
-                                onChange={(e) => setHeatmapPerfPeriod(e.target.value as PerfPeriod)}
+                                onChange={(e) =>
+                                  setHeatmapPerfPeriod(
+                                    e.target.value as PerfPeriod,
+                                  )
+                                }
                                 className="text-xs bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
                               >
                                 <option value="1mo">1 Month</option>
@@ -289,19 +322,23 @@ export default function BrowsePage() {
                               </select>
                             )}
                           </div>
-                          
+
                           {/* DCF Toggle */}
                           <div className="flex items-center gap-2">
                             <label className="relative inline-flex items-center cursor-pointer">
                               <input
                                 type="checkbox"
                                 checked={heatmapShowDcf}
-                                onChange={(e) => setHeatmapShowDcf(e.target.checked)}
+                                onChange={(e) =>
+                                  setHeatmapShowDcf(e.target.checked)
+                                }
                                 className="sr-only peer"
                               />
                               <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
                             </label>
-                            <span className="text-xs text-slate-300">DCF Valuation</span>
+                            <span className="text-xs text-slate-300">
+                              DCF Valuation
+                            </span>
                             <button
                               className="text-slate-500 hover:text-slate-400"
                               title="Include DCF-based target prices and valuations"
@@ -309,13 +346,15 @@ export default function BrowsePage() {
                               <HelpCircle className="w-3.5 h-3.5" />
                             </button>
                           </div>
-                          
+
                           {/* Help Text */}
                           <div className="flex items-start gap-2 pt-2 border-t border-blue-500/20">
                             <HelpCircle className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
                             <p className="text-xs text-blue-300/60">
-                              Configure which metrics to include in the relative valuation comparison table. 
-                              Performance shows historical returns, while DCF shows intrinsic value estimates.
+                              Configure which metrics to include in the relative
+                              valuation comparison table. Performance shows
+                              historical returns, while DCF shows intrinsic
+                              value estimates.
                             </p>
                           </div>
                         </div>
@@ -434,7 +473,7 @@ export default function BrowsePage() {
 
       {/* Table */}
       {data && (
-        <Card padding="none" className="overflow-hidden">
+        <div className="rounded-lg overflow-hidden bg-slate-900 border border-slate-800">
           <RelativeTable
             data={data}
             visibleFields={selectedFields}
@@ -466,7 +505,7 @@ export default function BrowsePage() {
               </div>
             </div>
           )}
-        </Card>
+        </div>
       )}
 
       {/* Signal Configuration Drawer */}

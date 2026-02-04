@@ -196,23 +196,25 @@ export function RelativeTable({
     if (!level) return "";
     switch (level) {
       case "good":
-        return "bg-emerald-50 border-l-2 border-l-emerald-400";
+        return "bg-emerald-900/30 border-l-2 border-l-emerald-500";
       case "warn":
-        return "bg-amber-50 border-l-2 border-l-amber-400";
+        return "bg-amber-900/30 border-l-2 border-l-amber-500";
       default:
         return "";
     }
   };
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+    <div className="bg-slate-900 border border-slate-800 rounded-lg shadow-sm overflow-hidden">
       {/* Header with timestamp */}
-      <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
-        <span className="text-xs text-gray-500">
+      <div className="px-4 py-2 bg-slate-800/50 border-b border-slate-800 flex items-center justify-between">
+        <span className="text-xs text-slate-400">
           Data as of:{" "}
-          <span className="font-medium">{formatTimestamp(data.asOf)}</span>
+          <span className="font-medium text-slate-300">
+            {formatTimestamp(data.asOf)}
+          </span>
         </span>
-        <span className="text-xs text-gray-500">
+        <span className="text-xs text-slate-400">
           {data.rows.length} ticker{data.rows.length !== 1 ? "s" : ""}
         </span>
       </div>
@@ -221,11 +223,11 @@ export function RelativeTable({
       <div className="overflow-auto max-h-[600px]">
         <table className="w-full text-sm">
           <thead className="sticky-header">
-            <tr className="bg-gray-50 border-b border-gray-200">
+            <tr className="bg-slate-800/50 border-b border-slate-700">
               {/* Symbol column - sticky */}
               <th
                 onClick={() => handleSort("symbol")}
-                className="sticky-col bg-gray-50 px-4 py-3 text-left font-semibold text-gray-900 cursor-pointer group border-r border-gray-200"
+                className="sticky-col bg-slate-800/50 px-4 py-3 text-left font-semibold text-slate-200 cursor-pointer group border-r border-slate-700"
               >
                 <div className="flex items-center gap-1">
                   Symbol
@@ -240,10 +242,10 @@ export function RelativeTable({
                   onClick={() => handleSort(col)}
                   className={`px-4 py-3 text-right font-semibold cursor-pointer group whitespace-nowrap ${
                     isDcfColumn(col)
-                      ? "text-purple-800 bg-purple-50"
+                      ? "text-purple-300 bg-purple-900/20"
                       : isFieldColumn(col)
-                        ? "text-gray-900"
-                        : "text-green-800 bg-green-50"
+                        ? "text-slate-200"
+                        : "text-green-300 bg-green-900/20"
                   }`}
                 >
                   <div className="flex items-center justify-end gap-1">
@@ -254,14 +256,14 @@ export function RelativeTable({
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className="divide-y divide-slate-800">
             {sortedRows.map((row) => (
               <tr
                 key={row.symbol}
-                className="hover:bg-gray-50 transition-colors"
+                className="hover:bg-slate-800/30 transition-colors"
               >
                 {/* Symbol cell - sticky */}
-                <td className="sticky-col bg-white px-4 py-3 font-medium text-gray-900 border-r border-gray-100">
+                <td className="sticky-col bg-slate-900 px-4 py-3 font-medium text-slate-200 border-r border-slate-800">
                   <div className="flex items-center gap-2">
                     {row.symbol}
                     {row.error && (
@@ -289,8 +291,8 @@ export function RelativeTable({
                   const dcfUpsideColor =
                     col === "dcfUpside" && value !== null
                       ? value >= 0
-                        ? "text-emerald-600 font-medium"
-                        : "text-red-600 font-medium"
+                        ? "text-emerald-400 font-medium"
+                        : "text-red-400 font-medium"
                       : "";
 
                   return (
@@ -298,11 +300,11 @@ export function RelativeTable({
                       key={col}
                       className={`px-4 py-3 text-right tabular-nums font-mono text-sm transition-colors ${
                         isDcf
-                          ? `text-purple-700 bg-purple-50/30 ${dcfUpsideColor}`
+                          ? `text-purple-300 bg-purple-900/10 ${dcfUpsideColor}`
                           : isFieldColumn(col)
-                            ? "text-gray-700"
-                            : "text-green-700 bg-green-50/30"
-                      } ${isMissing ? "text-gray-400" : ""} ${getSignalClass(signalLevel)}`}
+                            ? "text-slate-300"
+                            : "text-green-300 bg-green-900/10"
+                      } ${isMissing ? "text-slate-500" : ""} ${getSignalClass(signalLevel)}`}
                     >
                       {formatValue(value, unit, col)}
                     </td>
