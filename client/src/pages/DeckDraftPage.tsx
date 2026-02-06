@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
+import Breadcrumbs, { BreadcrumbItem } from "../components/Breadcrumbs";
 import {
   ArrowLeft,
   Download,
@@ -20,6 +21,7 @@ import {
   Alert,
   Spinner,
   JsonViewerModal,
+  SectionSkeleton,
   type DeckExportData,
 } from "../components/ui";
 import { RelativeTable } from "../components/RelativeTable";
@@ -271,8 +273,8 @@ export default function DeckDraftPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Spinner size="lg" />
+      <div className="max-w-6xl mx-auto pb-8">
+        <SectionSkeleton count={5} />
       </div>
     );
   }
@@ -332,6 +334,15 @@ export default function DeckDraftPage() {
 
   return (
     <div className="max-w-6xl mx-auto pb-8">
+      {/* Breadcrumbs */}
+      <Breadcrumbs>
+        <BreadcrumbItem href="/browse">Browse</BreadcrumbItem>
+        <BreadcrumbItem href="/deck/new">Generate Deck</BreadcrumbItem>
+        <BreadcrumbItem current>
+          {safeMetadata.company_name} ({safeMetadata.ticker})
+        </BreadcrumbItem>
+      </Breadcrumbs>
+
       {/* Success Banner */}
       <div className="bg-gradient-to-r from-emerald-600/20 to-blue-600/20 border border-emerald-500/30 rounded-lg p-6 mb-6">
         <div className="flex items-start gap-4">

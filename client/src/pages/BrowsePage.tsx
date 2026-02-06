@@ -16,7 +16,7 @@ import SignalConfigDrawer from "../components/SignalConfigDrawer";
 import { useRelativeTable } from "../hooks/useRelativeTable";
 import { useSignalSettings } from "../hooks/useSignalSettings";
 import { getExportUrl } from "../api/client";
-import { Button, Card, Alert } from "../components/ui";
+import { Button, Card, Alert, TableSkeleton } from "../components/ui";
 import { SNAPSHOT_FIELDS, PERF_METRICS, type PerfPeriod } from "../types/api";
 import type { FetchRelativeParams } from "../api/client";
 
@@ -167,10 +167,11 @@ export default function BrowsePage() {
             onClick={() => handleGenerateDeck()}
             size="lg"
             className="flex items-center gap-2"
+            aria-label="Generate pitch deck"
           >
-            <FileText className="w-5 h-5" />
+            <FileText className="w-5 h-5" aria-hidden="true" />
             Generate Deck
-            <ChevronRight className="w-4 h-4" />
+            <ChevronRight className="w-4 h-4" aria-hidden="true" />
           </Button>
         </div>
       </div>
@@ -388,9 +389,12 @@ export default function BrowsePage() {
         <button
           onClick={() => setShowColumnPicker(!showColumnPicker)}
           className="inline-flex items-center gap-2 text-sm font-medium text-slate-400 hover:text-white transition-colors"
+          aria-expanded={showColumnPicker}
+          aria-controls="column-picker"
         >
           <ChevronRight
             className={`w-4 h-4 transition-transform ${showColumnPicker ? "rotate-90" : ""}`}
+            aria-hidden="true"
           />
           {showColumnPicker ? "Hide" : "Show"} Column Settings
         </button>
@@ -406,7 +410,7 @@ export default function BrowsePage() {
 
       {/* Column Picker */}
       {showColumnPicker && (
-        <Card>
+        <Card id="column-picker" role="region" aria-label="Column settings">
           <ColumnPicker
             selectedFields={selectedFields}
             onFieldsChange={setSelectedFields}
@@ -419,55 +423,129 @@ export default function BrowsePage() {
 
       {/* Error State */}
       {error && (
-        <Alert variant="error" title="Error loading data">
-          {error instanceof Error ? error.message : "An error occurred"}
+        <Alert variant="error" title="Failed to Load Data">
+          <div className="space-y-3">
+            <p className="text-sm">
+              {error instanceof Error ? error.message : "An unexpected error occurred while fetching data."}
+              {" "}This might be due to invalid ticker symbols or network issues.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={handleCompare}
+                className="text-white"
+              >
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Retry
+              </Button>
+              <Button 
+                variant="ghost" 
+                size="sm"
+                onClick={() => {
+                  setTickers([]);
+                  setQueryParams(null);
+                }}
+              >
+                Clear All Tickers
+              </Button>
+            </div>
+            <p className="text-xs text-slate-400">
+              Need help?{" "}
+              <a href="/contact" className="text-blue-400 hover:underline">
+                Contact support
+              </a>
+            </p>
+          </div>
         </Alert>
       )}
 
       {/* Loading State */}
       {(isLoading || isFetching) && !data && (
-        <div className="flex items-center justify-center py-12">
-          <div className="flex items-center gap-3 text-slate-400">
-            <svg
-              className="w-6 h-6 animate-spin"
-              fill="none"
-              viewBox="0 0 24 24"
-            >
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="4"
-              />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-              />
-            </svg>
-            <span>Fetching data...</span>
-          </div>
-        </div>
+        <Card>
+          <TableSkeleton rows={5} cols={selectedFields.length + 1} />
+        </Card>
       )}
 
       {/* Empty State */}
       {!data && !isLoading && !error && (
-        <Card className="text-center py-16">
-          <div className="w-16 h-16 mx-auto mb-4 bg-slate-800 rounded-full flex items-center justify-center">
-            <TrendingUp className="w-8 h-8 text-slate-500" />
+        <Card className="text-center py-16 px-6">
+          <div className="w-24 h-24 mx-auto mb-6 bg-slate-800 rounded-full flex items-center justify-center">
+            <TrendingUp className="w-12 h-12 text-slate-500" />
           </div>
-          <h3 className="text-lg font-medium text-white mb-1">
-            No data to display
+          <h3 className="text-2xl font-bold text-white mb-2">
+            Start Your Analysis
           </h3>
-          <p className="text-slate-400 mb-6">
-            Enter some tickers above and click Compare to see the relative
-            table.
+          <p className="text-slate-400 mb-8 max-w-md mx-auto">
+            Compare stocks side-by-side with real-time market data and fundamental metrics.
+            Enter tickers above to get started.
           </p>
-          <Button variant="outline" onClick={() => handleGenerateDeck()}>
-            Or generate a pitch deck
-          </Button>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center mb-8">
+            <Button 
+              variant="primary" 
+              size="lg"
+              onClick={() => {
+                // Add example tickers
+                const exampleTickers = ['AAPL', 'MSFT', 'GOOGL', 'META', 'NVDA'];
+                setTickers(exampleTickers);
+                // Trigger comparison
+                setTimeout(() => {
+                  const params: FetchRelativeParams = {
+                    symbols: exampleTickers,
+                    fields: selectedFields,
+                  };
+                  if (showPerf && selectedPerfMetrics.length > 0) {
+                    params.perf = selectedPerfMetrics;
+                    params.perfPeriod = perfPeriod;
+                  }
+                  if (showDcf) {
+                    params.dcf = true;
+                  }
+                  setQueryParams(params);
+                }, 100);
+              }}
+            >
+              <TrendingUp className="w-5 h-5 mr-2" />
+              Try Example: Tech Giants
+            </Button>
+            <Button 
+              variant="outline" 
+              size="lg"
+              onClick={() => handleGenerateDeck()}
+            >
+              <FileText className="w-5 h-5 mr-2" />
+              Generate Pitch Deck
+            </Button>
+          </div>
+          <div className="text-sm text-slate-500">
+            <p className="mb-2">💡 <strong>Popular searches:</strong></p>
+            <div className="flex flex-wrap gap-2 justify-center">
+              <button
+                onClick={() => setTickers(['AAPL', 'MSFT', 'GOOGL', 'META', 'NVDA'])}
+                className="px-3 py-1 bg-slate-800 hover:bg-slate-700 rounded-full text-xs text-slate-300 transition-colors"
+              >
+                FAANG
+              </button>
+              <button
+                onClick={() => setTickers(['JPM', 'BAC', 'WFC', 'C', 'GS'])}
+                className="px-3 py-1 bg-slate-800 hover:bg-slate-700 rounded-full text-xs text-slate-300 transition-colors"
+              >
+                Big Banks
+              </button>
+              <button
+                onClick={() => setTickers(['JNJ', 'PFE', 'UNH', 'ABBV', 'TMO'])}
+                className="px-3 py-1 bg-slate-800 hover:bg-slate-700 rounded-full text-xs text-slate-300 transition-colors"
+              >
+                Healthcare
+              </button>
+              <button
+                onClick={() => setTickers(['XOM', 'CVX', 'COP', 'SLB', 'EOG'])}
+                className="px-3 py-1 bg-slate-800 hover:bg-slate-700 rounded-full text-xs text-slate-300 transition-colors"
+              >
+                Energy
+              </button>
+            </div>
+          </div>
         </Card>
       )}
 

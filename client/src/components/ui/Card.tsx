@@ -5,12 +5,18 @@ interface CardProps {
   children: ReactNode;
   className?: string;
   padding?: "none" | "sm" | "md" | "lg";
+  elevation?: "flat" | "raised" | "floating";
+  interactive?: boolean;
+  onClick?: () => void;
 }
 
 export default function Card({
   children,
   className,
   padding = "md",
+  elevation = "flat",
+  interactive = false,
+  onClick,
 }: CardProps) {
   const paddingStyles = {
     none: "",
@@ -19,13 +25,38 @@ export default function Card({
     lg: "p-8",
   };
 
+  const elevationStyles = {
+    flat: "border border-slate-800",
+    raised: "border border-slate-800 shadow-md",
+    floating: "border border-slate-700 shadow-xl shadow-black/20",
+  };
+
+  const interactiveStyles = interactive
+    ? "cursor-pointer hover:border-slate-700 hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200"
+    : "";
+
   return (
     <div
       className={cn(
-        "bg-slate-900 border border-slate-800 rounded-xl",
+        "bg-slate-900 rounded-xl",
         paddingStyles[padding],
+        elevationStyles[elevation],
+        interactiveStyles,
         className,
       )}
+      onClick={onClick}
+      role={interactive ? "button" : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      onKeyDown={
+        interactive
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onClick?.();
+              }
+            }
+          : undefined
+      }
     >
       {children}
     </div>

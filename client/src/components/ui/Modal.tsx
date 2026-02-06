@@ -43,13 +43,52 @@ export default function Modal({
       document.addEventListener("keydown", handleKeyDown);
       document.body.style.overflow = "hidden";
 
-      // Focus the modal
+      // Focus trap
+      const handleTabKey = (e: KeyboardEvent) => {
+        if (e.key !== "Tab" || !modalRef.current) return;
+
+        const focusableElements = modalRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]):not([disabled])'
+        );
+
+        const firstElement = focusableElements[0];
+        const lastElement = focusableElements[focusableElements.length - 1];
+
+        if (!firstElement) return;
+
+        if (e.shiftKey) {
+          // Shift + Tab
+          if (document.activeElement === firstElement) {
+            e.preventDefault();
+            lastElement?.focus();
+          }
+        } else {
+          // Tab
+          if (document.activeElement === lastElement) {
+            e.preventDefault();
+            firstElement?.focus();
+          }
+        }
+      };
+
+      document.addEventListener("keydown", handleTabKey);
+
+      // Focus the first focusable element
       setTimeout(() => {
-        modalRef.current?.focus();
-      }, 0);
+        const focusableElements = modalRef.current?.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]):not([disabled])'
+        );
+        const firstElement = focusableElements?.[0];
+        if (firstElement) {
+          firstElement.focus();
+        } else {
+          modalRef.current?.focus();
+        }
+      }, 100);
 
       return () => {
         document.removeEventListener("keydown", handleKeyDown);
+        document.removeEventListener("keydown", handleTabKey);
         document.body.style.overflow = "";
         // Restore focus
         if (previousActiveElement.current instanceof HTMLElement) {

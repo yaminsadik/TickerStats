@@ -8,4 +8,5 @@ export { default as Spinner, LoadingOverlay } from './Spinner';
 export { default as Alert } from './Alert';
 export { default as Modal } from './Modal';
 export { default as JsonViewerModal } from './JsonViewerModal';
+export { default as Skeleton, TableSkeleton, CardSkeleton, SectionSkeleton } from './Skeleton';
 export type { DeckExportData } from './JsonViewerModal';

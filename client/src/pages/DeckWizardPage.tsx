@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import Breadcrumbs, { BreadcrumbItem } from "../components/Breadcrumbs";
 import {
   Check,
   ChevronLeft,
@@ -18,6 +19,7 @@ import {
   Select,
   Alert,
   Badge,
+  CardSkeleton,
 } from "../components/ui";
 import { TickerInput } from "../components/TickerInput";
 import { RelativeTable } from "../components/RelativeTable";
@@ -274,16 +276,53 @@ export default function DeckWizardPage() {
 
   return (
     <div className="max-w-3xl mx-auto">
-      {/* Progress Steps */}
-      <nav className="mb-8">
+      {/* Breadcrumbs */}
+      <Breadcrumbs>
+        <BreadcrumbItem href="/browse">Browse</BreadcrumbItem>
+        <BreadcrumbItem current>Generate Deck</BreadcrumbItem>
+      </Breadcrumbs>
+
+      {/* Mobile Step Indicator */}
+      <div className="md:hidden mb-6">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm font-medium text-slate-400">
+            Step {currentStepIndex + 1} of {STEPS.length}
+          </span>
+          <span className="text-sm font-medium text-white">
+            {STEPS[currentStepIndex].label}
+          </span>
+        </div>
+        <div className="w-full bg-slate-800 rounded-full h-2">
+          <div
+            className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+            style={{ width: `${((currentStepIndex + 1) / STEPS.length) * 100}%` }}
+            role="progressbar"
+            aria-valuenow={currentStepIndex + 1}
+            aria-valuemin={1}
+            aria-valuemax={STEPS.length}
+            aria-label={`Step ${currentStepIndex + 1} of ${STEPS.length}`}
+          />
+        </div>
+      </div>
+
+      {/* Desktop Progress Steps */}
+      <nav className="mb-8 hidden md:block" aria-label="Progress">
         <ol className="flex items-center justify-between">
           {STEPS.map((step, index) => {
             const isActive = step.id === currentStep;
             const isCompleted = index < currentStepIndex;
+            const isClickable = isCompleted;
 
             return (
               <li key={step.id} className="flex items-center">
-                <div className="flex flex-col items-center">
+                <button
+                  onClick={() => isClickable && setCurrentStep(step.id)}
+                  disabled={!isClickable}
+                  className={`flex flex-col items-center ${
+                    isClickable ? "cursor-pointer hover:opacity-80" : "cursor-default"
+                  } transition-opacity`}
+                  aria-label={`${step.label} - ${isCompleted ? "Completed" : isActive ? "Current" : "Upcoming"}`}
+                >
                   <div
                     className={`w-10 h-10 rounded-full flex items-center justify-center border-2 transition-colors ${
                       isCompleted
@@ -292,6 +331,7 @@ export default function DeckWizardPage() {
                           ? "border-blue-500 text-blue-500 bg-slate-900"
                           : "border-slate-700 text-slate-500 bg-slate-900"
                     }`}
+                    aria-current={isActive ? "step" : undefined}
                   >
                     {isCompleted ? <Check className="w-5 h-5" /> : index + 1}
                   </div>
@@ -302,13 +342,14 @@ export default function DeckWizardPage() {
                   >
                     {step.label}
                   </span>
-                </div>
+                </button>
                 {index < STEPS.length - 1 && (
                   <div
                     className={`w-full h-0.5 mx-2 ${
                       isCompleted ? "bg-blue-600" : "bg-slate-700"
                     }`}
                     style={{ minWidth: "40px" }}
+                    aria-hidden="true"
                   />
                 )}
               </li>
@@ -581,17 +622,35 @@ export default function DeckWizardPage() {
             </div>
 
             {sectionsLoading && (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
-                <span className="ml-2 text-slate-400">Loading sections...</span>
-              </div>
+              <CardSkeleton count={6} />
             )}
 
             {sectionsError && (
-              <Alert variant="error" title="Failed to load sections">
-                {sectionsError instanceof Error
-                  ? sectionsError.message
-                  : "Unable to fetch available sections"}
+              <Alert variant="error" title="Failed to Load Sections">
+                <div className="space-y-3">
+                  <p className="text-sm">
+                    {sectionsError instanceof Error
+                      ? sectionsError.message
+                      : "Unable to fetch available sections. This might be a temporary network issue."}
+                  </p>
+                  <div className="flex gap-2">
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => window.location.reload()}
+                      className="text-white"
+                    >
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Reload Page
+                    </Button>
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    If the problem persists, please{" "}
+                    <a href="/contact" className="text-blue-400 hover:underline">
+                      contact support
+                    </a>
+                  </p>
+                </div>
               </Alert>
             )}
 
@@ -759,16 +818,34 @@ export default function DeckWizardPage() {
             {/* Error State */}
             {generateMutation.isError && (
               <Alert variant="error" title="Generation Failed">
-                <div className="space-y-2">
-                  <p>
+                <div className="space-y-3">
+                  <p className="text-sm">
                     {generateMutation.error instanceof Error
                       ? generateMutation.error.message
-                      : "An error occurred during generation"}
+                      : "An unexpected error occurred during deck generation."}
+                    {" "}This could be due to API limits or connectivity issues.
                   </p>
-                  <Button variant="outline" size="sm" onClick={handleGenerate}>
-                    <RefreshCw className="w-4 h-4 mr-2" />
-                    Retry
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={handleGenerate}
+                      className="text-white"
+                    >
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Retry Generation
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="sm"
+                      onClick={goBack}
+                    >
+                      Go Back
+                    </Button>
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    💡 <strong>Tip:</strong> Try reducing the number of sections or changing the AI provider
+                  </p>
                 </div>
               </Alert>
             )}
@@ -887,7 +964,7 @@ export default function DeckWizardPage() {
       </Card>
 
       {/* Navigation Buttons */}
-      <div className="flex justify-between">
+      <div className="flex justify-between items-center">
         <Button
           variant="outline"
           onClick={goBack}
@@ -897,6 +974,24 @@ export default function DeckWizardPage() {
           <ChevronLeft className="w-4 h-4 mr-2" />
           Back
         </Button>
+
+        {/* Save Draft button - only show during active editing steps */}
+        {(currentStep === "basics" ||
+          currentStep === "comparables" ||
+          currentStep === "sections" ||
+          currentStep === "provider") &&
+          draft && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                // Save current progress to localStorage (already handled by draft store)
+                alert("Draft saved! You can return to this draft later.");
+              }}
+            >
+              Save Draft
+            </Button>
+          )}
 
         {currentStep === "basics" && (
           <Button onClick={handleBasicsNext} disabled={!isStepValid()}>

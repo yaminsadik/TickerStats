@@ -1,4 +1,4 @@
-import { useState, Fragment } from "react";
+import { useState, Fragment, useEffect, useRef } from "react";
 import type { SignalSettings, SignalRule } from "../types/signals";
 import { METRIC_CATEGORIES, DEFAULT_SIGNAL_RULES } from "../types/signals";
 
@@ -122,6 +122,69 @@ export default function SignalConfigDrawer({
   const [expandedCategory, setExpandedCategory] = useState<string | null>(
     "valuation",
   );
+  const drawerRef = useRef<HTMLDivElement>(null);
+  const previousActiveElement = useRef<Element | null>(null);
+
+  // Focus trap and keyboard handling
+  useEffect(() => {
+    if (isOpen) {
+      previousActiveElement.current = document.activeElement;
+      document.body.style.overflow = "hidden";
+
+      // Handle escape key
+      const handleEscape = (e: KeyboardEvent) => {
+        if (e.key === "Escape") {
+          onClose();
+        }
+      };
+
+      // Handle tab key for focus trap
+      const handleTab = (e: KeyboardEvent) => {
+        if (e.key !== "Tab" || !drawerRef.current) return;
+
+        const focusableElements = drawerRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]):not([disabled])'
+        );
+
+        const firstElement = focusableElements[0];
+        const lastElement = focusableElements[focusableElements.length - 1];
+
+        if (!firstElement) return;
+
+        if (e.shiftKey) {
+          if (document.activeElement === firstElement) {
+            e.preventDefault();
+            lastElement?.focus();
+          }
+        } else {
+          if (document.activeElement === lastElement) {
+            e.preventDefault();
+            firstElement?.focus();
+          }
+        }
+      };
+
+      document.addEventListener("keydown", handleEscape);
+      document.addEventListener("keydown", handleTab);
+
+      // Focus first element
+      setTimeout(() => {
+        const focusableElements = drawerRef.current?.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled])'
+        );
+        focusableElements?.[0]?.focus();
+      }, 100);
+
+      return () => {
+        document.removeEventListener("keydown", handleEscape);
+        document.removeEventListener("keydown", handleTab);
+        document.body.style.overflow = "";
+        if (previousActiveElement.current instanceof HTMLElement) {
+          previousActiveElement.current.focus();
+        }
+      };
+    }
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -134,11 +197,17 @@ export default function SignalConfigDrawer({
       />
 
       {/* Drawer */}
-      <div className="fixed right-0 top-0 h-full w-full max-w-md bg-slate-900 shadow-xl z-50 flex flex-col">
+      <div
+        ref={drawerRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="drawer-title"
+        className="fixed right-0 top-0 h-full w-full max-w-md bg-slate-900 shadow-xl z-50 flex flex-col"
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800">
           <div>
-            <h2 className="text-lg font-semibold text-white">
+            <h2 id="drawer-title" className="text-lg font-semibold text-white">
               Signal Configuration
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
@@ -152,6 +221,7 @@ export default function SignalConfigDrawer({
           <button
             onClick={onClose}
             className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"
+            aria-label="Close drawer"
           >
             <svg
               className="w-5 h-5"
