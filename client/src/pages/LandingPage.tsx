@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth0 } from "@auth0/auth0-react";
 import {
   ChevronDown,
   CheckCircle,
@@ -13,8 +14,23 @@ import {
 
 export default function LandingPage() {
   const navigate = useNavigate();
+  const { isAuthenticated, loginWithRedirect } = useAuth0();
   const [activeSection, setActiveSection] = useState("");
   const [isNavSticky, setIsNavSticky] = useState(false);
+
+  // Handle navigation - check auth first
+  const handleNavigate = (path: string, isSignup = false) => {
+    if (isAuthenticated) {
+      navigate(path);
+    } else {
+      loginWithRedirect({
+        authorizationParams: isSignup ? { screen_hint: "signup" } : {},
+        appState: {
+          returnTo: path,
+        },
+      });
+    }
+  };
 
   useEffect(() => {
     const handleScroll = () => {
@@ -80,10 +96,15 @@ export default function LandingPage() {
               </button>
             </div>
             <button
-              onClick={() => navigate("/deck/new")}
+              onClick={() =>
+                loginWithRedirect({
+                  authorizationParams: { screen_hint: "signup" },
+                  appState: { returnTo: "/app/deck" },
+                })
+              }
               className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg font-medium transition-colors text-sm"
             >
-              Generate a deck
+              Sign up
             </button>
           </div>
         </div>
@@ -104,14 +125,19 @@ export default function LandingPage() {
               </p>
               <div className="flex flex-wrap gap-4 mb-8">
                 <button
-                  onClick={() => navigate("/deck/new")}
+                  onClick={() =>
+                    loginWithRedirect({
+                      authorizationParams: { screen_hint: "signup" },
+                      appState: { returnTo: "/app/deck" },
+                    })
+                  }
                   className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-lg font-semibold transition-colors flex items-center gap-2"
                 >
                   Generate a deck
                   <FileText className="w-5 h-5" />
                 </button>
                 <button
-                  onClick={() => navigate("/browse")}
+                  onClick={() => handleNavigate("/browse", true)}
                   className="bg-slate-800 hover:bg-slate-700 text-white px-8 py-4 rounded-lg font-semibold transition-colors"
                 >
                   Try the comp table
@@ -350,7 +376,12 @@ export default function LandingPage() {
               period="forever"
               features={["3 decks/month", "Fast mode", "Basic comparisons"]}
               cta="Get Started"
-              onClick={() => navigate("/deck/new")}
+              onClick={() =>
+                loginWithRedirect({
+                  authorizationParams: { screen_hint: "signup" },
+                  appState: { returnTo: "/app/deck" },
+                })
+              }
             />
             <PricingCard
               name="Pro"
@@ -363,7 +394,12 @@ export default function LandingPage() {
                 "Balanced + Deep modes",
               ]}
               cta="Start Pro"
-              onClick={() => navigate("/deck/new")}
+              onClick={() =>
+                loginWithRedirect({
+                  authorizationParams: { screen_hint: "signup" },
+                  appState: { returnTo: "/app/deck", plan: "pro" },
+                })
+              }
               highlighted
             />
             <PricingCard
@@ -377,7 +413,12 @@ export default function LandingPage() {
                 "Priority support",
               ]}
               cta="Contact Sales"
-              onClick={() => navigate("/deck/new")}
+              onClick={() =>
+                loginWithRedirect({
+                  authorizationParams: { screen_hint: "signup" },
+                  appState: { returnTo: "/app/deck", plan: "team" },
+                })
+              }
             />
           </div>
           <p className="text-xs text-slate-500 mt-8 text-center">

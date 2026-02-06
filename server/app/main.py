@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
+from app.api.routes_user import router as user_router
 from app.core.config import API_VERSION
 
 # Configure logging
@@ -50,5 +51,6 @@ app.add_middleware(
 
 # Include routes
 app.include_router(router)
+app.include_router(user_router)  # User-specific routes (protected)
 
 logger.info(f"TicketStats API v{API_VERSION} initialized")

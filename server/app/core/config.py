@@ -1,6 +1,45 @@
 """
 Centralized configuration constants for the TicketStats API.
 """
+import os
+from pydantic_settings import BaseSettings
+
+
+class Settings(BaseSettings):
+    """Application settings loaded from environment variables."""
+    
+    # Database
+    DATABASE_URL: str = os.getenv(
+        "DATABASE_URL", 
+        "postgresql://ticketstats:ticketstats@localhost:5432/ticketstats"
+    )
+    ASYNC_DATABASE_URL: str = os.getenv(
+        "ASYNC_DATABASE_URL",
+        "postgresql+asyncpg://ticketstats:ticketstats@localhost:5432/ticketstats"
+    )
+    
+    # Auth0
+    AUTH0_DOMAIN: str = os.getenv("AUTH0_DOMAIN", "")
+    AUTH0_API_AUDIENCE: str = os.getenv("AUTH0_API_AUDIENCE", "")
+    AUTH0_ALGORITHMS: list[str] = ["RS256"]
+    AUTH0_ISSUER: str = ""  # Will be set in __init__
+    
+    # Application
+    DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"
+    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
+    
+    class Config:
+        env_file = ".env"
+        case_sensitive = True
+        extra = "ignore"  # Ignore extra fields in .env file
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if self.AUTH0_DOMAIN:
+            self.AUTH0_ISSUER = f"https://{self.AUTH0_DOMAIN}/"
+
+
+settings = Settings()
 
 # Request limits
 MAX_SYMBOLS_PER_REQUEST = 100  # Increased from 30 to support larger relative tables
