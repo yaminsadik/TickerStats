@@ -20,6 +20,26 @@ class Provider(str, Enum):
     GEMINI = "gemini"
 
 
+class PlanTier(str, Enum):
+    """Subscription plan tiers."""
+    FREE = "free"
+    PRO = "pro"
+    ENTERPRISE = "enterprise"
+
+
+class ModelMode(str, Enum):
+    """Model selection mode."""
+    AUTO = "auto"
+    SPECIFIC = "specific"
+
+
+class AnalysisDepth(str, Enum):
+    """High-level depth setting (maps to reasoning level)."""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
 class ReasoningLevel(str, Enum):
     """Reasoning intensity levels for LLM generation."""
     LOW = "low"
@@ -178,6 +198,18 @@ class DeckGenerateRequest(BaseModel):
         ...,
         description="List of section IDs to generate",
         min_length=1,
+    )
+    plan_tier: Optional[PlanTier] = Field(
+        None,
+        description="Plan tier (free/pro/enterprise). Server may override.",
+    )
+    model_mode: Optional[ModelMode] = Field(
+        None,
+        description="Model selection mode (auto or specific).",
+    )
+    analysis_depth: Optional[AnalysisDepth] = Field(
+        None,
+        description="High-level depth setting (low/medium/high).",
     )
     provider: Provider = Field(
         ...,
@@ -396,6 +428,9 @@ class DeckGenerateResponse(BaseModel):
     """Response schema for POST /api/v1/deck/generate."""
     ticker: str
     company_name: str = Field(..., description="Company name for the ticker")
+    plan_tier: Optional[PlanTier] = None
+    model_mode: Optional[ModelMode] = None
+    analysis_depth: Optional[AnalysisDepth] = None
     provider_used: ProviderInfo
     generated_at: str = Field(
         default_factory=lambda: datetime.utcnow().isoformat() + "Z",

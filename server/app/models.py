@@ -15,6 +15,24 @@ class User(Base):
     auth0_user_id = Column(String(255), primary_key=True, index=True)  # e.g., "auth0|123456"
     email = Column(String(255), unique=True, nullable=True, index=True)
     name = Column(String(255), nullable=True)
+    picture = Column(Text, nullable=True)  # Avatar URL from Auth0
+
+    # Subscription
+    subscription_tier = Column(String(20), nullable=False, default="free")  # "free", "pro", "enterprise"
+    stripe_customer_id = Column(String(255), nullable=True, unique=True)
+    stripe_subscription_id = Column(String(255), nullable=True)
+    subscription_expires_at = Column(DateTime, nullable=True)
+
+    # Admin flag
+    is_admin = Column(Boolean, nullable=False, default=False)
+
+    # Monthly usage limits
+    usage_month_start = Column(DateTime, nullable=True)
+    deck_count_month = Column(Integer, nullable=False, default=0)
+    compare_count_month = Column(Integer, nullable=False, default=0)
+    last_compare_hash = Column(String(64), nullable=True)
+    last_compare_at = Column(DateTime, nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -22,6 +40,17 @@ class User(Base):
     watchlists = relationship("Watchlist", back_populates="user", cascade="all, delete-orphan")
     saved_analyses = relationship("SavedAnalysis", back_populates="user", cascade="all, delete-orphan")
     decks = relationship("Deck", back_populates="user", cascade="all, delete-orphan")
+
+    @property
+    def is_paid(self) -> bool:
+        """Check if user has an active paid subscription."""
+        if not self.subscription_tier or self.subscription_tier == "free":
+            return False
+        if self.subscription_tier not in {"pro", "enterprise"}:
+            return False
+        if self.subscription_expires_at and self.subscription_expires_at < datetime.utcnow():
+            return False
+        return True
 
 
 class Watchlist(Base):

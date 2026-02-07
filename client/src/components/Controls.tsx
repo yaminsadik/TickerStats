@@ -17,6 +17,8 @@ interface ControlsProps {
   isLoading: boolean;
   canCompare: boolean;
   canExport: boolean;
+  /** When true, export is disabled with a "Pro" upgrade badge */
+  exportLocked?: boolean;
 }
 
 export function Controls({
@@ -31,6 +33,7 @@ export function Controls({
   isLoading,
   canCompare,
   canExport,
+  exportLocked = false,
 }: ControlsProps) {
   const [showDcfExplainer, setShowDcfExplainer] = useState(false);
   const [showPerfExplainer, setShowPerfExplainer] = useState(false);
@@ -40,13 +43,17 @@ export function Controls({
   // Close export menu on outside click
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+      if (
+        exportMenuRef.current &&
+        !exportMenuRef.current.contains(e.target as Node)
+      ) {
         setShowExportMenu(false);
       }
     };
     if (showExportMenu) {
       document.addEventListener("mousedown", handleClickOutside);
-      return () => document.removeEventListener("mousedown", handleClickOutside);
+      return () =>
+        document.removeEventListener("mousedown", handleClickOutside);
     }
   }, [showExportMenu]);
 
@@ -143,8 +150,9 @@ export function Controls({
         {/* Export Dropdown */}
         <div className="relative" ref={exportMenuRef}>
           <button
-            onClick={() => setShowExportMenu((prev) => !prev)}
-            disabled={!canExport}
+            onClick={() => !exportLocked && setShowExportMenu((prev) => !prev)}
+            disabled={!canExport || exportLocked}
+            title={exportLocked ? "Upgrade to Pro to export data" : undefined}
             className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             <svg
@@ -161,17 +169,34 @@ export function Controls({
               />
             </svg>
             Export
-            <svg className="w-3 h-3 ml-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
+            {exportLocked && (
+              <span className="ml-1 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide bg-amber-500 text-white rounded">
+                Pro
+              </span>
+            )}
+            {!exportLocked && (
+              <svg
+                className="w-3 h-3 ml-0.5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M19 9l-7 7-7-7"
+                />
+              </svg>
+            )}
           </button>
-          {showExportMenu && (
+          {showExportMenu && !exportLocked && (
             <div className="absolute right-0 mt-1 w-40 bg-white border border-gray-200 rounded-lg shadow-lg z-20 py-1">
-              {([
+              {[
                 { format: "csv" as const, label: "CSV (.csv)" },
                 { format: "xlsx" as const, label: "Excel (.xlsx)" },
                 { format: "pdf" as const, label: "PDF (.pdf)" },
-              ]).map(({ format, label }) => (
+              ].map(({ format, label }) => (
                 <button
                   key={format}
                   onClick={() => {

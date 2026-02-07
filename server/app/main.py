@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.wsgi import WSGIMiddleware
 
 from app.api.routes import router
-from app.api.routes_user import router as user_router
+from app.api.routes_user import router as user_router, admin_router
 from app.core.config import API_VERSION
 
 # Configure logging
@@ -67,6 +67,7 @@ app.add_middleware(
 # Include FastAPI routers
 app.include_router(router)
 app.include_router(user_router)  # User-specific routes (protected)
+app.include_router(admin_router)  # Admin-only routes
 
 # Mount Flask (deck generation + legacy relative API) under root
 # Flask handles /api/v1/deck/*, /api/v1/valuation/*, /api/v1/sections, /health

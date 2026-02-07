@@ -57,6 +57,9 @@ export interface DeckMetadata {
 export interface GenerateDeckResponse {
   ticker: string;
   company_name: string;
+  plan_tier?: 'free' | 'pro' | 'enterprise';
+  model_mode?: 'auto' | 'specific';
+  analysis_depth?: 'low' | 'medium' | 'high';
   generated_at: string;
   provider_used: {
     provider: string;
@@ -93,6 +96,9 @@ export interface GenerateDeckRequest {
   };
   sections?: string[];
   provider?: 'openai' | 'gemini';
+  plan_tier?: 'free' | 'pro' | 'enterprise';
+  model_mode?: 'auto' | 'specific';
+  analysis_depth?: 'low' | 'medium' | 'high';
   reasoning_level?: 'low' | 'medium' | 'high';
   include_comps?: boolean;
   comp_tickers?: string[];
@@ -114,6 +120,20 @@ export async function fetchSections(): Promise<Section[]> {
  */
 export async function generateDeck(request: GenerateDeckRequest): Promise<GenerateDeckResponse> {
   const response = await fetch(`${API_BASE}/api/v1/deck/generate`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(request),
+  });
+  return handleResponse<GenerateDeckResponse>(response);
+}
+
+export async function generateDeckAuthed(
+  authFetch: (url: string, options?: RequestInit) => Promise<Response>,
+  request: GenerateDeckRequest
+): Promise<GenerateDeckResponse> {
+  const response = await authFetch(`${API_BASE}/api/v1/deck/generate`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

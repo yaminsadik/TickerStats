@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import {
   BarChart3,
@@ -10,6 +10,9 @@ import {
   Star,
   Search,
   FileText,
+  ChevronDown,
+  Shield,
+  Settings,
 } from "lucide-react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { Button } from "../ui/Button";
@@ -18,6 +21,7 @@ export default function TopNav() {
   const location = useLocation();
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [avatarFailed, setAvatarFailed] = useState(false);
 
   // Make Auth0 optional - gracefully handle if not configured
   let isAuthenticated = false;
@@ -39,6 +43,33 @@ export default function TopNav() {
   }
 
   const closeMobileMenu = () => setMobileMenuOpen(false);
+
+  const displayName = user?.name || user?.email || "Account";
+  const initials =
+    displayName
+      .split(" ")
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part: string) => part[0]?.toUpperCase())
+      .join("") || "U";
+
+  // Profile dropdown state
+  const [profileOpen, setProfileOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      ) {
+        setProfileOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   return (
     <nav className="bg-slate-900 border-b border-slate-800">
@@ -128,27 +159,59 @@ export default function TopNav() {
             {!isLoading && (
               <>
                 {isAuthenticated ? (
-                  <>
-                    <div className="flex items-center space-x-2 text-slate-300">
-                      <User className="w-4 h-4" />
-                      <span className="text-sm">
-                        {user?.name || user?.email}
-                      </span>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        logout({
-                          logoutParams: { returnTo: window.location.origin },
-                        })
-                      }
-                      aria-label="Log out"
+                  <div className="relative" ref={dropdownRef}>
+                    <button
+                      onClick={() => setProfileOpen(!profileOpen)}
+                      className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-800 transition-colors"
                     >
-                      <LogOut className="w-4 h-4 mr-2" />
-                      Logout
-                    </Button>
-                  </>
+                      {user?.picture && !avatarFailed ? (
+                        <img
+                          src={user.picture}
+                          alt=""
+                          className="w-7 h-7 rounded-full border border-slate-600"
+                          onError={() => setAvatarFailed(true)}
+                        />
+                      ) : (
+                        <div className="w-7 h-7 rounded-full bg-slate-700 flex items-center justify-center">
+                          <span className="text-xs font-semibold text-slate-200">
+                            {initials}
+                          </span>
+                        </div>
+                      )}
+                      <span className="text-sm text-slate-300 max-w-[120px] truncate">
+                        {displayName}
+                      </span>
+                      <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                    </button>
+
+                    {/* Dropdown menu */}
+                    {profileOpen && (
+                      <div className="absolute right-0 mt-1 w-48 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50 py-1">
+                        <Link
+                          to="/profile"
+                          onClick={() => setProfileOpen(false)}
+                          className="flex items-center gap-2 px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 transition-colors"
+                        >
+                          <Settings className="w-4 h-4" />
+                          Profile
+                        </Link>
+                        <button
+                          onClick={() => {
+                            setProfileOpen(false);
+                            logout({
+                              logoutParams: {
+                                returnTo: window.location.origin,
+                              },
+                            });
+                          }}
+                          className="flex items-center gap-2 px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 transition-colors w-full text-left"
+                        >
+                          <LogOut className="w-4 h-4" />
+                          Logout
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   <>
                     <Button
@@ -285,12 +348,29 @@ export default function TopNav() {
                 <>
                   {isAuthenticated ? (
                     <>
-                      <div className="flex items-center space-x-3 px-3 py-2">
-                        <User className="w-5 h-5 text-slate-400" />
+                      <Link
+                        to="/profile"
+                        onClick={closeMobileMenu}
+                        className="flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-slate-800 transition-colors"
+                      >
+                        {user?.picture && !avatarFailed ? (
+                          <img
+                            src={user.picture}
+                            alt=""
+                            className="w-8 h-8 rounded-full border border-slate-600"
+                            onError={() => setAvatarFailed(true)}
+                          />
+                        ) : (
+                          <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center">
+                            <span className="text-xs font-semibold text-slate-200">
+                              {initials}
+                            </span>
+                          </div>
+                        )}
                         <span className="text-sm text-slate-300">
-                          {user?.name || user?.email}
+                          {displayName}
                         </span>
-                      </div>
+                      </Link>
                       <Button
                         variant="outline"
                         className="w-full justify-center"

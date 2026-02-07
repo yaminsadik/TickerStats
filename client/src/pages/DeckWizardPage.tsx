@@ -28,10 +28,11 @@ import { SNAPSHOT_FIELDS } from "../types/api";
 import type { FetchRelativeParams } from "../api/client";
 import { useSignalSettings } from "../hooks/useSignalSettings";
 import { useAuthenticatedFetch } from "../hooks/useAuthenticatedApi";
+import { useUserProfile } from "../hooks/useUserProfile";
 import { createDeckInDB } from "../api/userApi";
 import {
   fetchSections,
-  generateDeck,
+  generateDeckAuthed,
   type Section,
   type GenerateDeckResponse,
 } from "../api/deckApi";
@@ -69,6 +70,8 @@ export default function DeckWizardPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { authenticatedFetch } = useAuthenticatedFetch();
+  const { tier, deckCount, deckLimit } = useUserProfile();
+  const atDeckLimit = deckLimit !== null && deckCount >= deckLimit;
 
   // Get pre-filled ticker and comparables from navigation state
   const locationState = location.state as {
@@ -124,6 +127,7 @@ export default function DeckWizardPage() {
   // Generated content
   const [generatedDeck, setGeneratedDeck] =
     useState<GenerateDeckResponse | null>(null);
+  const [limitError, setLimitError] = useState<string | null>(null);
 
   // Fetch sections
   const {
@@ -148,7 +152,7 @@ export default function DeckWizardPage() {
 
   // Generate deck mutation
   const generateMutation = useMutation({
-    mutationFn: generateDeck,
+    mutationFn: (payload) => generateDeckAuthed(authenticatedFetch, payload),
     onMutate: () => {
       if (draft) {
         markDraftGenerating(draft.id);
@@ -257,6 +261,13 @@ export default function DeckWizardPage() {
 
   // Generate deck
   const handleGenerate = () => {
+    if (atDeckLimit) {
+      setLimitError(
+        `You have reached your monthly deck limit (${deckCount}/${deckLimit}). Upgrade to Pro for more.`,
+      );
+      return;
+    }
+    setLimitError(null);
     if (draft) {
       updateDraftConfig(draft.id, config);
     }
@@ -268,6 +279,9 @@ export default function DeckWizardPage() {
       fund_constraints: fundConstraints,
       sections: config.sections.length > 0 ? config.sections : undefined,
       provider: config.provider,
+      plan_tier: tier,
+      model_mode: "auto",
+      analysis_depth: config.quality,
       reasoning_level: config.quality,
       include_comps: true,
       ...(compTickers.length > 0 && { comp_tickers: compTickers }),
@@ -393,6 +407,12 @@ export default function DeckWizardPage() {
                 auto-fetched if not provided.
               </p>
             </div>
+
+            {limitError && (
+              <Alert variant="error" title="Deck Limit">
+                {limitError}
+              </Alert>
+            )}
 
             <Input
               label="Ticker Symbol"
@@ -897,7 +917,7 @@ export default function DeckWizardPage() {
                 onClick={handleGenerate}
                 size="lg"
                 className="w-full"
-                disabled={generateMutation.isPending}
+                disabled={generateMutation.isPending || atDeckLimit}
               >
                 Generate Pitch Deck
               </Button>

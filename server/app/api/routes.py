@@ -7,8 +7,18 @@ import io
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Response
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.auth import get_current_user_with_upsert, require_paid_or_admin
+from app.core.database import get_db
+from app.models import User
+from app.services.usage_limits import (
+    compute_compare_hash,
+    check_compare_limit_async,
+    apply_compare_increment_async,
+)
 from app.core.config import (
     DEFAULT_SNAPSHOT_FIELDS,
     MAX_SYMBOLS_PER_REQUEST,
@@ -144,6 +154,8 @@ async def get_relative_table(
     perf: Optional[str] = Query(None, description="Comma-separated performance metrics to compute (return,volatility,maxDrawdown)"),
     perfPeriod: Optional[str] = Query(None, description="Performance period (1mo,3mo,6mo,ytd,1y,2y,5y,10y,max)"),
     dcf: bool = Query(False, description="Include DCF valuation (dcfPrice, dcfUpside)"),
+    current_user: User = Depends(get_current_user_with_upsert),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Get relative table data for multiple symbols.
@@ -164,6 +176,29 @@ async def get_relative_table(
     validated_fields = parse_and_validate_fields(fields)
     validated_perf_metrics, validated_perf_period = parse_and_validate_perf(perf, perfPeriod)
 
+    # Enforce monthly compare limits (free tier) with fairness window
+    compare_hash = compute_compare_hash(
+        validated_symbols,
+        validated_fields,
+        validated_perf_metrics,
+        validated_perf_period,
+        dcf,
+    )
+    now = datetime.utcnow()
+    allowed, should_increment, limit = await check_compare_limit_async(
+        current_user,
+        now,
+        compare_hash,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"Free tier is limited to {limit} compare actions per month. "
+                "Upgrade to Pro for unlimited compares."
+            ),
+        )
+
     # Fetch data
     rows_data, cache_hit = yfinance_service.get_relative(
         symbols=validated_symbols,
@@ -172,6 +207,10 @@ async def get_relative_table(
         perf_period=validated_perf_period,
         include_dcf=dcf,
     )
+
+    if should_increment:
+        await apply_compare_increment_async(current_user, now, compare_hash)
+        await db.flush()
 
     # Set cache header
     response.headers["X-Cache"] = "HIT" if cache_hit else "MISS"
@@ -221,9 +260,11 @@ async def export_relative_table(
     perf: Optional[str] = Query(None, description="Comma-separated performance metrics to compute"),
     perfPeriod: Optional[str] = Query(None, description="Performance period"),
     format: str = Query("csv", description="Export format: csv, xlsx, or pdf"),
+    current_user: "User" = Depends(require_paid_or_admin),
 ):
     """
     Export relative table data as CSV, XLSX, or PDF.
+    Requires a Pro subscription or admin access.
     
     Columns: symbol + requested snapshot fields + requested perf metrics (if any).
     Null values render as empty cells.

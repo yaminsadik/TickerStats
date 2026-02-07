@@ -33,6 +33,7 @@ import SignalConfigDrawer from "../components/SignalConfigDrawer";
 import { exportDeckToPDF, exportDeckToPPTX } from "../utils/deckExport";
 import { useRelativeTable } from "../hooks/useRelativeTable";
 import { useSignalSettings } from "../hooks/useSignalSettings";
+import { useUserProfile } from "../hooks/useUserProfile";
 import type { FetchRelativeParams } from "../api/client";
 import { SNAPSHOT_FIELDS, PERF_METRICS, type PerfPeriod } from "../types/api";
 import type { RelativeTableResponse, RowData } from "../types/api";
@@ -117,6 +118,7 @@ function convertCompsToRelativeTable(
 export default function DeckDraftPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { canExport } = useUserProfile();
 
   const [draft, setDraft] = useState<DeckDraft | null>(null);
   const [loading, setLoading] = useState(true);
@@ -401,15 +403,29 @@ export default function DeckDraftPage() {
             variant="outline"
             size="sm"
             onClick={() => setShowJsonViewer(true)}
+            disabled={!canExport}
+            title={!canExport ? "Upgrade to Pro to export decks" : undefined}
           >
             <FileCode className="w-4 h-4 mr-2" />
             View Deck
           </Button>
-          <Button variant="outline" size="sm" onClick={handleExportPDF}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExportPDF}
+            disabled={!canExport}
+            title={!canExport ? "Upgrade to Pro to export decks" : undefined}
+          >
             <FileText className="w-4 h-4 mr-2" />
             PDF
           </Button>
-          <Button variant="outline" size="sm" onClick={handleExportPPTX}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExportPPTX}
+            disabled={!canExport}
+            title={!canExport ? "Upgrade to Pro to export decks" : undefined}
+          >
             <Presentation className="w-4 h-4 mr-2" />
             PPTX
           </Button>

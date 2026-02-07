@@ -3,6 +3,7 @@
  * Uses jsPDF for PDF and PptxGenJS for PowerPoint.
  */
 import type { DeckExportData } from "../components/ui/JsonViewerModal";
+import { FIELD_LABELS } from "../types/api";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -34,6 +35,85 @@ function normalizeSections(data: DeckExportData): NormalizedSection[] {
     }));
   }
   return [];
+}
+
+// ---------------------------------------------------------------------------
+// Comps table → grid helper
+// ---------------------------------------------------------------------------
+
+interface CompsGrid {
+  headers: string[];
+  rows: string[][];
+}
+
+/**
+ * Convert `computed_inputs.comps_table` into a simple grid of display strings.
+ * Returns null when data is missing or empty.
+ */
+function compsTableToGrid(compsTable: unknown): CompsGrid | null {
+  const ct = compsTable as Record<string, any> | undefined;
+  if (!ct || !ct.target) return null;
+
+  // Gather all company entries (target first, then comparables)
+  const entries: Array<{ ticker: string; snapshot: Record<string, any>; performance?: Record<string, any> | null }> = [];
+  if (ct.target) entries.push(ct.target);
+  if (Array.isArray(ct.comparables)) {
+    entries.push(...ct.comparables);
+  }
+  if (entries.length === 0) return null;
+
+  // Derive snapshot field keys from the target's snapshot (or metrics_included hint)
+  const snapshotFields: string[] =
+    ct.metrics_included?.snapshot ??
+    Object.keys(entries[0].snapshot || {});
+  const perfFields: string[] =
+    ct.metrics_included?.performance ?? [];
+
+  const headers = [
+    "Ticker",
+    ...snapshotFields.map((f: string) => FIELD_LABELS[f] || toTitleCase(f)),
+    ...perfFields.map((f: string) => FIELD_LABELS[f] || toTitleCase(f)),
+  ];
+
+  const rows: string[][] = entries.map((entry) => {
+    const vals: string[] = [entry.ticker];
+    for (const f of snapshotFields) {
+      vals.push(formatCellValue(entry.snapshot?.[f], f));
+    }
+    for (const f of perfFields) {
+      vals.push(formatCellValue(entry.performance?.[f], f));
+    }
+    return vals;
+  });
+
+  return { headers, rows };
+}
+
+/** Simple number formatter for the comps grid cells. */
+function formatCellValue(val: unknown, field: string): string {
+  if (val === null || val === undefined) return "—";
+  const n = Number(val);
+  if (isNaN(n)) return String(val);
+
+  // Large currency values (marketCap, enterpriseValue)
+  if (field === "marketCap" || field === "enterpriseValue") {
+    const abs = Math.abs(n);
+    if (abs >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
+    if (abs >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+    if (abs >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+    return `$${n.toFixed(2)}`;
+  }
+  if (field === "sharePrice" || field === "dcfPrice") return `$${n.toFixed(2)}`;
+
+  // Percent-like metrics
+  if (
+    ["profitMargin", "roa", "roe", "return", "volatility", "maxDrawdown", "dcfUpside"].includes(field)
+  ) {
+    return `${(n * 100).toFixed(2)}%`;
+  }
+
+  // Ratios / multiples
+  return n.toFixed(2);
 }
 
 // ---------------------------------------------------------------------------
@@ -126,6 +206,100 @@ export async function exportDeckToPDF(
           if (y > pageH - margin) break;
           doc.text(line, margin, y);
           y += 5;
+        }
+      }
+    }
+
+    // --- Comps table page for relative_heatmap section ---
+    if (section.section_id === "relative_heatmap") {
+      const grid = compsTableToGrid(data.computed_inputs?.comps_table);
+      if (grid) {
+        doc.addPage();
+        doc.setFillColor(245, 247, 250);
+        doc.rect(0, 0, pageW, pageH, "F");
+
+        // Header bar
+        doc.setFillColor(30, 58, 138);
+        doc.rect(0, 0, pageW, 18, "F");
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(10);
+        doc.text("Relative Heatmap", margin, 12);
+
+        // Title
+        doc.setTextColor(30, 58, 138);
+        doc.setFontSize(18);
+        doc.text("Comparative Analysis", margin, 30);
+
+        // Table layout
+        const numCols = grid.headers.length;
+        const colW = contentW / numCols;
+        const rowH = 7;
+        const fontSize = Math.min(8, Math.max(5, 120 / numCols)); // shrink font for wide tables
+        doc.setFontSize(fontSize);
+
+        let tableY = 38;
+
+        // Header row
+        doc.setFillColor(30, 58, 138);
+        doc.rect(margin, tableY, contentW, rowH, "F");
+        doc.setTextColor(255, 255, 255);
+        for (let c = 0; c < numCols; c++) {
+          doc.text(
+            grid.headers[c],
+            margin + c * colW + colW / 2,
+            tableY + rowH - 2,
+            { align: "center" },
+          );
+        }
+        tableY += rowH;
+
+        // Data rows
+        for (let r = 0; r < grid.rows.length; r++) {
+          // Alternate row background
+          if (r % 2 === 0) {
+            doc.setFillColor(255, 255, 255);
+          } else {
+            doc.setFillColor(237, 240, 245);
+          }
+          doc.rect(margin, tableY, contentW, rowH, "F");
+
+          doc.setTextColor(50, 50, 50);
+          for (let c = 0; c < numCols; c++) {
+            const cellText = grid.rows[r][c] ?? "";
+            doc.text(
+              cellText,
+              margin + c * colW + colW / 2,
+              tableY + rowH - 2,
+              { align: "center" },
+            );
+          }
+          tableY += rowH;
+
+          // Page break if out of room
+          if (tableY > pageH - margin - rowH && r < grid.rows.length - 1) {
+            doc.addPage();
+            doc.setFillColor(245, 247, 250);
+            doc.rect(0, 0, pageW, pageH, "F");
+            tableY = margin;
+          }
+        }
+
+        // Grid lines
+        doc.setDrawColor(180, 180, 180);
+        doc.setLineWidth(0.2);
+        const tableTop = 38;
+        const tableBottom = tableY;
+        // Horizontal lines
+        for (let r = 0; r <= grid.rows.length + 1; r++) {
+          const ly = tableTop + r * rowH;
+          if (ly <= tableBottom) {
+            doc.line(margin, ly, margin + contentW, ly);
+          }
+        }
+        // Vertical lines
+        for (let c = 0; c <= numCols; c++) {
+          const lx = margin + c * colW;
+          doc.line(lx, tableTop, lx, tableBottom);
         }
       }
     }
@@ -262,6 +436,95 @@ export async function exportDeckToPPTX(
       // Speaker notes
       if (slide.speaker_notes) {
         pptSlide.addNotes(slide.speaker_notes);
+      }
+    }
+
+    // --- Comps table slide for relative_heatmap section ---
+    if (section.section_id === "relative_heatmap") {
+      const grid = compsTableToGrid(data.computed_inputs?.comps_table);
+      if (grid) {
+        const tableSlide = pptx.addSlide();
+        tableSlide.background = { color: "F8FAFC" };
+
+        // Header bar
+        tableSlide.addShape(pptx.ShapeType.rect, {
+          x: 0,
+          y: 0,
+          w: 13.33,
+          h: 0.7,
+          fill: { color: "1E3A8A" },
+        });
+        tableSlide.addText("Relative Heatmap", {
+          x: 0.4,
+          y: 0.05,
+          w: 6,
+          h: 0.6,
+          fontSize: 11,
+          color: "FFFFFF",
+        });
+
+        // Title
+        tableSlide.addText("Comparative Analysis", {
+          x: 0.5,
+          y: 0.85,
+          w: 12.33,
+          h: 0.5,
+          fontSize: 18,
+          color: "1E3A8A",
+          bold: true,
+        });
+
+        // Build PptxGenJS table rows
+        // Scale font size for wide tables
+        const numCols = grid.headers.length;
+        const cellFontSize = Math.min(10, Math.max(6, 90 / numCols));
+
+        type PptxTableCell = {
+          text: string;
+          options: Record<string, unknown>;
+        };
+
+        const headerRow: PptxTableCell[] = grid.headers.map((h) => ({
+          text: h,
+          options: {
+            bold: true,
+            color: "FFFFFF",
+            fill: { color: "1E3A8A" },
+            fontSize: cellFontSize,
+            align: "center",
+            valign: "middle",
+            border: { pt: 0.5, color: "94A3B8" },
+          },
+        }));
+
+        const dataRows: PptxTableCell[][] = grid.rows.map((row, rowIdx) =>
+          row.map((cell) => ({
+            text: cell,
+            options: {
+              fontSize: cellFontSize,
+              color: "334155",
+              fill: { color: rowIdx % 2 === 0 ? "FFFFFF" : "F1F5F9" },
+              align: "center",
+              valign: "middle",
+              border: { pt: 0.5, color: "CBD5E1" },
+            },
+          })),
+        );
+
+        const tableRows = [headerRow, ...dataRows];
+
+        // Auto-size columns to fill slide width
+        const colW = 12.33 / numCols;
+
+        tableSlide.addTable(tableRows as any, {
+          x: 0.5,
+          y: 1.5,
+          w: 12.33,
+          colW: Array(numCols).fill(colW),
+          rowH: 0.35,
+          autoPage: true,
+          autoPageRepeatHeader: true,
+        });
       }
     }
   }

@@ -10,6 +10,8 @@ import SavedSearchesPage from "./pages/SavedSearchesPage";
 import WatchlistPage from "./pages/WatchlistPage";
 import DecksListPage from "./pages/DecksListPage";
 import DeckViewPage from "./pages/DeckViewPage";
+import ProfilePage from "./pages/ProfilePage";
+import AdminPage from "./pages/AdminPage";
 
 export const router = createBrowserRouter([
   {
@@ -118,6 +120,34 @@ export const router = createBrowserRouter([
       {
         path: ":id",
         element: <DeckDraftPage />,
+      },
+    ],
+  },
+  {
+    path: "/profile",
+    element: (
+      <ProtectedRoute>
+        <PageShell />
+      </ProtectedRoute>
+    ),
+    children: [
+      {
+        index: true,
+        element: <ProfilePage />,
+      },
+    ],
+  },
+  {
+    path: "/admin",
+    element: (
+      <ProtectedRoute>
+        <PageShell />
+      </ProtectedRoute>
+    ),
+    children: [
+      {
+        index: true,
+        element: <AdminPage />,
       },
     ],
   },

@@ -161,18 +161,44 @@ async def upsert_user_from_token(
 ) -> User:
     """
     Ensure a users row exists for the authenticated subject.
-    Inserts if missing, updates email/name/updated_at if present.
+    Inserts if missing, updates email/name/picture/updated_at if present.
     Handles nullable email safely.
     """
     from sqlalchemy import select
     from datetime import datetime
+    import logging
+    
+    logger = logging.getLogger(__name__)
 
-    email = payload.get("email") or payload.get(
-        f"https://{settings.AUTH0_DOMAIN}/email"
+    # Try multiple possible claim locations for email, name, picture
+    # Standard claims, custom namespaced claims, or Auth0-specific claims
+    email = (
+        payload.get("email") or 
+        payload.get(f"https://{settings.AUTH0_DOMAIN}/email") or
+        payload.get("https://tickerstats.com/email") or
+        payload.get("http://tickerstats.com/email")
     )
-    name = payload.get("name") or payload.get(
-        f"https://{settings.AUTH0_DOMAIN}/name"
+    name = (
+        payload.get("name") or 
+        payload.get(f"https://{settings.AUTH0_DOMAIN}/name") or
+        payload.get("https://tickerstats.com/name") or
+        payload.get("http://tickerstats.com/name") or
+        payload.get("nickname")
     )
+    picture = (
+        payload.get("picture") or 
+        payload.get(f"https://{settings.AUTH0_DOMAIN}/picture") or
+        payload.get("https://tickerstats.com/picture") or
+        payload.get("http://tickerstats.com/picture")
+    )
+    
+    # Log what we found for debugging
+    if not email or not name:
+        logger.warning(
+            f"Missing user info from token for {user_id}: "
+            f"email={'✓' if email else '✗'}, name={'✓' if name else '✗'}. "
+            f"Available claims: {list(payload.keys())}"
+        )
 
     result = await db.execute(
         select(User).where(User.auth0_user_id == user_id)
@@ -182,11 +208,17 @@ async def upsert_user_from_token(
     if user:
         # Update mutable fields if the token carries newer info
         changed = False
+        if not user.subscription_tier:
+            user.subscription_tier = "free"
+            changed = True
         if email and user.email != email:
             user.email = email
             changed = True
         if name and user.name != name:
             user.name = name
+            changed = True
+        if picture and user.picture != picture:
+            user.picture = picture
             changed = True
         if changed:
             user.updated_at = datetime.utcnow()
@@ -196,6 +228,7 @@ async def upsert_user_from_token(
             auth0_user_id=user_id,
             email=email,
             name=name,
+            picture=picture,
         )
         db.add(user)
         await db.flush()
@@ -261,3 +294,29 @@ async def get_current_user_with_upsert(
             detail="Invalid token: Missing subject claim",
         )
     return await upsert_user_from_token(db, user_id, payload)
+
+
+async def require_admin(
+    current_user: User = Depends(get_current_user_with_upsert),
+) -> User:
+    """Dependency that requires the authenticated user to be an admin."""
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+    return current_user
+
+
+async def require_paid_or_admin(
+    current_user: User = Depends(get_current_user_with_upsert),
+) -> User:
+    """Dependency that requires the user to have an active paid subscription or be admin."""
+    if current_user.is_admin:
+        return current_user
+    if not current_user.is_paid:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This feature requires a Pro subscription. Please upgrade to continue.",
+        )
+    return current_user

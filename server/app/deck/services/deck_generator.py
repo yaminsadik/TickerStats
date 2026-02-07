@@ -253,6 +253,9 @@ class DeckGenerator:
         return DeckGenerateResponse(
             ticker=request.ticker,
             company_name=request.company_name,
+            plan_tier=getattr(request, "plan_tier", None),
+            model_mode=getattr(request, "model_mode", None),
+            analysis_depth=getattr(request, "analysis_depth", None),
             provider_used=ProviderInfo(
                 provider=request.provider.value,
                 model=model_used,

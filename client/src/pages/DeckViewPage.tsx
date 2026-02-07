@@ -22,6 +22,7 @@ import { exportDeckToPDF, exportDeckToPPTX } from "../utils/deckExport";
 import { SNAPSHOT_FIELDS } from "../types/api";
 import type { RelativeTableResponse, RowData } from "../types/api";
 import { useAuthenticatedFetch } from "../hooks/useAuthenticatedApi";
+import { useUserProfile } from "../hooks/useUserProfile";
 import { fetchDeck, deleteDeckFromDB, type DeckFull } from "../api/userApi";
 import type { GeneratedSection, Slide, BulletPoint } from "../api/deckApi";
 
@@ -69,6 +70,7 @@ export default function DeckViewPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { authenticatedFetch } = useAuthenticatedFetch();
+  const { canExport } = useUserProfile();
 
   const [deck, setDeck] = useState<DeckFull | null>(null);
   const [loading, setLoading] = useState(true);
@@ -178,6 +180,8 @@ export default function DeckViewPage() {
             variant="outline"
             size="sm"
             onClick={() => setShowJsonViewer(true)}
+            disabled={!canExport}
+            title={!canExport ? "Upgrade to Pro to export decks" : undefined}
           >
             <FileCode className="w-4 h-4 mr-1" />
             JSON
@@ -187,12 +191,11 @@ export default function DeckViewPage() {
             size="sm"
             onClick={() => {
               if (deck?.content) {
-                exportDeckToPDF(
-                  deck.content as any,
-                  `${deck.ticker}_deck.pdf`,
-                );
+                exportDeckToPDF(deck.content as any, `${deck.ticker}_deck.pdf`);
               }
             }}
+            disabled={!canExport}
+            title={!canExport ? "Upgrade to Pro to export decks" : undefined}
           >
             <FileText className="w-4 h-4 mr-1" />
             PDF
@@ -208,6 +211,8 @@ export default function DeckViewPage() {
                 );
               }
             }}
+            disabled={!canExport}
+            title={!canExport ? "Upgrade to Pro to export decks" : undefined}
           >
             <Presentation className="w-4 h-4 mr-1" />
             PPTX

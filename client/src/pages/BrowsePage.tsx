@@ -10,6 +10,7 @@ import {
   Star,
   RefreshCw,
   Loader2,
+  Lock,
 } from "lucide-react";
 import { TickerInput } from "../components/TickerInput";
 import { ColumnPicker } from "../components/ColumnPicker";
@@ -19,6 +20,7 @@ import SignalControls from "../components/SignalControls";
 import SignalConfigDrawer from "../components/SignalConfigDrawer";
 import { useRelativeTable } from "../hooks/useRelativeTable";
 import { useSignalSettings } from "../hooks/useSignalSettings";
+import { useUserProfile } from "../hooks/useUserProfile";
 import { getExportUrl, type ExportFormat } from "../api/client";
 import { useAuthenticatedFetch } from "../hooks/useAuthenticatedApi";
 import { createSavedAnalysis, addToWatchlist } from "../api/userApi";
@@ -30,6 +32,18 @@ export default function BrowsePage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { authenticatedFetch } = useAuthenticatedFetch();
+
+  // User profile for free-tier gates
+  const {
+    canExport: userCanExport,
+    atSaveLimit,
+    savedSearchesCount,
+    savedSearchesLimit,
+    compareCount,
+    compareLimit,
+    tier,
+    refresh: refreshProfile,
+  } = useUserProfile();
 
   // Ticker input state
   const [tickers, setTickers] = useState<string[]>([]);
@@ -88,6 +102,7 @@ export default function BrowsePage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   // --- Watchlist feedback ---
   const [watchlistAdding, setWatchlistAdding] = useState<string | null>(null);
@@ -137,6 +152,7 @@ export default function BrowsePage() {
       setShowSaveModal(false);
       setSaveName("");
       setSaveDesc("");
+      refreshProfile(); // update saved-search count
       // Auto-dismiss success after 3s
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err: any) {
@@ -209,19 +225,33 @@ export default function BrowsePage() {
 
   // Handle Export button
   const handleExport = useCallback(
-    (format: ExportFormat = "csv") => {
+    async (format: ExportFormat = "csv") => {
       if (!queryParams || !data) return;
+      setExportError(null);
 
       const ext = format === "xlsx" ? "xlsx" : format === "pdf" ? "pdf" : "csv";
       const url = getExportUrl(queryParams, format);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `relative_table_${new Date().toISOString().split("T")[0]}.${ext}`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+
+      try {
+        const res = await authenticatedFetch(url);
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.detail || `Export failed (${res.status})`);
+        }
+
+        const blob = await res.blob();
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = `relative_table_${new Date().toISOString().split("T")[0]}.${ext}`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(link.href);
+      } catch (err: any) {
+        setExportError(err.message || "Export failed");
+      }
     },
-    [queryParams, data],
+    [queryParams, data, authenticatedFetch],
   );
 
   // Handle Generate Deck - navigate to wizard with selected ticker
@@ -278,11 +308,29 @@ export default function BrowsePage() {
               variant="outline"
               size="lg"
               className="flex items-center gap-2"
-              onClick={() => setShowSaveModal(true)}
+              onClick={() => {
+                if (atSaveLimit) {
+                  setSaveError(
+                    `Free plan limit reached (${savedSearchesLimit}/${savedSearchesLimit}). Upgrade to Pro for unlimited saved searches.`,
+                  );
+                  setShowSaveModal(true);
+                } else {
+                  setShowSaveModal(true);
+                }
+              }}
               aria-label="Save current search"
             >
-              <Save className="w-5 h-5" aria-hidden="true" />
+              {atSaveLimit ? (
+                <Lock className="w-5 h-5" aria-hidden="true" />
+              ) : (
+                <Save className="w-5 h-5" aria-hidden="true" />
+              )}
               Save Search
+              {tier === "free" && (
+                <span className="text-[10px] font-bold uppercase tracking-wide bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded">
+                  {savedSearchesCount}/{savedSearchesLimit}
+                </span>
+              )}
             </Button>
           )}
           <Button
@@ -318,55 +366,101 @@ export default function BrowsePage() {
           {watchlistMsg}
         </Alert>
       )}
+      {exportError && (
+        <Alert variant="error" title="Export">
+          {exportError}
+        </Alert>
+      )}
 
       {/* Save Search Modal */}
       {showSaveModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <Card className="w-full max-w-md mx-4">
             <h2 className="text-lg font-bold text-white mb-4">Save Search</h2>
-            <div className="space-y-3">
-              <Input
-                placeholder="Name (e.g. Tech Giants Comparison)"
-                value={saveName}
-                onChange={(e) => setSaveName(e.target.value)}
-                autoFocus
-              />
-              <Input
-                placeholder="Description (optional)"
-                value={saveDesc}
-                onChange={(e) => setSaveDesc(e.target.value)}
-              />
-              <p className="text-xs text-slate-400">
-                Saving {tickers.length} ticker{tickers.length !== 1 ? "s" : ""}:{" "}
-                {tickers.slice(0, 5).join(", ")}
-                {tickers.length > 5 ? ` +${tickers.length - 5} more` : ""}
-              </p>
-              {saveError && <p className="text-sm text-red-400">{saveError}</p>}
-              <div className="flex gap-2 justify-end pt-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setShowSaveModal(false);
-                    setSaveError(null);
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={handleSaveSearch}
-                  disabled={saving || !saveName.trim()}
-                >
-                  {saving ? (
-                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                  ) : (
-                    <Save className="w-4 h-4 mr-2" />
-                  )}
-                  Save
-                </Button>
+            {atSaveLimit ? (
+              <div className="space-y-4">
+                <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Lock className="w-5 h-5 text-amber-400" />
+                    <h3 className="text-sm font-semibold text-amber-300">
+                      Free Plan Limit Reached
+                    </h3>
+                  </div>
+                  <p className="text-sm text-amber-200/80">
+                    You've used all {savedSearchesLimit} saved searches on the
+                    free plan. Upgrade to Pro for unlimited saved searches.
+                  </p>
+                </div>
+                <div className="flex gap-2 justify-end pt-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setShowSaveModal(false);
+                      setSaveError(null);
+                    }}
+                  >
+                    Close
+                  </Button>
+                  <Button size="sm" onClick={() => navigate("/profile")}>
+                    Upgrade
+                  </Button>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="space-y-3">
+                <Input
+                  placeholder="Name (e.g. Tech Giants Comparison)"
+                  value={saveName}
+                  onChange={(e) => setSaveName(e.target.value)}
+                  autoFocus
+                />
+                <Input
+                  placeholder="Description (optional)"
+                  value={saveDesc}
+                  onChange={(e) => setSaveDesc(e.target.value)}
+                />
+                <p className="text-xs text-slate-400">
+                  Saving {tickers.length} ticker
+                  {tickers.length !== 1 ? "s" : ""}:{" "}
+                  {tickers.slice(0, 5).join(", ")}
+                  {tickers.length > 5 ? ` +${tickers.length - 5} more` : ""}
+                </p>
+                {tier === "free" && (
+                  <p className="text-xs text-slate-500">
+                    {savedSearchesCount}/{savedSearchesLimit} saved searches
+                    used (free plan)
+                  </p>
+                )}
+                {saveError && (
+                  <p className="text-sm text-red-400">{saveError}</p>
+                )}
+                <div className="flex gap-2 justify-end pt-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setShowSaveModal(false);
+                      setSaveError(null);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={handleSaveSearch}
+                    disabled={saving || !saveName.trim()}
+                  >
+                    {saving ? (
+                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    ) : (
+                      <Save className="w-4 h-4 mr-2" />
+                    )}
+                    Save
+                  </Button>
+                </div>
+              </div>
+            )}
           </Card>
         </div>
       )}
@@ -575,7 +669,14 @@ export default function BrowsePage() {
             isLoading={isLoading || isFetching}
             canCompare={tickers.length > 0}
             canExport={!!data && data.rows.length > 0}
+            exportLocked={!userCanExport}
           />
+          {compareLimit !== null && (
+            <div className="mt-2 text-xs text-slate-500">
+              Compare usage: {compareCount}/{compareLimit} this month (free
+              plan)
+            </div>
+          )}
         </div>
       </Card>
 

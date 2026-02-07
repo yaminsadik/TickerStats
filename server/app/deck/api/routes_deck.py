@@ -4,6 +4,7 @@ Provides endpoints for generating investment pitch deck sections.
 """
 
 import os
+from datetime import datetime
 from functools import wraps
 from typing import Any
 
@@ -12,8 +13,13 @@ from pydantic import ValidationError
 
 from app.deck.api.schemas import (
     SECTION_METADATA,
+    AnalysisDepth,
     DeckGenerateRequest,
     DeckPlanRequest,
+    ModelMode,
+    PlanTier,
+    Provider,
+    ReasoningLevel,
     SectionId,
     SectionInfo,
     SectionsResponse,
@@ -25,6 +31,15 @@ from app.deck.utils.logging import (
     set_request_context,
 )
 from app.deck.utils.ticker_info import enrich_request_with_ticker_info
+from app.core.auth import verifier
+from app.core.config import settings
+from app.core.database import SessionLocal
+from app.models import User
+from app.services.usage_limits import (
+    check_deck_limit_sync,
+    get_plan_tier,
+    increment_deck_usage_sync,
+)
 
 logger = get_logger(__name__)
 
@@ -127,6 +142,113 @@ def get_api_keys() -> tuple[str | None, str | None]:
     return openai_key, gemini_key
 
 
+def _get_bearer_token() -> str | None:
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        return auth_header.split(" ", 1)[1].strip()
+    return None
+
+
+def _upsert_user_sync(session, user_id: str, payload: dict) -> User:
+    """Sync upsert for Flask routes using the shared User model."""
+    # Try multiple possible claim locations for email, name, picture
+    # Standard claims, custom namespaced claims, or Auth0-specific claims
+    email = (
+        payload.get("email") or 
+        payload.get(f"https://{settings.AUTH0_DOMAIN}/email") or
+        payload.get("https://tickerstats.com/email") or
+        payload.get("http://tickerstats.com/email")
+    )
+    name = (
+        payload.get("name") or 
+        payload.get(f"https://{settings.AUTH0_DOMAIN}/name") or
+        payload.get("https://tickerstats.com/name") or
+        payload.get("http://tickerstats.com/name") or
+        payload.get("nickname")
+    )
+    picture = (
+        payload.get("picture") or 
+        payload.get(f"https://{settings.AUTH0_DOMAIN}/picture") or
+        payload.get("https://tickerstats.com/picture") or
+        payload.get("http://tickerstats.com/picture")
+    )
+    
+    # Log what we found for debugging
+    if not email or not name:
+        logger.warning(
+            f"Missing user info from token for {user_id}: "
+            f"email={'✓' if email else '✗'}, name={'✓' if name else '✗'}. "
+            f"Available claims: {list(payload.keys())}"
+        )
+
+    user = session.get(User, user_id)
+    if user:
+        changed = False
+        if not user.subscription_tier:
+            user.subscription_tier = "free"
+            changed = True
+        if email and user.email != email:
+            user.email = email
+            changed = True
+        if name and user.name != name:
+            user.name = name
+            changed = True
+        if picture and user.picture != picture:
+            user.picture = picture
+            changed = True
+        if changed:
+            user.updated_at = datetime.utcnow()
+            session.flush()
+        return user
+
+    user = User(
+        auth0_user_id=user_id,
+        email=email,
+        name=name,
+        picture=picture,
+        subscription_tier="free",
+    )
+    session.add(user)
+    session.flush()
+    return user
+
+
+def _resolve_plan_and_models(
+    deck_request: DeckGenerateRequest,
+    openai_key: str | None,
+    gemini_key: str | None,
+    plan_tier: str,
+) -> tuple[str, str | None, AnalysisDepth, ModelMode]:
+    """Apply plan-tier model rules and return provider, model, depth, mode."""
+    model_mode = deck_request.model_mode or ModelMode.AUTO
+    analysis_depth = deck_request.analysis_depth or AnalysisDepth(deck_request.reasoning_level.value)
+
+    # Free tier caps depth at medium
+    if plan_tier == "free" and analysis_depth == AnalysisDepth.HIGH:
+        analysis_depth = AnalysisDepth.MEDIUM
+
+    provider = deck_request.provider.value
+    model = deck_request.model
+
+    if model_mode == ModelMode.AUTO:
+        if plan_tier in {"pro", "enterprise"}:
+            if openai_key:
+                provider, model = "openai", "gpt-5.2"
+            elif gemini_key:
+                provider, model = "gemini", "gemini-3-pro"
+            else:
+                provider, model = provider, model
+        else:
+            if openai_key:
+                provider, model = "openai", "gpt-5-mini"
+            elif gemini_key:
+                provider, model = "gemini", "gemini-3-flash-preview"
+            else:
+                provider, model = provider, model
+
+    return provider, model, analysis_depth, model_mode
+
+
 # =============================================================================
 # ROUTES
 # =============================================================================
@@ -218,6 +340,53 @@ def generate_deck():
     # Parse and validate request
     data = request.get_json()
     deck_request = DeckGenerateRequest(**data)
+
+    # Require authentication for usage limits
+    token = _get_bearer_token()
+    if not token:
+        return jsonify({
+            "error": "Authentication required",
+            "request_id": getattr(g, "request_id", None),
+        }), 401
+    try:
+        payload = verifier.verify_token(token)
+    except Exception as e:
+        return jsonify({
+            "error": "Invalid token",
+            "message": str(e),
+            "request_id": getattr(g, "request_id", None),
+        }), 401
+
+    user_id = payload.get("sub")
+    if not user_id:
+        return jsonify({
+            "error": "Invalid token: Missing subject",
+            "request_id": getattr(g, "request_id", None),
+        }), 401
+
+    # Upsert user and enforce deck generation limits
+    session = SessionLocal()
+    try:
+        user = _upsert_user_sync(session, user_id, payload)
+        plan_tier = get_plan_tier(user)
+        allowed, limit = check_deck_limit_sync(user, datetime.utcnow())
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        return jsonify({
+            "error": "User lookup failed",
+            "message": str(e),
+            "request_id": getattr(g, "request_id", None),
+        }), 500
+    finally:
+        session.close()
+
+    if not allowed:
+        return jsonify({
+            "error": "Deck limit reached",
+            "message": f"Your plan is limited to {limit} deck generations per month.",
+            "request_id": getattr(g, "request_id", None),
+        }), 403
     
     # Auto-fetch company name and sector if not provided
     try:
@@ -241,6 +410,20 @@ def generate_deck():
     
     # Get API keys
     openai_key, gemini_key = get_api_keys()
+
+    # Apply plan-tier model routing
+    provider_name, model_name, analysis_depth, model_mode = _resolve_plan_and_models(
+        deck_request,
+        openai_key,
+        gemini_key,
+        plan_tier,
+    )
+    deck_request.plan_tier = PlanTier(plan_tier)
+    deck_request.model_mode = model_mode
+    deck_request.analysis_depth = analysis_depth
+    deck_request.reasoning_level = ReasoningLevel(analysis_depth.value)
+    deck_request.provider = Provider(provider_name)
+    deck_request.model = model_name
     
     # Validate we have the required key
     if deck_request.provider.value == "openai" and not openai_key:
@@ -263,6 +446,18 @@ def generate_deck():
         gemini_api_key=gemini_key,
     )
     
+    # Increment deck usage on success
+    session = SessionLocal()
+    try:
+        user = session.get(User, user_id)
+        if user:
+            increment_deck_usage_sync(user, datetime.utcnow())
+            session.commit()
+    except Exception:
+        session.rollback()
+    finally:
+        session.close()
+
     # Return response
     return jsonify(response.model_dump())
 
