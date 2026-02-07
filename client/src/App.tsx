@@ -1,19 +1,15 @@
-import { useState, useCallback } from 'react';
-import { TickerInput } from './components/TickerInput';
-import { ColumnPicker } from './components/ColumnPicker';
-import { Controls } from './components/Controls';
-import { RelativeTable } from './components/RelativeTable';
-import SignalControls from './components/SignalControls';
-import SignalConfigDrawer from './components/SignalConfigDrawer';
-import { useRelativeTable } from './hooks/useRelativeTable';
-import { useSignalSettings } from './hooks/useSignalSettings';
-import { getExportUrl } from './api/client';
-import {
-  SNAPSHOT_FIELDS,
-  PERF_METRICS,
-  type PerfPeriod,
-} from './types/api';
-import type { FetchRelativeParams } from './api/client';
+import { useState, useCallback } from "react";
+import { TickerInput } from "./components/TickerInput";
+import { ColumnPicker } from "./components/ColumnPicker";
+import { Controls } from "./components/Controls";
+import { RelativeTable } from "./components/RelativeTable";
+import SignalControls from "./components/SignalControls";
+import SignalConfigDrawer from "./components/SignalConfigDrawer";
+import { useRelativeTable } from "./hooks/useRelativeTable";
+import { useSignalSettings } from "./hooks/useSignalSettings";
+import { getExportUrl, type ExportFormat } from "./api/client";
+import { SNAPSHOT_FIELDS, PERF_METRICS, type PerfPeriod } from "./types/api";
+import type { FetchRelativeParams } from "./api/client";
 
 function App() {
   // Ticker input state
@@ -29,7 +25,7 @@ function App() {
 
   // Performance toggle and period
   const [showPerf, setShowPerf] = useState(false);
-  const [perfPeriod, setPerfPeriod] = useState<PerfPeriod>('3mo');
+  const [perfPeriod, setPerfPeriod] = useState<PerfPeriod>("3mo");
 
   // Column picker visibility
   const [showColumnPicker, setShowColumnPicker] = useState(false);
@@ -48,7 +44,7 @@ function App() {
 
   // Query params for fetching - only set when Compare is clicked
   const [queryParams, setQueryParams] = useState<FetchRelativeParams | null>(
-    null
+    null,
   );
 
   // Fetch data
@@ -72,17 +68,21 @@ function App() {
   }, [tickers, selectedFields, showPerf, selectedPerfMetrics, perfPeriod]);
 
   // Handle Export button
-  const handleExport = useCallback(() => {
-    if (!queryParams || !data) return;
+  const handleExport = useCallback(
+    (format: ExportFormat = "csv") => {
+      if (!queryParams || !data) return;
 
-    const url = getExportUrl(queryParams);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `relative_table_${new Date().toISOString().split('T')[0]}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  }, [queryParams, data]);
+      const ext = format === "xlsx" ? "xlsx" : format === "pdf" ? "pdf" : "csv";
+      const url = getExportUrl(queryParams, format);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `relative_table_${new Date().toISOString().split("T")[0]}.${ext}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    },
+    [queryParams, data],
+  );
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -106,7 +106,7 @@ function App() {
               </svg>
             </div>
             <div>
-              <h1 className="text-xl font-bold text-gray-900">TicketStats</h1>
+              <h1 className="text-xl font-bold text-gray-900">TickerStats</h1>
               <p className="text-sm text-gray-500">
                 Investment Club Relative Table
               </p>
@@ -149,7 +149,7 @@ function App() {
           >
             <svg
               className={`w-4 h-4 transition-transform ${
-                showColumnPicker ? 'rotate-90' : ''
+                showColumnPicker ? "rotate-90" : ""
               }`}
               fill="none"
               stroke="currentColor"
@@ -162,7 +162,7 @@ function App() {
                 d="M9 5l7 7-7 7"
               />
             </svg>
-            {showColumnPicker ? 'Hide' : 'Show'} Column Settings
+            {showColumnPicker ? "Hide" : "Show"} Column Settings
           </button>
 
           {/* Signal Controls */}
@@ -204,7 +204,7 @@ function App() {
                 />
               </svg>
               <span className="text-red-700 font-medium">
-                {error instanceof Error ? error.message : 'An error occurred'}
+                {error instanceof Error ? error.message : "An error occurred"}
               </span>
             </div>
           </div>

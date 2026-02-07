@@ -13,6 +13,8 @@ import {
   ExternalLink,
   FileCode,
   Settings,
+  FileText,
+  Presentation,
 } from "lucide-react";
 import {
   Button,
@@ -28,6 +30,7 @@ import { RelativeTable } from "../components/RelativeTable";
 import { ColumnPicker } from "../components/ColumnPicker";
 import SignalControls from "../components/SignalControls";
 import SignalConfigDrawer from "../components/SignalConfigDrawer";
+import { exportDeckToPDF, exportDeckToPPTX } from "../utils/deckExport";
 import { useRelativeTable } from "../hooks/useRelativeTable";
 import { useSignalSettings } from "../hooks/useSignalSettings";
 import type { FetchRelativeParams } from "../api/client";
@@ -265,6 +268,20 @@ export default function DeckDraftPage() {
     URL.revokeObjectURL(url);
   };
 
+  // Export as PDF
+  const handleExportPDF = async () => {
+    if (!exportData) return;
+    const ticker = draft?.basics.ticker || "deck";
+    await exportDeckToPDF(exportData, `${ticker}_pitch_deck.pdf`);
+  };
+
+  // Export as PPTX
+  const handleExportPPTX = async () => {
+    if (!exportData) return;
+    const ticker = draft?.basics.ticker || "deck";
+    await exportDeckToPPTX(exportData, `${ticker}_pitch_deck.pptx`);
+  };
+
   // Computed counts from export data
   const sectionsCount = exportData?.results?.length ?? 0;
   const slidesCount =
@@ -387,6 +404,14 @@ export default function DeckDraftPage() {
           >
             <FileCode className="w-4 h-4 mr-2" />
             View Deck
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExportPDF}>
+            <FileText className="w-4 h-4 mr-2" />
+            PDF
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExportPPTX}>
+            <Presentation className="w-4 h-4 mr-2" />
+            PPTX
           </Button>
         </div>
         <div className="flex items-center gap-2">

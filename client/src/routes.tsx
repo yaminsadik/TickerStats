@@ -6,6 +6,10 @@ import ContactPage from "./pages/ContactPage";
 import BrowsePage from "./pages/BrowsePage";
 import DeckWizardPage from "./pages/DeckWizardPage";
 import DeckDraftPage from "./pages/DeckDraftPage";
+import SavedSearchesPage from "./pages/SavedSearchesPage";
+import WatchlistPage from "./pages/WatchlistPage";
+import DecksListPage from "./pages/DecksListPage";
+import DeckViewPage from "./pages/DeckViewPage";
 
 export const router = createBrowserRouter([
   {
@@ -25,6 +29,10 @@ export const router = createBrowserRouter([
       </ProtectedRoute>
     ),
     children: [
+      {
+        index: true,
+        element: <Navigate to="/deck/new" replace />,
+      },
       {
         path: "deck",
         element: <Navigate to="/deck/new" replace />,
@@ -50,6 +58,48 @@ export const router = createBrowserRouter([
     ],
   },
   {
+    path: "/saved-searches",
+    element: (
+      <ProtectedRoute>
+        <PageShell />
+      </ProtectedRoute>
+    ),
+    children: [
+      {
+        index: true,
+        element: <SavedSearchesPage />,
+      },
+    ],
+  },
+  {
+    path: "/watchlist",
+    element: (
+      <ProtectedRoute>
+        <PageShell />
+      </ProtectedRoute>
+    ),
+    children: [
+      {
+        index: true,
+        element: <WatchlistPage />,
+      },
+    ],
+  },
+  {
+    path: "/decks",
+    element: (
+      <ProtectedRoute>
+        <PageShell />
+      </ProtectedRoute>
+    ),
+    children: [
+      {
+        index: true,
+        element: <DecksListPage />,
+      },
+    ],
+  },
+  {
     path: "/deck",
     element: (
       <ProtectedRoute>
@@ -60,6 +110,10 @@ export const router = createBrowserRouter([
       {
         path: "new",
         element: <DeckWizardPage />,
+      },
+      {
+        path: "db/:id",
+        element: <DeckViewPage />,
       },
       {
         path: ":id",

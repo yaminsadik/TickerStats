@@ -40,11 +40,13 @@ export async function fetchRelativeTable(
   return response.json();
 }
 
-export function getExportUrl(params: FetchRelativeParams): string {
+export type ExportFormat = 'csv' | 'xlsx' | 'pdf';
+
+export function getExportUrl(params: FetchRelativeParams, format: ExportFormat = 'csv'): string {
   const url = new URL(`${API_BASE}/api/relative/export`);
 
   url.searchParams.set('symbols', params.symbols.join(','));
-  url.searchParams.set('format', 'csv');
+  url.searchParams.set('format', format);
 
   if (params.fields && params.fields.length > 0) {
     url.searchParams.set('fields', params.fields.join(','));

@@ -1,11 +1,12 @@
-"""User-related API routes (profile, watchlists, saved analyses)."""
-from typing import List
+"""User-related API routes (profile, watchlists, saved analyses, decks)."""
+from datetime import datetime
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from app.core.auth import get_current_user
+from app.core.auth import get_current_user_with_upsert
 from app.core.database import get_db
 from app.models import User, Watchlist, SavedAnalysis, Deck
 
@@ -13,212 +14,294 @@ from app.models import User, Watchlist, SavedAnalysis, Deck
 router = APIRouter(prefix="/api/user", tags=["user"])
 
 
+# ---------------------------------------------------------------------------
 # Pydantic schemas
-class WatchlistItem(BaseModel):
+# ---------------------------------------------------------------------------
+
+# --- Watchlist ---
+class WatchlistCreate(BaseModel):
     ticker: str
-    notes: str | None = None
+    notes: Optional[str] = None
+
+
+class WatchlistUpdateNotes(BaseModel):
+    notes: Optional[str] = None
 
 
 class WatchlistResponse(BaseModel):
     id: int
     ticker: str
-    notes: str | None
+    notes: Optional[str]
     created_at: str
-    
+
     class Config:
         from_attributes = True
 
 
+# --- Saved Analysis ---
 class SavedAnalysisCreate(BaseModel):
     name: str
-    description: str | None = None
+    description: Optional[str] = None
     symbols: List[str]
-    snapshot_fields: List[str] | None = None
-    perf_periods: List[str] | None = None
+    snapshot_fields: Optional[List[str]] = None
+    perf_periods: Optional[List[str]] = None
     include_dcf: bool = False
+    snapshot_data: Optional[dict] = None
 
 
 class SavedAnalysisResponse(BaseModel):
     id: int
     name: str
-    description: str | None
+    description: Optional[str]
     symbols: List[str]
-    snapshot_fields: List[str] | None
-    perf_periods: List[str] | None
+    snapshot_fields: Optional[List[str]]
+    perf_periods: Optional[List[str]]
     include_dcf: bool
+    snapshot_data: Optional[dict]
     created_at: str
     updated_at: str
-    
+
     class Config:
         from_attributes = True
 
 
-class DeckResponse(BaseModel):
+# --- Deck ---
+class DeckCreate(BaseModel):
+    ticker: str
+    title: str
+    content: dict
+    llm_provider: Optional[str] = None
+
+
+class DeckMetaResponse(BaseModel):
+    """Metadata-only response for list endpoint (no content)."""
+    id: int
+    ticker: str
+    title: str
+    llm_provider: Optional[str]
+    created_at: str
+
+    class Config:
+        from_attributes = True
+
+
+class DeckFullResponse(BaseModel):
+    """Full response including content JSON."""
     id: int
     ticker: str
     title: str
     content: dict
-    llm_provider: str | None
+    llm_provider: Optional[str]
     created_at: str
-    
+
     class Config:
         from_attributes = True
 
 
-# ===== WATCHLIST ROUTES =====
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _watchlist_to_response(item: Watchlist) -> WatchlistResponse:
+    return WatchlistResponse(
+        id=item.id,
+        ticker=item.ticker,
+        notes=item.notes,
+        created_at=item.created_at.isoformat(),
+    )
+
+
+def _analysis_to_response(a: SavedAnalysis) -> SavedAnalysisResponse:
+    return SavedAnalysisResponse(
+        id=a.id,
+        name=a.name,
+        description=a.description,
+        symbols=a.symbols,
+        snapshot_fields=a.snapshot_fields,
+        perf_periods=a.perf_periods,
+        include_dcf=a.include_dcf,
+        snapshot_data=a.snapshot_data,
+        created_at=a.created_at.isoformat(),
+        updated_at=a.updated_at.isoformat(),
+    )
+
+
+def _deck_meta(d: Deck) -> DeckMetaResponse:
+    return DeckMetaResponse(
+        id=d.id,
+        ticker=d.ticker,
+        title=d.title,
+        llm_provider=d.llm_provider,
+        created_at=d.created_at.isoformat(),
+    )
+
+
+def _deck_full(d: Deck) -> DeckFullResponse:
+    return DeckFullResponse(
+        id=d.id,
+        ticker=d.ticker,
+        title=d.title,
+        content=d.content,
+        llm_provider=d.llm_provider,
+        created_at=d.created_at.isoformat(),
+    )
+
+
+# ---------------------------------------------------------------------------
+# WATCHLIST ROUTES
+# ---------------------------------------------------------------------------
 
 @router.get("/watchlist", response_model=List[WatchlistResponse])
 async def get_watchlist(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_with_upsert),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get user's watchlist."""
+    """Get user's watchlist, ordered by created_at DESC."""
     result = await db.execute(
         select(Watchlist)
         .where(Watchlist.user_id == current_user.auth0_user_id)
         .order_by(Watchlist.created_at.desc())
     )
-    items = result.scalars().all()
-    return [
-        WatchlistResponse(
-            id=item.id,
-            ticker=item.ticker,
-            notes=item.notes,
-            created_at=item.created_at.isoformat(),
-        )
-        for item in items
-    ]
+    return [_watchlist_to_response(item) for item in result.scalars().all()]
 
 
 @router.post("/watchlist", response_model=WatchlistResponse, status_code=status.HTTP_201_CREATED)
 async def add_to_watchlist(
-    item: WatchlistItem,
-    current_user: User = Depends(get_current_user),
+    item: WatchlistCreate,
+    current_user: User = Depends(get_current_user_with_upsert),
     db: AsyncSession = Depends(get_db),
 ):
-    """Add ticker to watchlist."""
-    # Check if already exists
+    """Add ticker to watchlist. Ticker is uppercased. Duplicates return 409."""
+    ticker = item.ticker.strip().upper()
+    # Check for existing
     result = await db.execute(
         select(Watchlist).where(
             Watchlist.user_id == current_user.auth0_user_id,
-            Watchlist.ticker == item.ticker.upper(),
+            Watchlist.ticker == ticker,
         )
     )
-    existing = result.scalar_one_or_none()
-    
-    if existing:
+    if result.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Ticker {item.ticker} already in watchlist",
+            detail=f"Ticker {ticker} already in watchlist",
         )
-    
+
     watchlist_item = Watchlist(
         user_id=current_user.auth0_user_id,
-        ticker=item.ticker.upper(),
+        ticker=ticker,
         notes=item.notes,
     )
     db.add(watchlist_item)
-    await db.commit()
+    await db.flush()
     await db.refresh(watchlist_item)
-    
-    return WatchlistResponse(
-        id=watchlist_item.id,
-        ticker=watchlist_item.ticker,
-        notes=watchlist_item.notes,
-        created_at=watchlist_item.created_at.isoformat(),
-    )
+    return _watchlist_to_response(watchlist_item)
 
 
-@router.delete("/watchlist/{ticker}", status_code=status.HTTP_204_NO_CONTENT)
-async def remove_from_watchlist(
-    ticker: str,
-    current_user: User = Depends(get_current_user),
+@router.patch("/watchlist/{item_id}", response_model=WatchlistResponse)
+async def update_watchlist_notes(
+    item_id: int,
+    body: WatchlistUpdateNotes,
+    current_user: User = Depends(get_current_user_with_upsert),
     db: AsyncSession = Depends(get_db),
 ):
-    """Remove ticker from watchlist."""
+    """Update notes on a watchlist entry."""
+    result = await db.execute(
+        select(Watchlist).where(
+            Watchlist.id == item_id,
+            Watchlist.user_id == current_user.auth0_user_id,
+        )
+    )
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Watchlist entry not found")
+
+    item.notes = body.notes
+    await db.flush()
+    await db.refresh(item)
+    return _watchlist_to_response(item)
+
+
+@router.delete("/watchlist/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_from_watchlist(
+    item_id: int,
+    current_user: User = Depends(get_current_user_with_upsert),
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove an entry from watchlist by id."""
     result = await db.execute(
         delete(Watchlist).where(
+            Watchlist.id == item_id,
             Watchlist.user_id == current_user.auth0_user_id,
-            Watchlist.ticker == ticker.upper(),
         )
     )
-    
     if result.rowcount == 0:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Ticker {ticker} not found in watchlist",
-        )
-    
-    await db.commit()
+        raise HTTPException(status_code=404, detail="Watchlist entry not found")
 
 
-# ===== SAVED ANALYSES ROUTES =====
+# ---------------------------------------------------------------------------
+# SAVED ANALYSES ROUTES
+# ---------------------------------------------------------------------------
 
-@router.get("/analyses", response_model=List[SavedAnalysisResponse])
-async def get_saved_analyses(
-    current_user: User = Depends(get_current_user),
+@router.get("/saved-analyses", response_model=List[SavedAnalysisResponse])
+async def list_saved_analyses(
+    current_user: User = Depends(get_current_user_with_upsert),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get user's saved analyses."""
+    """List user's saved analyses, ordered by created_at DESC."""
     result = await db.execute(
         select(SavedAnalysis)
         .where(SavedAnalysis.user_id == current_user.auth0_user_id)
-        .order_by(SavedAnalysis.updated_at.desc())
+        .order_by(SavedAnalysis.created_at.desc())
     )
-    analyses = result.scalars().all()
-    return [
-        SavedAnalysisResponse(
-            id=analysis.id,
-            name=analysis.name,
-            description=analysis.description,
-            symbols=analysis.symbols,
-            snapshot_fields=analysis.snapshot_fields,
-            perf_periods=analysis.perf_periods,
-            include_dcf=analysis.include_dcf,
-            created_at=analysis.created_at.isoformat(),
-            updated_at=analysis.updated_at.isoformat(),
-        )
-        for analysis in analyses
-    ]
+    return [_analysis_to_response(a) for a in result.scalars().all()]
 
 
-@router.post("/analyses", response_model=SavedAnalysisResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/saved-analyses", response_model=SavedAnalysisResponse, status_code=status.HTTP_201_CREATED)
 async def create_saved_analysis(
-    analysis: SavedAnalysisCreate,
-    current_user: User = Depends(get_current_user),
+    body: SavedAnalysisCreate,
+    current_user: User = Depends(get_current_user_with_upsert),
     db: AsyncSession = Depends(get_db),
 ):
     """Save a new analysis configuration."""
-    saved_analysis = SavedAnalysis(
+    analysis = SavedAnalysis(
         user_id=current_user.auth0_user_id,
-        name=analysis.name,
-        description=analysis.description,
-        symbols=analysis.symbols,
-        snapshot_fields=analysis.snapshot_fields,
-        perf_periods=analysis.perf_periods,
-        include_dcf=analysis.include_dcf,
+        name=body.name,
+        description=body.description,
+        symbols=[s.upper() for s in body.symbols],
+        snapshot_fields=body.snapshot_fields,
+        perf_periods=body.perf_periods,
+        include_dcf=body.include_dcf,
+        snapshot_data=body.snapshot_data,
     )
-    db.add(saved_analysis)
-    await db.commit()
-    await db.refresh(saved_analysis)
-    
-    return SavedAnalysisResponse(
-        id=saved_analysis.id,
-        name=saved_analysis.name,
-        description=saved_analysis.description,
-        symbols=saved_analysis.symbols,
-        snapshot_fields=saved_analysis.snapshot_fields,
-        perf_periods=saved_analysis.perf_periods,
-        include_dcf=saved_analysis.include_dcf,
-        created_at=saved_analysis.created_at.isoformat(),
-        updated_at=saved_analysis.updated_at.isoformat(),
-    )
+    db.add(analysis)
+    await db.flush()
+    await db.refresh(analysis)
+    return _analysis_to_response(analysis)
 
 
-@router.delete("/analyses/{analysis_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.get("/saved-analyses/{analysis_id}", response_model=SavedAnalysisResponse)
+async def get_saved_analysis(
+    analysis_id: int,
+    current_user: User = Depends(get_current_user_with_upsert),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get a single saved analysis by ID."""
+    result = await db.execute(
+        select(SavedAnalysis).where(
+            SavedAnalysis.id == analysis_id,
+            SavedAnalysis.user_id == current_user.auth0_user_id,
+        )
+    )
+    analysis = result.scalar_one_or_none()
+    if not analysis:
+        raise HTTPException(status_code=404, detail="Saved analysis not found")
+    return _analysis_to_response(analysis)
+
+
+@router.delete("/saved-analyses/{analysis_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_saved_analysis(
     analysis_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_with_upsert),
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a saved analysis."""
@@ -228,51 +311,56 @@ async def delete_saved_analysis(
             SavedAnalysis.user_id == current_user.auth0_user_id,
         )
     )
-    
     if result.rowcount == 0:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Analysis not found",
-        )
-    
-    await db.commit()
+        raise HTTPException(status_code=404, detail="Saved analysis not found")
 
 
-# ===== DECK HISTORY ROUTES =====
+# ---------------------------------------------------------------------------
+# DECK ROUTES
+# ---------------------------------------------------------------------------
 
-@router.get("/decks", response_model=List[DeckResponse])
-async def get_saved_decks(
-    current_user: User = Depends(get_current_user),
+@router.get("/decks", response_model=List[DeckMetaResponse])
+async def list_decks(
+    current_user: User = Depends(get_current_user_with_upsert),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get user's generated decks."""
+    """List user's generated decks (metadata only), ordered by created_at DESC."""
     result = await db.execute(
         select(Deck)
         .where(Deck.user_id == current_user.auth0_user_id)
         .order_by(Deck.created_at.desc())
-        .limit(50)  # Limit to recent 50
+        .limit(50)
     )
-    decks = result.scalars().all()
-    return [
-        DeckResponse(
-            id=deck.id,
-            ticker=deck.ticker,
-            title=deck.title,
-            content=deck.content,
-            llm_provider=deck.llm_provider,
-            created_at=deck.created_at.isoformat(),
-        )
-        for deck in decks
-    ]
+    return [_deck_meta(d) for d in result.scalars().all()]
 
 
-@router.get("/decks/{deck_id}", response_model=DeckResponse)
-async def get_deck_by_id(
-    deck_id: int,
-    current_user: User = Depends(get_current_user),
+@router.post("/decks", response_model=DeckFullResponse, status_code=status.HTTP_201_CREATED)
+async def create_deck(
+    body: DeckCreate,
+    current_user: User = Depends(get_current_user_with_upsert),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get a specific deck by ID."""
+    """Save a generated deck to the database."""
+    deck = Deck(
+        user_id=current_user.auth0_user_id,
+        ticker=body.ticker.strip().upper(),
+        title=body.title,
+        content=body.content,
+        llm_provider=body.llm_provider,
+    )
+    db.add(deck)
+    await db.flush()
+    await db.refresh(deck)
+    return _deck_full(deck)
+
+
+@router.get("/decks/{deck_id}", response_model=DeckFullResponse)
+async def get_deck(
+    deck_id: int,
+    current_user: User = Depends(get_current_user_with_upsert),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get a specific deck by ID (includes full content)."""
     result = await db.execute(
         select(Deck).where(
             Deck.id == deck_id,
@@ -280,18 +368,23 @@ async def get_deck_by_id(
         )
     )
     deck = result.scalar_one_or_none()
-    
     if not deck:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Deck not found",
+        raise HTTPException(status_code=404, detail="Deck not found")
+    return _deck_full(deck)
+
+
+@router.delete("/decks/{deck_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_deck(
+    deck_id: int,
+    current_user: User = Depends(get_current_user_with_upsert),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a deck."""
+    result = await db.execute(
+        delete(Deck).where(
+            Deck.id == deck_id,
+            Deck.user_id == current_user.auth0_user_id,
         )
-    
-    return DeckResponse(
-        id=deck.id,
-        ticker=deck.ticker,
-        title=deck.title,
-        content=deck.content,
-        llm_provider=deck.llm_provider,
-        created_at=deck.created_at.isoformat(),
     )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Deck not found")

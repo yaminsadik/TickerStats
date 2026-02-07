@@ -27,6 +27,8 @@ import { useRelativeTable } from "../hooks/useRelativeTable";
 import { SNAPSHOT_FIELDS } from "../types/api";
 import type { FetchRelativeParams } from "../api/client";
 import { useSignalSettings } from "../hooks/useSignalSettings";
+import { useAuthenticatedFetch } from "../hooks/useAuthenticatedApi";
+import { createDeckInDB } from "../api/userApi";
 import {
   fetchSections,
   generateDeck,
@@ -66,6 +68,7 @@ const STEPS: { id: WizardStep; label: string }[] = [
 export default function DeckWizardPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { authenticatedFetch } = useAuthenticatedFetch();
 
   // Get pre-filled ticker and comparables from navigation state
   const locationState = location.state as {
@@ -151,13 +154,27 @@ export default function DeckWizardPage() {
         markDraftGenerating(draft.id);
       }
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       setGeneratedDeck(data);
       if (draft) {
         saveDraftContent(draft.id, data);
         setDraft({ ...draft, status: "complete", generatedContent: data });
-        // Navigate directly to deck view after successful generation
-        navigate(`/deck/${draft.id}`);
+
+        // Persist to DB if authenticated, then navigate to DB-backed view
+        try {
+          const dbDeck = await createDeckInDB(authenticatedFetch, {
+            ticker: basics.ticker,
+            title: data.company_name
+              ? `${data.company_name} Pitch Deck`
+              : `${basics.ticker} Pitch Deck`,
+            content: data,
+            llm_provider: config.provider,
+          });
+          navigate(`/deck/db/${dbDeck.id}`);
+        } catch {
+          // Fallback to local draft view if DB save fails
+          navigate(`/deck/${draft.id}`);
+        }
       }
     },
     onError: (error: Error) => {
@@ -295,7 +312,9 @@ export default function DeckWizardPage() {
         <div className="w-full bg-slate-800 rounded-full h-2">
           <div
             className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-            style={{ width: `${((currentStepIndex + 1) / STEPS.length) * 100}%` }}
+            style={{
+              width: `${((currentStepIndex + 1) / STEPS.length) * 100}%`,
+            }}
             role="progressbar"
             aria-valuenow={currentStepIndex + 1}
             aria-valuemin={1}
@@ -319,7 +338,9 @@ export default function DeckWizardPage() {
                   onClick={() => isClickable && setCurrentStep(step.id)}
                   disabled={!isClickable}
                   className={`flex flex-col items-center ${
-                    isClickable ? "cursor-pointer hover:opacity-80" : "cursor-default"
+                    isClickable
+                      ? "cursor-pointer hover:opacity-80"
+                      : "cursor-default"
                   } transition-opacity`}
                   aria-label={`${step.label} - ${isCompleted ? "Completed" : isActive ? "Current" : "Upcoming"}`}
                 >
@@ -621,9 +642,7 @@ export default function DeckWizardPage() {
               </p>
             </div>
 
-            {sectionsLoading && (
-              <CardSkeleton count={6} />
-            )}
+            {sectionsLoading && <CardSkeleton count={6} />}
 
             {sectionsError && (
               <Alert variant="error" title="Failed to Load Sections">
@@ -634,8 +653,8 @@ export default function DeckWizardPage() {
                       : "Unable to fetch available sections. This might be a temporary network issue."}
                   </p>
                   <div className="flex gap-2">
-                    <Button 
-                      variant="outline" 
+                    <Button
+                      variant="outline"
                       size="sm"
                       onClick={() => window.location.reload()}
                       className="text-white"
@@ -646,7 +665,10 @@ export default function DeckWizardPage() {
                   </div>
                   <p className="text-xs text-slate-400">
                     If the problem persists, please{" "}
-                    <a href="/contact" className="text-blue-400 hover:underline">
+                    <a
+                      href="/contact"
+                      className="text-blue-400 hover:underline"
+                    >
                       contact support
                     </a>
                   </p>
@@ -822,29 +844,26 @@ export default function DeckWizardPage() {
                   <p className="text-sm">
                     {generateMutation.error instanceof Error
                       ? generateMutation.error.message
-                      : "An unexpected error occurred during deck generation."}
-                    {" "}This could be due to API limits or connectivity issues.
+                      : "An unexpected error occurred during deck generation."}{" "}
+                    This could be due to API limits or connectivity issues.
                   </p>
                   <div className="flex flex-wrap gap-2">
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
+                    <Button
+                      variant="outline"
+                      size="sm"
                       onClick={handleGenerate}
                       className="text-white"
                     >
                       <RefreshCw className="w-4 h-4 mr-2" />
                       Retry Generation
                     </Button>
-                    <Button 
-                      variant="ghost" 
-                      size="sm"
-                      onClick={goBack}
-                    >
+                    <Button variant="ghost" size="sm" onClick={goBack}>
                       Go Back
                     </Button>
                   </div>
                   <p className="text-xs text-slate-400">
-                    💡 <strong>Tip:</strong> Try reducing the number of sections or changing the AI provider
+                    💡 <strong>Tip:</strong> Try reducing the number of sections
+                    or changing the AI provider
                   </p>
                 </div>
               </Alert>

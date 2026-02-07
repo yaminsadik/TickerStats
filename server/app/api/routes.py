@@ -1,5 +1,5 @@
 """
-API routes for the TicketStats relative table backend.
+API routes for the TickerStats relative table backend.
 """
 
 import csv
@@ -220,18 +220,21 @@ async def export_relative_table(
     fields: Optional[str] = Query(None, description="Comma-separated snapshot fields to include"),
     perf: Optional[str] = Query(None, description="Comma-separated performance metrics to compute"),
     perfPeriod: Optional[str] = Query(None, description="Performance period"),
-    format: str = Query("csv", description="Export format (only 'csv' supported)"),
+    format: str = Query("csv", description="Export format: csv, xlsx, or pdf"),
 ):
     """
-    Export relative table data as CSV.
+    Export relative table data as CSV, XLSX, or PDF.
     
     Columns: symbol + requested snapshot fields + requested perf metrics (if any).
     Null values render as empty cells.
     """
-    if format.lower() != "csv":
-        raise HTTPException(status_code=400, detail="Only 'csv' format is currently supported")
+    from app.services.export_service import build_table_rows, generate_csv, generate_xlsx, generate_pdf
 
-    logger.info(f"CSV export request: symbols={symbols}, fields={fields}, perf={perf}, perfPeriod={perfPeriod}")
+    fmt = format.lower()
+    if fmt not in ("csv", "xlsx", "pdf"):
+        raise HTTPException(status_code=400, detail="Supported formats: csv, xlsx, pdf")
+
+    logger.info(f"Export request (format={fmt}): symbols={symbols}, fields={fields}, perf={perf}, perfPeriod={perfPeriod}")
 
     # Parse and validate inputs
     validated_symbols = parse_and_validate_symbols(symbols)
@@ -248,46 +251,30 @@ async def export_relative_table(
 
     as_of = yfinance_service.get_as_of_timestamp()
 
-    # Build CSV
-    output = io.StringIO()
-    
-    # Build header: symbol + snapshot fields + perf metrics (if requested)
-    csv_headers = ["symbol"] + validated_fields
-    if validated_perf_metrics:
-        csv_headers.extend(validated_perf_metrics)
-
-    writer = csv.DictWriter(output, fieldnames=csv_headers, extrasaction='ignore')
-    writer.writeheader()
-
-    for row in rows_data:
-        csv_row = {"symbol": row["symbol"]}
-        
-        # Add snapshot fields (None becomes empty string in CSV)
-        for field in validated_fields:
-            val = row["snapshot"].get(field)
-            csv_row[field] = val if val is not None else ""
-
-        # Add performance metrics if requested
-        if validated_perf_metrics and row["performance"]:
-            for metric in validated_perf_metrics:
-                val = row["performance"].get(metric)
-                csv_row[metric] = val if val is not None else ""
-        elif validated_perf_metrics:
-            for metric in validated_perf_metrics:
-                csv_row[metric] = ""
-
-        writer.writerow(csv_row)
-
-    csv_content = output.getvalue()
-    output.close()
-
-    # Set response headers
-    response.headers["X-AsOf"] = as_of
-    response.headers["X-Cache"] = "HIT" if cache_hit else "MISS"
-    response.headers["Content-Disposition"] = "attachment; filename=relative_table.csv"
-
-    return Response(
-        content=csv_content,
-        media_type="text/csv",
-        headers=response.headers,
+    # Build normalised table data
+    headers, flat_rows = build_table_rows(
+        rows_data, validated_fields, validated_perf_metrics, include_dcf=False,
     )
+
+    # Common response headers
+    extra_headers = {
+        "X-AsOf": as_of,
+        "X-Cache": "HIT" if cache_hit else "MISS",
+    }
+
+    if fmt == "csv":
+        content = generate_csv(headers, flat_rows)
+        extra_headers["Content-Disposition"] = "attachment; filename=relative_table.csv"
+        return Response(content=content, media_type="text/csv", headers=extra_headers)
+    elif fmt == "xlsx":
+        content = generate_xlsx(headers, flat_rows)
+        extra_headers["Content-Disposition"] = "attachment; filename=relative_table.xlsx"
+        return Response(
+            content=content,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers=extra_headers,
+        )
+    else:  # pdf
+        content = generate_pdf(headers, flat_rows)
+        extra_headers["Content-Disposition"] = "attachment; filename=relative_table.pdf"
+        return Response(content=content, media_type="application/pdf", headers=extra_headers)

@@ -150,7 +150,7 @@ def _register_blueprints(app: Flask) -> None:
     @app.route("/")
     def root():
         return jsonify({
-            "service": "ticketstats-unified",
+            "service": "tickerstats-unified",
             "version": "1.0.0",
             "status": "running",
             "endpoints": {

@@ -1,11 +1,15 @@
-import { useState, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useCallback, useEffect } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import {
   FileText,
   ChevronRight,
   TrendingUp,
   Settings,
   HelpCircle,
+  Save,
+  Star,
+  RefreshCw,
+  Loader2,
 } from "lucide-react";
 import { TickerInput } from "../components/TickerInput";
 import { ColumnPicker } from "../components/ColumnPicker";
@@ -15,13 +19,17 @@ import SignalControls from "../components/SignalControls";
 import SignalConfigDrawer from "../components/SignalConfigDrawer";
 import { useRelativeTable } from "../hooks/useRelativeTable";
 import { useSignalSettings } from "../hooks/useSignalSettings";
-import { getExportUrl } from "../api/client";
-import { Button, Card, Alert, TableSkeleton } from "../components/ui";
+import { getExportUrl, type ExportFormat } from "../api/client";
+import { useAuthenticatedFetch } from "../hooks/useAuthenticatedApi";
+import { createSavedAnalysis, addToWatchlist } from "../api/userApi";
+import { Button, Card, Alert, Input, TableSkeleton } from "../components/ui";
 import { SNAPSHOT_FIELDS, PERF_METRICS, type PerfPeriod } from "../types/api";
 import type { FetchRelativeParams } from "../api/client";
 
 export default function BrowsePage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { authenticatedFetch } = useAuthenticatedFetch();
 
   // Ticker input state
   const [tickers, setTickers] = useState<string[]>([]);
@@ -73,6 +81,104 @@ export default function BrowsePage() {
   // Fetch data
   const { data, isLoading, error, isFetching } = useRelativeTable(queryParams);
 
+  // --- Save Search state ---
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [saveName, setSaveName] = useState("");
+  const [saveDesc, setSaveDesc] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // --- Watchlist feedback ---
+  const [watchlistAdding, setWatchlistAdding] = useState<string | null>(null);
+  const [watchlistMsg, setWatchlistMsg] = useState<string | null>(null);
+
+  // Load saved analysis from navigation state (coming from SavedSearchesPage)
+  useEffect(() => {
+    const state = location.state as {
+      savedAnalysis?: {
+        symbols: string[];
+        snapshot_fields?: string[] | null;
+        perf_periods?: string[] | null;
+        include_dcf?: boolean;
+        snapshot_data?: import("../types/api").RelativeTableResponse | null;
+      };
+    } | null;
+    if (state?.savedAnalysis) {
+      const sa = state.savedAnalysis;
+      setTickers(sa.symbols);
+      if (sa.snapshot_fields) setSelectedFields(sa.snapshot_fields);
+      if (sa.perf_periods && sa.perf_periods.length > 0) {
+        setShowPerf(true);
+      }
+      if (sa.include_dcf) setShowDcf(true);
+      // Clear the location state so refresh doesn't re-apply
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state]);
+
+  // --- Save Search handler ---
+  const handleSaveSearch = useCallback(async () => {
+    if (!saveName.trim() || tickers.length === 0) return;
+    setSaving(true);
+    setSaveError(null);
+    setSaveSuccess(false);
+    try {
+      await createSavedAnalysis(authenticatedFetch, {
+        name: saveName.trim(),
+        description: saveDesc.trim() || undefined,
+        symbols: tickers,
+        snapshot_fields: selectedFields,
+        perf_periods: showPerf ? selectedPerfMetrics : undefined,
+        include_dcf: showDcf,
+        snapshot_data: data ?? undefined,
+      });
+      setSaveSuccess(true);
+      setShowSaveModal(false);
+      setSaveName("");
+      setSaveDesc("");
+      // Auto-dismiss success after 3s
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (err: any) {
+      setSaveError(err.message || "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  }, [
+    authenticatedFetch,
+    saveName,
+    saveDesc,
+    tickers,
+    selectedFields,
+    showPerf,
+    selectedPerfMetrics,
+    showDcf,
+  ]);
+
+  // --- Add to Watchlist handler ---
+  const handleAddToWatchlist = useCallback(
+    async (ticker: string) => {
+      setWatchlistAdding(ticker);
+      setWatchlistMsg(null);
+      try {
+        await addToWatchlist(authenticatedFetch, ticker);
+        setWatchlistMsg(`${ticker} added to watchlist`);
+        setTimeout(() => setWatchlistMsg(null), 3000);
+      } catch (err: any) {
+        // 409 means already exists – not really an error for the user
+        if (err.message?.includes("already")) {
+          setWatchlistMsg(`${ticker} is already in your watchlist`);
+        } else {
+          setWatchlistMsg(`Failed to add ${ticker}: ${err.message}`);
+        }
+        setTimeout(() => setWatchlistMsg(null), 3000);
+      } finally {
+        setWatchlistAdding(null);
+      }
+    },
+    [authenticatedFetch],
+  );
+
   // Handle Compare button
   const handleCompare = useCallback(() => {
     if (tickers.length === 0) return;
@@ -102,17 +208,21 @@ export default function BrowsePage() {
   ]);
 
   // Handle Export button
-  const handleExport = useCallback(() => {
-    if (!queryParams || !data) return;
+  const handleExport = useCallback(
+    (format: ExportFormat = "csv") => {
+      if (!queryParams || !data) return;
 
-    const url = getExportUrl(queryParams);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `relative_table_${new Date().toISOString().split("T")[0]}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  }, [queryParams, data]);
+      const ext = format === "xlsx" ? "xlsx" : format === "pdf" ? "pdf" : "csv";
+      const url = getExportUrl(queryParams, format);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `relative_table_${new Date().toISOString().split("T")[0]}.${ext}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    },
+    [queryParams, data],
+  );
 
   // Handle Generate Deck - navigate to wizard with selected ticker
   const handleGenerateDeck = useCallback(
@@ -163,6 +273,18 @@ export default function BrowsePage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {tickers.length > 0 && (
+            <Button
+              variant="outline"
+              size="lg"
+              className="flex items-center gap-2"
+              onClick={() => setShowSaveModal(true)}
+              aria-label="Save current search"
+            >
+              <Save className="w-5 h-5" aria-hidden="true" />
+              Save Search
+            </Button>
+          )}
           <Button
             onClick={() => handleGenerateDeck()}
             size="lg"
@@ -175,6 +297,79 @@ export default function BrowsePage() {
           </Button>
         </div>
       </div>
+
+      {/* Success / info toasts */}
+      {saveSuccess && (
+        <Alert variant="success" title="Saved">
+          Search saved successfully!{" "}
+          <button
+            className="underline text-green-300"
+            onClick={() => navigate("/saved-searches")}
+          >
+            View saved searches
+          </button>
+        </Alert>
+      )}
+      {watchlistMsg && (
+        <Alert
+          variant={watchlistMsg.includes("Failed") ? "error" : "info"}
+          title="Watchlist"
+        >
+          {watchlistMsg}
+        </Alert>
+      )}
+
+      {/* Save Search Modal */}
+      {showSaveModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <Card className="w-full max-w-md mx-4">
+            <h2 className="text-lg font-bold text-white mb-4">Save Search</h2>
+            <div className="space-y-3">
+              <Input
+                placeholder="Name (e.g. Tech Giants Comparison)"
+                value={saveName}
+                onChange={(e) => setSaveName(e.target.value)}
+                autoFocus
+              />
+              <Input
+                placeholder="Description (optional)"
+                value={saveDesc}
+                onChange={(e) => setSaveDesc(e.target.value)}
+              />
+              <p className="text-xs text-slate-400">
+                Saving {tickers.length} ticker{tickers.length !== 1 ? "s" : ""}:{" "}
+                {tickers.slice(0, 5).join(", ")}
+                {tickers.length > 5 ? ` +${tickers.length - 5} more` : ""}
+              </p>
+              {saveError && <p className="text-sm text-red-400">{saveError}</p>}
+              <div className="flex gap-2 justify-end pt-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setShowSaveModal(false);
+                    setSaveError(null);
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleSaveSearch}
+                  disabled={saving || !saveName.trim()}
+                >
+                  {saving ? (
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  ) : (
+                    <Save className="w-4 h-4 mr-2" />
+                  )}
+                  Save
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
 
       {/* Input Section */}
       <Card>
@@ -426,21 +621,23 @@ export default function BrowsePage() {
         <Alert variant="error" title="Failed to Load Data">
           <div className="space-y-3">
             <p className="text-sm">
-              {error instanceof Error ? error.message : "An unexpected error occurred while fetching data."}
-              {" "}This might be due to invalid ticker symbols or network issues.
+              {error instanceof Error
+                ? error.message
+                : "An unexpected error occurred while fetching data."}{" "}
+              This might be due to invalid ticker symbols or network issues.
             </p>
             <div className="flex flex-wrap gap-2">
-              <Button 
-                variant="outline" 
-                size="sm" 
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={handleCompare}
                 className="text-white"
               >
                 <RefreshCw className="w-4 h-4 mr-2" />
                 Retry
               </Button>
-              <Button 
-                variant="ghost" 
+              <Button
+                variant="ghost"
                 size="sm"
                 onClick={() => {
                   setTickers([]);
@@ -477,16 +674,22 @@ export default function BrowsePage() {
             Start Your Analysis
           </h3>
           <p className="text-slate-400 mb-8 max-w-md mx-auto">
-            Compare stocks side-by-side with real-time market data and fundamental metrics.
-            Enter tickers above to get started.
+            Compare stocks side-by-side with real-time market data and
+            fundamental metrics. Enter tickers above to get started.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center mb-8">
-            <Button 
-              variant="primary" 
+            <Button
+              variant="primary"
               size="lg"
               onClick={() => {
                 // Add example tickers
-                const exampleTickers = ['AAPL', 'MSFT', 'GOOGL', 'META', 'NVDA'];
+                const exampleTickers = [
+                  "AAPL",
+                  "MSFT",
+                  "GOOGL",
+                  "META",
+                  "NVDA",
+                ];
                 setTickers(exampleTickers);
                 // Trigger comparison
                 setTimeout(() => {
@@ -508,8 +711,8 @@ export default function BrowsePage() {
               <TrendingUp className="w-5 h-5 mr-2" />
               Try Example: Tech Giants
             </Button>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               size="lg"
               onClick={() => handleGenerateDeck()}
             >
@@ -518,28 +721,32 @@ export default function BrowsePage() {
             </Button>
           </div>
           <div className="text-sm text-slate-500">
-            <p className="mb-2">💡 <strong>Popular searches:</strong></p>
+            <p className="mb-2">
+              💡 <strong>Popular searches:</strong>
+            </p>
             <div className="flex flex-wrap gap-2 justify-center">
               <button
-                onClick={() => setTickers(['AAPL', 'MSFT', 'GOOGL', 'META', 'NVDA'])}
+                onClick={() =>
+                  setTickers(["AAPL", "MSFT", "GOOGL", "META", "NVDA"])
+                }
                 className="px-3 py-1 bg-slate-800 hover:bg-slate-700 rounded-full text-xs text-slate-300 transition-colors"
               >
                 FAANG
               </button>
               <button
-                onClick={() => setTickers(['JPM', 'BAC', 'WFC', 'C', 'GS'])}
+                onClick={() => setTickers(["JPM", "BAC", "WFC", "C", "GS"])}
                 className="px-3 py-1 bg-slate-800 hover:bg-slate-700 rounded-full text-xs text-slate-300 transition-colors"
               >
                 Big Banks
               </button>
               <button
-                onClick={() => setTickers(['JNJ', 'PFE', 'UNH', 'ABBV', 'TMO'])}
+                onClick={() => setTickers(["JNJ", "PFE", "UNH", "ABBV", "TMO"])}
                 className="px-3 py-1 bg-slate-800 hover:bg-slate-700 rounded-full text-xs text-slate-300 transition-colors"
               >
                 Healthcare
               </button>
               <button
-                onClick={() => setTickers(['XOM', 'CVX', 'COP', 'SLB', 'EOG'])}
+                onClick={() => setTickers(["XOM", "CVX", "COP", "SLB", "EOG"])}
                 className="px-3 py-1 bg-slate-800 hover:bg-slate-700 rounded-full text-xs text-slate-300 transition-colors"
               >
                 Energy
@@ -562,7 +769,7 @@ export default function BrowsePage() {
           />
           {/* Generate Deck for selected ticker CTA */}
           {data.rows.length > 0 && (
-            <div className="border-t border-slate-800 p-4 bg-slate-900/50">
+            <div className="border-t border-slate-800 p-4 bg-slate-900/50 space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-sm text-slate-400">
                   Select a ticker to generate an investment pitch deck
@@ -576,6 +783,29 @@ export default function BrowsePage() {
                       onClick={() => handleGenerateDeck(row.symbol)}
                     >
                       <FileText className="w-4 h-4 mr-1" />
+                      {row.symbol}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center justify-between border-t border-slate-800 pt-3">
+                <p className="text-sm text-slate-400">
+                  Add a ticker to your watchlist
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {data.rows.slice(0, 8).map((row) => (
+                    <Button
+                      key={row.symbol}
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleAddToWatchlist(row.symbol)}
+                      disabled={watchlistAdding === row.symbol}
+                    >
+                      {watchlistAdding === row.symbol ? (
+                        <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                      ) : (
+                        <Star className="w-4 h-4 mr-1" />
+                      )}
                       {row.symbol}
                     </Button>
                   ))}

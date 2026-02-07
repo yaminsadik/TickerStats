@@ -95,17 +95,26 @@ export default function LandingPage() {
                 FAQ
               </button>
             </div>
-            <button
-              onClick={() =>
-                loginWithRedirect({
-                  authorizationParams: { screen_hint: "signup" },
-                  appState: { returnTo: "/app/deck" },
-                })
-              }
-              className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg font-medium transition-colors text-sm"
-            >
-              Sign up
-            </button>
+            {isAuthenticated ? (
+              <button
+                onClick={() => navigate("/deck/new")}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg font-medium transition-colors text-sm"
+              >
+                Generate a deck
+              </button>
+            ) : (
+              <button
+                onClick={() =>
+                  loginWithRedirect({
+                    authorizationParams: { screen_hint: "signup" },
+                    appState: { returnTo: "/deck/new" },
+                  })
+                }
+                className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg font-medium transition-colors text-sm"
+              >
+                Sign up
+              </button>
+            )}
           </div>
         </div>
       </nav>
@@ -126,10 +135,12 @@ export default function LandingPage() {
               <div className="flex flex-wrap gap-4 mb-8">
                 <button
                   onClick={() =>
-                    loginWithRedirect({
-                      authorizationParams: { screen_hint: "signup" },
-                      appState: { returnTo: "/app/deck" },
-                    })
+                    isAuthenticated
+                      ? navigate("/deck/new")
+                      : loginWithRedirect({
+                          authorizationParams: { screen_hint: "signup" },
+                          appState: { returnTo: "/deck/new" },
+                        })
                   }
                   className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-lg font-semibold transition-colors flex items-center gap-2"
                 >
@@ -375,12 +386,14 @@ export default function LandingPage() {
               price="$0"
               period="forever"
               features={["3 decks/month", "Fast mode", "Basic comparisons"]}
-              cta="Get Started"
+              cta={isAuthenticated ? "Generate a deck" : "Get Started"}
               onClick={() =>
-                loginWithRedirect({
-                  authorizationParams: { screen_hint: "signup" },
-                  appState: { returnTo: "/app/deck" },
-                })
+                isAuthenticated
+                  ? navigate("/deck/new")
+                  : loginWithRedirect({
+                      authorizationParams: { screen_hint: "signup" },
+                      appState: { returnTo: "/deck/new" },
+                    })
               }
             />
             <PricingCard
@@ -393,12 +406,14 @@ export default function LandingPage() {
                 "Custom peers",
                 "Balanced + Deep modes",
               ]}
-              cta="Start Pro"
+              cta={isAuthenticated ? "Generate a deck" : "Start Pro"}
               onClick={() =>
-                loginWithRedirect({
-                  authorizationParams: { screen_hint: "signup" },
-                  appState: { returnTo: "/app/deck", plan: "pro" },
-                })
+                isAuthenticated
+                  ? navigate("/deck/new")
+                  : loginWithRedirect({
+                      authorizationParams: { screen_hint: "signup" },
+                      appState: { returnTo: "/deck/new", plan: "pro" },
+                    })
               }
               highlighted
             />
@@ -413,12 +428,7 @@ export default function LandingPage() {
                 "Priority support",
               ]}
               cta="Contact Sales"
-              onClick={() =>
-                loginWithRedirect({
-                  authorizationParams: { screen_hint: "signup" },
-                  appState: { returnTo: "/app/deck", plan: "team" },
-                })
-              }
+              onClick={() => navigate("/contact")}
             />
           </div>
           <p className="text-xs text-slate-500 mt-8 text-center">
@@ -436,27 +446,21 @@ export default function LandingPage() {
           <p className="text-xl text-slate-400 mb-8">
             Generate a deck or start with the comp table in under a minute.
           </p>
-          <div className="flex flex-wrap gap-4 justify-center mb-6">
+          <div className="flex flex-wrap gap-4 justify-center">
             <button
-              onClick={() => navigate("/app/deck")}
+              onClick={() => navigate("/deck/new")}
               className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-lg font-semibold transition-colors inline-flex items-center gap-2"
             >
               Generate a deck
               <FileText className="w-5 h-5" />
             </button>
             <button
-              onClick={() => navigate("/app/compare")}
+              onClick={() => navigate("/browse")}
               className="bg-slate-800 hover:bg-slate-700 text-white px-8 py-4 rounded-lg font-semibold transition-colors"
             >
               Try the comp table
             </button>
           </div>
-          <a
-            href="#"
-            className="text-sm text-slate-400 hover:text-slate-300 transition-colors"
-          >
-            Contact sales
-          </a>
         </div>
       </section>
 

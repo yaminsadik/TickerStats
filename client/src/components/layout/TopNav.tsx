@@ -1,11 +1,22 @@
 import { useState } from "react";
-import { Link, useLocation } from "react-router-dom";
-import { BarChart3, LogIn, LogOut, User, Menu, X } from "lucide-react";
+import { Link, useNavigate, useLocation } from "react-router-dom";
+import {
+  BarChart3,
+  LogIn,
+  LogOut,
+  User,
+  Menu,
+  X,
+  Star,
+  Search,
+  FileText,
+} from "lucide-react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { Button } from "../ui/Button";
 
 export default function TopNav() {
   const location = useLocation();
+  const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Make Auth0 optional - gracefully handle if not configured
@@ -50,11 +61,64 @@ export default function TopNav() {
                       ? "bg-blue-600 text-white"
                       : "text-slate-300 hover:bg-slate-800 hover:text-white"
                   }`}
-                  aria-current={location.pathname === "/browse" ? "page" : undefined}
+                  aria-current={
+                    location.pathname === "/browse" ? "page" : undefined
+                  }
                 >
                   <BarChart3 className="w-4 h-4" />
                   <span>Browse</span>
                 </Link>
+                <Link
+                  to="/saved-searches"
+                  className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    location.pathname === "/saved-searches"
+                      ? "bg-blue-600 text-white"
+                      : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                  }`}
+                  aria-current={
+                    location.pathname === "/saved-searches" ? "page" : undefined
+                  }
+                >
+                  <Search className="w-4 h-4" />
+                  <span>Saved</span>
+                </Link>
+                <Link
+                  to="/watchlist"
+                  className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    location.pathname === "/watchlist"
+                      ? "bg-blue-600 text-white"
+                      : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                  }`}
+                  aria-current={
+                    location.pathname === "/watchlist" ? "page" : undefined
+                  }
+                >
+                  <Star className="w-4 h-4" />
+                  <span>Watchlist</span>
+                </Link>
+                <Link
+                  to="/decks"
+                  className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    location.pathname.startsWith("/decks")
+                      ? "bg-blue-600 text-white"
+                      : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                  }`}
+                  aria-current={
+                    location.pathname.startsWith("/decks") ? "page" : undefined
+                  }
+                >
+                  <FileText className="w-4 h-4" />
+                  <span>Decks</span>
+                </Link>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => navigate("/deck/new")}
+                  className="ml-2"
+                >
+                  <FileText className="w-4 h-4 mr-1" />
+                  New Deck
+                </Button>
               </div>
             )}
           </div>
@@ -139,19 +203,78 @@ export default function TopNav() {
           <div className="px-4 pt-2 pb-3 space-y-1">
             {/* Mobile nav items - only show when authenticated */}
             {isAuthenticated && (
-              <Link
-                to="/browse"
-                onClick={closeMobileMenu}
-                className={`flex items-center space-x-2 px-3 py-3 rounded-lg text-base font-medium transition-colors ${
-                  location.pathname === "/browse"
-                    ? "bg-blue-600 text-white"
-                    : "text-slate-300 hover:bg-slate-800 hover:text-white"
-                }`}
-                aria-current={location.pathname === "/browse" ? "page" : undefined}
-              >
-                <BarChart3 className="w-5 h-5" />
-                <span>Browse</span>
-              </Link>
+              <>
+                <Link
+                  to="/browse"
+                  onClick={closeMobileMenu}
+                  className={`flex items-center space-x-2 px-3 py-3 rounded-lg text-base font-medium transition-colors ${
+                    location.pathname === "/browse"
+                      ? "bg-blue-600 text-white"
+                      : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                  }`}
+                  aria-current={
+                    location.pathname === "/browse" ? "page" : undefined
+                  }
+                >
+                  <BarChart3 className="w-5 h-5" />
+                  <span>Browse</span>
+                </Link>
+                <Link
+                  to="/saved-searches"
+                  onClick={closeMobileMenu}
+                  className={`flex items-center space-x-2 px-3 py-3 rounded-lg text-base font-medium transition-colors ${
+                    location.pathname === "/saved-searches"
+                      ? "bg-blue-600 text-white"
+                      : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                  }`}
+                  aria-current={
+                    location.pathname === "/saved-searches" ? "page" : undefined
+                  }
+                >
+                  <Search className="w-5 h-5" />
+                  <span>Saved Searches</span>
+                </Link>
+                <Link
+                  to="/watchlist"
+                  onClick={closeMobileMenu}
+                  className={`flex items-center space-x-2 px-3 py-3 rounded-lg text-base font-medium transition-colors ${
+                    location.pathname === "/watchlist"
+                      ? "bg-blue-600 text-white"
+                      : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                  }`}
+                  aria-current={
+                    location.pathname === "/watchlist" ? "page" : undefined
+                  }
+                >
+                  <Star className="w-5 h-5" />
+                  <span>Watchlist</span>
+                </Link>
+                <Link
+                  to="/decks"
+                  onClick={closeMobileMenu}
+                  className={`flex items-center space-x-2 px-3 py-3 rounded-lg text-base font-medium transition-colors ${
+                    location.pathname.startsWith("/decks")
+                      ? "bg-blue-600 text-white"
+                      : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                  }`}
+                  aria-current={
+                    location.pathname.startsWith("/decks") ? "page" : undefined
+                  }
+                >
+                  <FileText className="w-5 h-5" />
+                  <span>Deck History</span>
+                </Link>
+                <button
+                  onClick={() => {
+                    closeMobileMenu();
+                    navigate("/deck/new");
+                  }}
+                  className="flex items-center space-x-2 px-3 py-3 rounded-lg text-base font-medium w-full text-left bg-blue-600 hover:bg-blue-700 text-white transition-colors"
+                >
+                  <FileText className="w-5 h-5" />
+                  <span>New Deck</span>
+                </button>
+              </>
             )}
           </div>
 

@@ -195,7 +195,7 @@ def get_relative_table():
 @relative_bp.route("/relative/export", methods=["GET"])
 def export_relative_table():
     """
-    Export relative table data as CSV.
+    Export relative table data as CSV, XLSX, or PDF.
     
     Query params:
     - symbols: Comma-separated ticker symbols (required)
@@ -203,12 +203,14 @@ def export_relative_table():
     - perf: Comma-separated performance metrics (optional)
     - perfPeriod: Performance period (required if perf specified)
     - dcf: Include DCF valuation (true/false, optional)
-    - format: Export format (default: csv)
+    - format: Export format (csv, xlsx, pdf; default: csv)
     """
+    from app.services.export_service import build_table_rows, generate_csv, generate_xlsx, generate_pdf
+
     try:
-        export_format = request.args.get("format", "csv").lower()
-        if export_format != "csv":
-            return jsonify({"error": "Bad request", "message": "Only 'csv' format is currently supported"}), 400
+        fmt = request.args.get("format", "csv").lower()
+        if fmt not in ("csv", "xlsx", "pdf"):
+            return jsonify({"error": "Bad request", "message": "Supported formats: csv, xlsx, pdf"}), 400
 
         symbols = request.args.get("symbols")
         fields = request.args.get("fields")
@@ -216,7 +218,7 @@ def export_relative_table():
         perf_period = request.args.get("perfPeriod")
         dcf = request.args.get("dcf", "false").lower() == "true"
 
-        logger.info(f"CSV export request: symbols={symbols}, fields={fields}, perf={perf}, perfPeriod={perf_period}, dcf={dcf}")
+        logger.info(f"Export request (format={fmt}): symbols={symbols}, fields={fields}, perf={perf}, perfPeriod={perf_period}, dcf={dcf}")
 
         # Parse and validate inputs
         validated_symbols = parse_and_validate_symbols(symbols)
@@ -234,61 +236,32 @@ def export_relative_table():
 
         as_of = yfinance_service.get_as_of_timestamp()
 
-        # Build CSV
-        output = io.StringIO()
-        
-        # Build header: symbol + snapshot fields + perf metrics (if requested) + DCF (if requested)
-        csv_headers = ["symbol"] + validated_fields
-        if validated_perf_metrics:
-            csv_headers.extend(validated_perf_metrics)
-        if dcf:
-            csv_headers.extend(["dcfPrice", "dcfUpside"])
+        # Build normalised table data
+        headers, flat_rows = build_table_rows(
+            rows_data, validated_fields, validated_perf_metrics, include_dcf=dcf,
+        )
 
-        writer = csv.DictWriter(output, fieldnames=csv_headers, extrasaction='ignore')
-        writer.writeheader()
+        if fmt == "csv":
+            content = generate_csv(headers, flat_rows)
+            resp = Response(content, mimetype="text/csv")
+            resp.headers["Content-Disposition"] = "attachment; filename=relative_table.csv"
+        elif fmt == "xlsx":
+            content = generate_xlsx(headers, flat_rows)
+            resp = Response(content, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            resp.headers["Content-Disposition"] = "attachment; filename=relative_table.xlsx"
+        else:  # pdf
+            content = generate_pdf(headers, flat_rows)
+            resp = Response(content, mimetype="application/pdf")
+            resp.headers["Content-Disposition"] = "attachment; filename=relative_table.pdf"
 
-        for row in rows_data:
-            csv_row = {"symbol": row["symbol"]}
-            
-            # Add snapshot fields (None becomes empty string in CSV)
-            for field in validated_fields:
-                val = row["snapshot"].get(field)
-                csv_row[field] = val if val is not None else ""
-
-            # Add performance metrics if requested
-            if validated_perf_metrics and row["performance"]:
-                for metric in validated_perf_metrics:
-                    val = row["performance"].get(metric)
-                    csv_row[metric] = val if val is not None else ""
-            elif validated_perf_metrics:
-                for metric in validated_perf_metrics:
-                    csv_row[metric] = ""
-
-            # Add DCF metrics if requested
-            if dcf and row.get("dcf"):
-                csv_row["dcfPrice"] = row["dcf"].get("dcfPrice", "")
-                csv_row["dcfUpside"] = row["dcf"].get("dcfUpside", "")
-            elif dcf:
-                csv_row["dcfPrice"] = ""
-                csv_row["dcfUpside"] = ""
-
-            writer.writerow(csv_row)
-
-        csv_content = output.getvalue()
-        output.close()
-
-        # Create response
-        response = Response(csv_content, mimetype="text/csv")
-        response.headers["X-AsOf"] = as_of
-        response.headers["X-Cache"] = "HIT" if cache_hit else "MISS"
-        response.headers["Content-Disposition"] = "attachment; filename=relative_table.csv"
-
-        return response
+        resp.headers["X-AsOf"] = as_of
+        resp.headers["X-Cache"] = "HIT" if cache_hit else "MISS"
+        return resp
 
     except ValueError as e:
         return jsonify({"error": "Bad request", "message": str(e)}), 400
     except Exception as e:
-        logger.error(f"Error processing CSV export request: {e}", exc_info=True)
+        logger.error(f"Error processing export request: {e}", exc_info=True)
         return jsonify({"error": "Internal server error", "message": "An unexpected error occurred"}), 500
 
 

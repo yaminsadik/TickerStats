@@ -1,5 +1,5 @@
 """
-Centralized configuration constants for the TicketStats API.
+Centralized configuration constants for the TickerStats API.
 """
 import os
 from pydantic_settings import BaseSettings
@@ -11,11 +11,11 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL", 
-        "postgresql://ticketstats:ticketstats@localhost:5432/ticketstats"
+        "postgresql://tickerstats:tickerstats@localhost:5432/tickerstats"
     )
     ASYNC_DATABASE_URL: str = os.getenv(
         "ASYNC_DATABASE_URL",
-        "postgresql+asyncpg://ticketstats:ticketstats@localhost:5432/ticketstats"
+        "postgresql+asyncpg://tickerstats:tickerstats@localhost:5432/tickerstats"
     )
     
     # Auth0

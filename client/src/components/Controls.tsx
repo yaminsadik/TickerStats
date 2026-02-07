@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { HelpCircle } from "lucide-react";
 import { PERF_PERIODS, PERIOD_LABELS, type PerfPeriod } from "../types/api";
+import type { ExportFormat } from "../api/client";
 import { DcfExplainerModal } from "./DcfExplainerModal";
 import { PerformanceExplainerModal } from "./PerformanceExplainerModal";
 
@@ -12,7 +13,7 @@ interface ControlsProps {
   perfPeriod: PerfPeriod;
   onPerfPeriodChange: (period: PerfPeriod) => void;
   onCompare: () => void;
-  onExport: () => void;
+  onExport: (format: ExportFormat) => void;
   isLoading: boolean;
   canCompare: boolean;
   canExport: boolean;
@@ -33,6 +34,21 @@ export function Controls({
 }: ControlsProps) {
   const [showDcfExplainer, setShowDcfExplainer] = useState(false);
   const [showPerfExplainer, setShowPerfExplainer] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close export menu on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+        setShowExportMenu(false);
+      }
+    };
+    if (showExportMenu) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [showExportMenu]);
 
   return (
     <div className="flex flex-wrap items-center gap-4">
@@ -124,27 +140,52 @@ export function Controls({
       )}
 
       <div className="flex items-center gap-2 ml-auto">
-        {/* Export Button */}
-        <button
-          onClick={onExport}
-          disabled={!canExport}
-          className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          <svg
-            className="w-4 h-4"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
+        {/* Export Dropdown */}
+        <div className="relative" ref={exportMenuRef}>
+          <button
+            onClick={() => setShowExportMenu((prev) => !prev)}
+            disabled={!canExport}
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-            />
-          </svg>
-          Export CSV
-        </button>
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+              />
+            </svg>
+            Export
+            <svg className="w-3 h-3 ml-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          {showExportMenu && (
+            <div className="absolute right-0 mt-1 w-40 bg-white border border-gray-200 rounded-lg shadow-lg z-20 py-1">
+              {([
+                { format: "csv" as const, label: "CSV (.csv)" },
+                { format: "xlsx" as const, label: "Excel (.xlsx)" },
+                { format: "pdf" as const, label: "PDF (.pdf)" },
+              ]).map(({ format, label }) => (
+                <button
+                  key={format}
+                  onClick={() => {
+                    onExport(format);
+                    setShowExportMenu(false);
+                  }}
+                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Compare Button */}
         <button

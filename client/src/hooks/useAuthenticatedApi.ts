@@ -2,6 +2,7 @@
  * Authenticated API client hook for making authenticated requests to the backend.
  * Automatically includes Auth0 JWT token in Authorization header.
  */
+import { useCallback } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
@@ -18,11 +19,15 @@ export function useAuthenticatedFetch() {
    * @param url - API endpoint (relative to API_BASE_URL or absolute)
    * @param options - Fetch options with optional requireAuth flag
    */
-  const authenticatedFetch = async (
+  const authenticatedFetch = useCallback(async (
     url: string,
     options: FetchOptions = {}
   ): Promise<Response> => {
     const { requireAuth = true, ...fetchOptions } = options;
+
+    if (requireAuth && !isAuthenticated) {
+      throw new Error("Authentication required");
+    }
 
     // Build full URL
     const fullUrl = url.startsWith("http") ? url : `${API_BASE_URL}${url}`;
@@ -60,11 +65,20 @@ export function useAuthenticatedFetch() {
 
     // Handle 401 Unauthorized
     if (response.status === 401 && requireAuth) {
-      throw new Error("Unauthorized - please log in");
+      let detail = "Unauthorized - please log in";
+      try {
+        const body = await response.clone().json();
+        if (body?.detail) {
+          detail = body.detail;
+        }
+      } catch {
+        // ignore JSON parse errors
+      }
+      throw new Error(detail);
     }
 
     return response;
-  };
+  }, [getAccessTokenSilently, isAuthenticated]);
 
   return { authenticatedFetch, isAuthenticated };
 }
