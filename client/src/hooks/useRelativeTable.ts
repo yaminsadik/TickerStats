@@ -3,6 +3,7 @@ import { fetchRelativeTableAuthed, type FetchRelativeParams } from '../api/clien
 import { useAuthenticatedFetch } from './useAuthenticatedApi';
 import { queryKeys } from '../lib/queryKeys';
 import { relativeTableResponseSchema } from '../schemas/relativeTable';
+import { parseOrThrow } from '../lib/parse';
 
 export function useRelativeTable(params: FetchRelativeParams | null) {
   const { authenticatedFetch } = useAuthenticatedFetch();
@@ -13,10 +14,10 @@ export function useRelativeTable(params: FetchRelativeParams | null) {
         throw new Error('No symbols provided');
       }
       const raw = await fetchRelativeTableAuthed(authenticatedFetch, params);
-      return relativeTableResponseSchema.parse(raw);
+      return parseOrThrow(relativeTableResponseSchema, raw, 'relativeTable');
     },
     enabled: !!params && params.symbols.length > 0,
-    staleTime: 60 * 1000, // 1 minute
+    staleTime: 5 * 60 * 1000, // 5 minutes – heavy endpoint
     retry: 1,
   });
 }

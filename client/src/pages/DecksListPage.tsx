@@ -1,12 +1,31 @@
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { FileText, Trash2, Eye, Clock, Loader2, Cpu } from "lucide-react";
 import { Button, Card, Alert, Badge } from "../components/ui";
 import { useDeckList, useDeleteDeck } from "../queries/useDeckQueries";
+import { useAuthenticatedFetch } from "../hooks/useAuthenticatedApi";
+import { fetchDeck } from "../api/userApi";
+import { deckFullSchema } from "../schemas/deck";
+import { parseOrThrow } from "../lib/parse";
+import { queryKeys } from "../lib/queryKeys";
 
 export default function DecksListPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { authenticatedFetch } = useAuthenticatedFetch();
   const { data: decks, isLoading: loading, error: queryError } = useDeckList();
   const deleteMutation = useDeleteDeck();
+
+  const prefetchDeck = (id: number) => {
+    queryClient.prefetchQuery({
+      queryKey: queryKeys.decks.detail(id),
+      queryFn: () =>
+        fetchDeck(authenticatedFetch, id).then((d) =>
+          parseOrThrow(deckFullSchema, d, "deck"),
+        ),
+      staleTime: 60 * 1000,
+    });
+  };
 
   const error =
     queryError instanceof Error ? queryError.message : queryError ? String(queryError) : null;
@@ -60,7 +79,8 @@ export default function DecksListPage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {decks.map((d) => (
-            <Card key={d.id} className="flex flex-col justify-between">
+            <div key={d.id} onMouseEnter={() => prefetchDeck(d.id)}>
+            <Card className="flex flex-col justify-between">
               <div>
                 <div className="flex items-start justify-between mb-2">
                   <div className="min-w-0 flex-1">
@@ -113,6 +133,7 @@ export default function DecksListPage() {
                 </Button>
               </div>
             </Card>
+            </div>
           ))}
         </div>
       )}

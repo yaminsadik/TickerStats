@@ -9,6 +9,7 @@ import { fetchProfile } from "../api/profileApi";
 import { useAuthenticatedFetch } from "../hooks/useAuthenticatedApi";
 import { queryKeys } from "../lib/queryKeys";
 import { userProfileSchema } from "../schemas/profile";
+import { parseOrThrow } from "../lib/parse";
 
 export function useProfileQuery() {
   const { isAuthenticated, isLoading: authLoading } = useAuth0();
@@ -19,7 +20,7 @@ export function useProfileQuery() {
     queryKey: queryKeys.profile,
     queryFn: async () => {
       const raw = await fetchProfile(authenticatedFetch);
-      return userProfileSchema.parse(raw);
+      return parseOrThrow(userProfileSchema, raw, "profile");
     },
     enabled: isAuthenticated && !authLoading,
     staleTime: 2 * 60 * 1000, // 2 minutes

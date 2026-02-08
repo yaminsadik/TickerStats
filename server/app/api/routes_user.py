@@ -1,7 +1,8 @@
 """User-related API routes (profile, watchlists, saved analyses, decks, admin)."""
+import logging
 from datetime import datetime
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, func, update
 from pydantic import BaseModel, Field
@@ -12,13 +13,16 @@ from app.core.auth import (
     require_paid_or_admin,
 )
 from app.core.database import get_db
-from app.models import User, Watchlist, SavedAnalysis, Deck
+from app.core.middleware import request_id_var
+from app.models import User, Watchlist, SavedAnalysis, Deck, AdminAuditLog
 from app.services.usage_limits import (
     get_plan_tier,
     get_compare_limit,
     get_deck_limit,
     reset_monthly_usage,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Free-tier limits
@@ -214,22 +218,67 @@ def _deck_full(d: Deck) -> DeckFullResponse:
     )
 
 
+def _set_link_headers(
+    response: Response,
+    request: Request,
+    offset: int,
+    limit: int,
+    total: int,
+) -> None:
+    """Build RFC 5988 Link headers using the actual request URL."""
+    links = []
+    if offset + limit < total:
+        next_url = str(request.url.include_query_params(
+            offset=offset + limit, limit=limit
+        ))
+        links.append(f'<{next_url}>; rel="next"')
+    if offset > 0:
+        prev_offset = max(0, offset - limit)
+        prev_url = str(request.url.include_query_params(
+            offset=prev_offset, limit=limit
+        ))
+        links.append(f'<{prev_url}>; rel="prev"')
+    if links:
+        response.headers["Link"] = ", ".join(links)
+
+
 # ---------------------------------------------------------------------------
 # WATCHLIST ROUTES
 # ---------------------------------------------------------------------------
 
 @router.get("/watchlist", response_model=List[WatchlistResponse])
 async def get_watchlist(
+    request: Request,
+    response: Response,
+    limit: Optional[int] = Query(None, ge=1, le=500, description="Max items to return. Omit for all."),
+    offset: int = Query(0, ge=0, description="Number of items to skip."),
     current_user: User = Depends(get_current_user_with_upsert),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get user's watchlist, ordered by created_at DESC."""
-    result = await db.execute(
+    """Get user's watchlist, ordered by created_at DESC. Supports optional pagination."""
+    # Total count (always emitted)
+    total = (await db.execute(
+        select(func.count()).where(Watchlist.user_id == current_user.auth0_user_id)
+    )).scalar() or 0
+
+    # Build query
+    query = (
         select(Watchlist)
         .where(Watchlist.user_id == current_user.auth0_user_id)
         .order_by(Watchlist.created_at.desc())
     )
-    return [_watchlist_to_response(item) for item in result.scalars().all()]
+    if limit is not None:
+        query = query.limit(limit).offset(offset)
+
+    result = await db.execute(query)
+    items = [_watchlist_to_response(item) for item in result.scalars().all()]
+
+    # Headers
+    response.headers["X-Total-Count"] = str(total)
+    if limit is not None:
+        _set_link_headers(response, request, offset, limit, total)
+
+    return items
 
 
 @router.post("/watchlist", response_model=WatchlistResponse, status_code=status.HTTP_201_CREATED)
@@ -311,16 +360,34 @@ async def remove_from_watchlist(
 
 @router.get("/saved-analyses", response_model=List[SavedAnalysisResponse])
 async def list_saved_analyses(
+    request: Request,
+    response: Response,
+    limit: Optional[int] = Query(None, ge=1, le=500, description="Max items to return. Omit for all."),
+    offset: int = Query(0, ge=0, description="Number of items to skip."),
     current_user: User = Depends(get_current_user_with_upsert),
     db: AsyncSession = Depends(get_db),
 ):
-    """List user's saved analyses, ordered by created_at DESC."""
-    result = await db.execute(
+    """List user's saved analyses, ordered by created_at DESC. Supports optional pagination."""
+    total = (await db.execute(
+        select(func.count()).where(SavedAnalysis.user_id == current_user.auth0_user_id)
+    )).scalar() or 0
+
+    query = (
         select(SavedAnalysis)
         .where(SavedAnalysis.user_id == current_user.auth0_user_id)
         .order_by(SavedAnalysis.created_at.desc())
     )
-    return [_analysis_to_response(a) for a in result.scalars().all()]
+    if limit is not None:
+        query = query.limit(limit).offset(offset)
+
+    result = await db.execute(query)
+    items = [_analysis_to_response(a) for a in result.scalars().all()]
+
+    response.headers["X-Total-Count"] = str(total)
+    if limit is not None:
+        _set_link_headers(response, request, offset, limit, total)
+
+    return items
 
 
 @router.post("/saved-analyses", response_model=SavedAnalysisResponse, status_code=status.HTTP_201_CREATED)
@@ -402,17 +469,34 @@ async def delete_saved_analysis(
 
 @router.get("/decks", response_model=List[DeckMetaResponse])
 async def list_decks(
+    request: Request,
+    response: Response,
+    limit: Optional[int] = Query(None, ge=1, le=500, description="Max items to return. Omit for all."),
+    offset: int = Query(0, ge=0, description="Number of items to skip."),
     current_user: User = Depends(get_current_user_with_upsert),
     db: AsyncSession = Depends(get_db),
 ):
-    """List user's generated decks (metadata only), ordered by created_at DESC."""
-    result = await db.execute(
+    """List user's generated decks (metadata only), ordered by created_at DESC. Supports optional pagination."""
+    total = (await db.execute(
+        select(func.count()).where(Deck.user_id == current_user.auth0_user_id)
+    )).scalar() or 0
+
+    query = (
         select(Deck)
         .where(Deck.user_id == current_user.auth0_user_id)
         .order_by(Deck.created_at.desc())
-        .limit(50)
     )
-    return [_deck_meta(d) for d in result.scalars().all()]
+    if limit is not None:
+        query = query.limit(limit).offset(offset)
+
+    result = await db.execute(query)
+    items = [_deck_meta(d) for d in result.scalars().all()]
+
+    response.headers["X-Total-Count"] = str(total)
+    if limit is not None:
+        _set_link_headers(response, request, offset, limit, total)
+
+    return items
 
 
 @router.post("/decks", response_model=DeckFullResponse, status_code=status.HTTP_201_CREATED)
@@ -591,14 +675,29 @@ admin_router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 @admin_router.get("/users", response_model=List[AdminUserResponse])
 async def admin_list_users(
+    request: Request,
+    response: Response,
+    limit: Optional[int] = Query(None, ge=1, le=500, description="Max items to return. Omit for all."),
+    offset: int = Query(0, ge=0, description="Number of items to skip."),
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all users (admin only)."""
-    result = await db.execute(
-        select(User).order_by(User.created_at.desc())
-    )
+    """List all users (admin only). Supports optional pagination."""
+    total = (await db.execute(
+        select(func.count()).select_from(User)
+    )).scalar() or 0
+
+    query = select(User).order_by(User.created_at.desc())
+    if limit is not None:
+        query = query.limit(limit).offset(offset)
+
+    result = await db.execute(query)
     users = result.scalars().all()
+
+    response.headers["X-Total-Count"] = str(total)
+    if limit is not None:
+        _set_link_headers(response, request, offset, limit, total)
+
     return [
         AdminUserResponse(
             auth0_user_id=u.auth0_user_id,
@@ -627,7 +726,8 @@ async def admin_update_user(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Update a user's subscription tier, admin status, or expiry (admin only)."""
+    """Update a user's subscription tier, admin status, or expiry (admin only).
+    All changes are recorded in the admin_audit_log table."""
     result = await db.execute(
         select(User).where(User.auth0_user_id == user_id)
     )
@@ -635,14 +735,66 @@ async def admin_update_user(
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
 
+    req_id = request_id_var.get(None)
+
+    # --- Tier change ---
     if body.subscription_tier is not None:
         if body.subscription_tier not in ("free", "pro", "enterprise"):
             raise HTTPException(status_code=400, detail="Invalid tier. Must be free, pro, or enterprise.")
-        target.subscription_tier = body.subscription_tier
-    if body.is_admin is not None:
+        if body.subscription_tier != target.subscription_tier:
+            db.add(AdminAuditLog(
+                admin_user_id=admin.auth0_user_id,
+                target_user_id=user_id,
+                action="update_tier",
+                old_value=target.subscription_tier,
+                new_value=body.subscription_tier,
+                request_id=req_id,
+            ))
+            logger.info(
+                "Admin tier change: %s -> %s for user %s by %s",
+                target.subscription_tier, body.subscription_tier,
+                user_id, admin.auth0_user_id,
+                extra={"request_id": req_id},
+            )
+            target.subscription_tier = body.subscription_tier
+
+    # --- Admin toggle ---
+    if body.is_admin is not None and body.is_admin != target.is_admin:
+        db.add(AdminAuditLog(
+            admin_user_id=admin.auth0_user_id,
+            target_user_id=user_id,
+            action="toggle_admin",
+            old_value=target.is_admin,
+            new_value=body.is_admin,
+            request_id=req_id,
+        ))
+        logger.info(
+            "Admin toggle: %s -> %s for user %s by %s",
+            target.is_admin, body.is_admin,
+            user_id, admin.auth0_user_id,
+            extra={"request_id": req_id},
+        )
         target.is_admin = body.is_admin
+
+    # --- Expiry change ---
     if body.subscription_expires_at is not None:
-        target.subscription_expires_at = datetime.fromisoformat(body.subscription_expires_at)
+        old_expiry = target.subscription_expires_at.isoformat() if target.subscription_expires_at else None
+        new_expiry_dt = datetime.fromisoformat(body.subscription_expires_at)
+        db.add(AdminAuditLog(
+            admin_user_id=admin.auth0_user_id,
+            target_user_id=user_id,
+            action="update_expiry",
+            old_value=old_expiry,
+            new_value=body.subscription_expires_at,
+            request_id=req_id,
+        ))
+        logger.info(
+            "Admin expiry change: %s -> %s for user %s by %s",
+            old_expiry, body.subscription_expires_at,
+            user_id, admin.auth0_user_id,
+            extra={"request_id": req_id},
+        )
+        target.subscription_expires_at = new_expiry_dt
 
     target.updated_at = datetime.utcnow()
     await db.flush()

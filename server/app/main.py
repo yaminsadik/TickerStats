@@ -20,13 +20,13 @@ from starlette.middleware.wsgi import WSGIMiddleware
 from app.api.routes import router
 from app.api.routes_user import router as user_router, admin_router
 from app.core.config import API_VERSION
+from app.core.middleware import RequestTimingMiddleware
+from app.core.error_handlers import register_error_handlers
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
+# Configure structured JSON logging (reuse the deck service's formatter)
+from app.deck.utils.logging import configure_logging
+
+configure_logging(level="INFO", json_output=True)
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +55,12 @@ app = FastAPI(
     openapi_url="/openapi.json",
 )
 
+# Register standardized error handlers (before middleware, after app creation)
+register_error_handlers(app)
+
+# Add request timing middleware (runs outermost, before CORS)
+app.add_middleware(RequestTimingMiddleware)
+
 # Add CORS middleware for frontend access
 app.add_middleware(
     CORSMiddleware,
@@ -62,6 +68,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Request-ID", "X-Total-Count", "Link"],
 )
 
 # Include FastAPI routers

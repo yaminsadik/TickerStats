@@ -293,7 +293,13 @@ async def get_current_user_with_upsert(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token: Missing subject claim",
         )
-    return await upsert_user_from_token(db, user_id, payload)
+    user = await upsert_user_from_token(db, user_id, payload)
+
+    # Set contextvar so request timing middleware can log user_id
+    from app.core.middleware import current_user_id_var
+    current_user_id_var.set(user.auth0_user_id)
+
+    return user
 
 
 async def require_admin(

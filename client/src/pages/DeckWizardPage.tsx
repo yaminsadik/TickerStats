@@ -38,6 +38,7 @@ import {
 import { queryKeys } from "../lib/queryKeys";
 import { sectionSchema } from "../schemas/deck";
 import { useSaveDeck } from "../queries/useDeckQueries";
+import { parseOrThrow } from "../lib/parse";
 import { z } from "zod";
 import {
   createDraft,
@@ -141,7 +142,7 @@ export default function DeckWizardPage() {
     queryKey: queryKeys.sections,
     queryFn: async () => {
       const raw = await fetchSections();
-      return z.array(sectionSchema).parse(raw) as Section[];
+      return parseOrThrow(z.array(sectionSchema), raw, "sections") as Section[];
     },
     staleTime: 5 * 60 * 1000, // 5 minutes
   });

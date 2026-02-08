@@ -15,6 +15,7 @@ import {
   Settings,
 } from "lucide-react";
 import { useAuth0 } from "@auth0/auth0-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "../ui/Button";
 
 export default function TopNav() {
@@ -42,6 +43,7 @@ export default function TopNav() {
     console.log("Auth0 not available, authentication disabled");
   }
 
+  const queryClient = useQueryClient();
   const closeMobileMenu = () => setMobileMenuOpen(false);
 
   const displayName = user?.name || user?.email || "Account";
@@ -198,6 +200,7 @@ export default function TopNav() {
                         <button
                           onClick={() => {
                             setProfileOpen(false);
+                            queryClient.clear();
                             logout({
                               logoutParams: {
                                 returnTo: window.location.origin,
@@ -376,6 +379,7 @@ export default function TopNav() {
                         className="w-full justify-center"
                         onClick={() => {
                           closeMobileMenu();
+                          queryClient.clear();
                           logout({
                             logoutParams: { returnTo: window.location.origin },
                           });

@@ -3,6 +3,7 @@
  * Wraps api/userApi deck functions with Zod validation and cache management.
  */
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAuth0 } from "@auth0/auth0-react";
 import { useAuthenticatedFetch } from "../hooks/useAuthenticatedApi";
 import {
   fetchDeck,
@@ -13,22 +14,23 @@ import {
 } from "../api/userApi";
 import { queryKeys } from "../lib/queryKeys";
 import { deckFullSchema, deckMetaSchema } from "../schemas/deck";
+import { parseOrThrow } from "../lib/parse";
 import { z } from "zod";
 
 /**
  * Fetch a single deck by ID with Zod validation.
  */
 export function useDeckDetail(id: number | undefined) {
+  const { isAuthenticated } = useAuth0();
   const { authenticatedFetch } = useAuthenticatedFetch();
 
   return useQuery({
     queryKey: queryKeys.decks.detail(id!),
     queryFn: async () => {
       const raw = await fetchDeck(authenticatedFetch, id!);
-      return deckFullSchema.parse(raw);
+      return parseOrThrow(deckFullSchema, raw, "deck");
     },
-    enabled: id != null,
-    staleTime: 60 * 1000, // 1 minute
+    enabled: id != null && isAuthenticated,
   });
 }
 
@@ -36,15 +38,16 @@ export function useDeckDetail(id: number | undefined) {
  * Fetch the list of user decks with Zod validation.
  */
 export function useDeckList() {
+  const { isAuthenticated } = useAuth0();
   const { authenticatedFetch } = useAuthenticatedFetch();
 
   return useQuery({
     queryKey: queryKeys.decks.all,
     queryFn: async () => {
       const raw = await fetchDecks(authenticatedFetch);
-      return z.array(deckMetaSchema).parse(raw);
+      return parseOrThrow(z.array(deckMetaSchema), raw, "deckList");
     },
-    staleTime: 60 * 1000,
+    enabled: isAuthenticated,
   });
 }
 

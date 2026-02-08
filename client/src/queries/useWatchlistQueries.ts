@@ -3,6 +3,7 @@
  * Wraps api/userApi watchlist functions with Zod validation and cache management.
  */
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAuth0 } from "@auth0/auth0-react";
 import { useAuthenticatedFetch } from "../hooks/useAuthenticatedApi";
 import {
   fetchWatchlist,
@@ -12,21 +13,23 @@ import {
 } from "../api/userApi";
 import { queryKeys } from "../lib/queryKeys";
 import { watchlistItemSchema } from "../schemas/userResources";
+import { parseOrThrow } from "../lib/parse";
 import { z } from "zod";
 
 /**
  * Fetch the user's watchlist with Zod validation.
  */
 export function useWatchlist() {
+  const { isAuthenticated } = useAuth0();
   const { authenticatedFetch } = useAuthenticatedFetch();
 
   return useQuery({
     queryKey: queryKeys.watchlist,
     queryFn: async () => {
       const raw = await fetchWatchlist(authenticatedFetch);
-      return z.array(watchlistItemSchema).parse(raw);
+      return parseOrThrow(z.array(watchlistItemSchema), raw, "watchlist");
     },
-    staleTime: 60 * 1000,
+    enabled: isAuthenticated,
   });
 }
 

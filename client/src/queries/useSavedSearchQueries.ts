@@ -3,25 +3,28 @@
  * Wraps api/userApi saved analysis functions with Zod validation and cache management.
  */
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAuth0 } from "@auth0/auth0-react";
 import { useAuthenticatedFetch } from "../hooks/useAuthenticatedApi";
 import { fetchSavedAnalyses, deleteSavedAnalysis } from "../api/userApi";
 import { queryKeys } from "../lib/queryKeys";
 import { savedAnalysisSchema } from "../schemas/userResources";
+import { parseOrThrow } from "../lib/parse";
 import { z } from "zod";
 
 /**
  * Fetch all saved searches with Zod validation.
  */
 export function useSavedSearchList() {
+  const { isAuthenticated } = useAuth0();
   const { authenticatedFetch } = useAuthenticatedFetch();
 
   return useQuery({
     queryKey: queryKeys.savedAnalyses,
     queryFn: async () => {
       const raw = await fetchSavedAnalyses(authenticatedFetch);
-      return z.array(savedAnalysisSchema).parse(raw);
+      return parseOrThrow(z.array(savedAnalysisSchema), raw, "savedAnalyses");
     },
-    staleTime: 60 * 1000,
+    enabled: isAuthenticated,
   });
 }
 

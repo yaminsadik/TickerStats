@@ -4,6 +4,7 @@ from sqlalchemy import (
     Column, String, DateTime, ForeignKey, JSON, Text, Integer, Boolean,
     Index, UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 
@@ -130,3 +131,29 @@ class Deck(Base):
 
     def __repr__(self):
         return f"<Deck(id={self.id}, ticker={self.ticker}, title={self.title})>"
+
+
+class AdminAuditLog(Base):
+    """Audit trail for admin actions (tier changes, admin toggles, etc.)."""
+    __tablename__ = "admin_audit_log"
+
+    __table_args__ = (
+        Index("ix_audit_admin_created", "admin_user_id", "created_at"),
+        Index("ix_audit_target_created", "target_user_id", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    admin_user_id = Column(
+        String(255),
+        ForeignKey("users.auth0_user_id"),
+        nullable=False,
+    )
+    target_user_id = Column(String(255), nullable=False)
+    action = Column(String(50), nullable=False)  # "update_tier", "toggle_admin", "update_expiry"
+    old_value = Column(JSONB, nullable=True)
+    new_value = Column(JSONB, nullable=True)
+    request_id = Column(String(64), nullable=True)  # correlate with structured logs
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    def __repr__(self):
+        return f"<AdminAuditLog(id={self.id}, action={self.action}, target={self.target_user_id})>"

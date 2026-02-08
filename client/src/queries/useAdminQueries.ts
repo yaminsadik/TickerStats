@@ -3,6 +3,7 @@
  * Wraps api/profileApi admin functions with Zod validation and cache management.
  */
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAuth0 } from "@auth0/auth0-react";
 import { useAuthenticatedFetch } from "../hooks/useAuthenticatedApi";
 import {
   fetchAdminUsers,
@@ -12,20 +13,23 @@ import {
 } from "../api/profileApi";
 import { queryKeys } from "../lib/queryKeys";
 import { adminUserSchema, adminStatsSchema } from "../schemas/admin";
+import { parseOrThrow } from "../lib/parse";
 import { z } from "zod";
 
 /**
  * Fetch admin users list with Zod validation.
  */
 export function useAdminUsers() {
+  const { isAuthenticated } = useAuth0();
   const { authenticatedFetch } = useAuthenticatedFetch();
 
   return useQuery({
     queryKey: queryKeys.admin.users,
     queryFn: async () => {
       const raw = await fetchAdminUsers(authenticatedFetch);
-      return z.array(adminUserSchema).parse(raw);
+      return parseOrThrow(z.array(adminUserSchema), raw, "adminUsers");
     },
+    enabled: isAuthenticated,
     staleTime: 30 * 1000,
   });
 }
@@ -34,14 +38,16 @@ export function useAdminUsers() {
  * Fetch admin stats with Zod validation.
  */
 export function useAdminStats() {
+  const { isAuthenticated } = useAuth0();
   const { authenticatedFetch } = useAuthenticatedFetch();
 
   return useQuery({
     queryKey: queryKeys.admin.stats,
     queryFn: async () => {
       const raw = await fetchAdminStats(authenticatedFetch);
-      return adminStatsSchema.parse(raw);
+      return parseOrThrow(adminStatsSchema, raw, "adminStats");
     },
+    enabled: isAuthenticated,
     staleTime: 30 * 1000,
   });
 }
