@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import {
   Star,
   Trash2,
@@ -10,85 +10,62 @@ import {
   Clock,
 } from "lucide-react";
 import { Button, Card, Alert, Input } from "../components/ui";
-import { useAuthenticatedFetch } from "../hooks/useAuthenticatedApi";
 import {
-  fetchWatchlist,
-  addToWatchlist,
-  updateWatchlistNotes,
-  removeFromWatchlist,
-  type WatchlistItem,
-} from "../api/userApi";
+  useWatchlist,
+  useAddToWatchlistFull,
+  useUpdateWatchlistNotes,
+  useRemoveFromWatchlist,
+} from "../queries/useWatchlistQueries";
 
 export default function WatchlistPage() {
-  const { authenticatedFetch } = useAuthenticatedFetch();
-  const [items, setItems] = useState<WatchlistItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    data: items,
+    isLoading: loading,
+    error: queryError,
+  } = useWatchlist();
+  const addMutation = useAddToWatchlistFull();
+  const updateNotesMutation = useUpdateWatchlistNotes();
+  const removeMutation = useRemoveFromWatchlist();
 
   // Add form
   const [newTicker, setNewTicker] = useState("");
   const [newNotes, setNewNotes] = useState("");
-  const [adding, setAdding] = useState(false);
 
   // Inline edit
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editNotes, setEditNotes] = useState("");
-  const [savingNotes, setSavingNotes] = useState(false);
 
-  // Deleting
-  const [deletingId, setDeletingId] = useState<number | null>(null);
+  // Derive error from any failing mutation or query
+  const error =
+    queryError instanceof Error
+      ? queryError.message
+      : addMutation.isError && addMutation.error instanceof Error
+        ? addMutation.error.message
+        : updateNotesMutation.isError &&
+            updateNotesMutation.error instanceof Error
+          ? updateNotesMutation.error.message
+          : removeMutation.isError && removeMutation.error instanceof Error
+            ? removeMutation.error.message
+            : null;
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await fetchWatchlist(authenticatedFetch);
-      setItems(data);
-    } catch (err: any) {
-      setError(err.message || "Failed to load watchlist");
-    } finally {
-      setLoading(false);
-    }
-  }, [authenticatedFetch]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const handleAdd = async (e: React.FormEvent) => {
+  const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTicker.trim()) return;
-    setAdding(true);
-    setError(null);
-    try {
-      const item = await addToWatchlist(
-        authenticatedFetch,
-        newTicker.trim(),
-        newNotes.trim() || undefined,
-      );
-      setItems((prev) => [item, ...prev]);
-      setNewTicker("");
-      setNewNotes("");
-    } catch (err: any) {
-      setError(err.message || "Failed to add ticker");
-    } finally {
-      setAdding(false);
-    }
+    addMutation.mutate(
+      {
+        ticker: newTicker.trim(),
+        notes: newNotes.trim() || undefined,
+      },
+      {
+        onSuccess: () => {
+          setNewTicker("");
+          setNewNotes("");
+        },
+      },
+    );
   };
 
-  const handleDelete = async (id: number) => {
-    setDeletingId(id);
-    try {
-      await removeFromWatchlist(authenticatedFetch, id);
-      setItems((prev) => prev.filter((i) => i.id !== id));
-    } catch (err: any) {
-      setError(err.message || "Failed to remove");
-    } finally {
-      setDeletingId(null);
-    }
-  };
-
-  const startEdit = (item: WatchlistItem) => {
+  const startEdit = (item: { id: number; notes: string | null }) => {
     setEditingId(item.id);
     setEditNotes(item.notes || "");
   };
@@ -98,21 +75,15 @@ export default function WatchlistPage() {
     setEditNotes("");
   };
 
-  const saveNotes = async (id: number) => {
-    setSavingNotes(true);
-    try {
-      const updated = await updateWatchlistNotes(
-        authenticatedFetch,
-        id,
-        editNotes.trim() || null,
-      );
-      setItems((prev) => prev.map((i) => (i.id === id ? updated : i)));
-      setEditingId(null);
-    } catch (err: any) {
-      setError(err.message || "Failed to update notes");
-    } finally {
-      setSavingNotes(false);
-    }
+  const saveNotes = (id: number) => {
+    updateNotesMutation.mutate(
+      { id, notes: editNotes.trim() || null },
+      {
+        onSuccess: () => {
+          setEditingId(null);
+        },
+      },
+    );
   };
 
   return (
@@ -138,17 +109,20 @@ export default function WatchlistPage() {
             value={newTicker}
             onChange={(e) => setNewTicker(e.target.value.toUpperCase())}
             className="flex-shrink-0 sm:w-36"
-            disabled={adding}
+            disabled={addMutation.isPending}
           />
           <Input
             placeholder="Notes (optional)"
             value={newNotes}
             onChange={(e) => setNewNotes(e.target.value)}
             className="flex-1"
-            disabled={adding}
+            disabled={addMutation.isPending}
           />
-          <Button type="submit" disabled={adding || !newTicker.trim()}>
-            {adding ? (
+          <Button
+            type="submit"
+            disabled={addMutation.isPending || !newTicker.trim()}
+          >
+            {addMutation.isPending ? (
               <Loader2 className="w-4 h-4 animate-spin mr-2" />
             ) : (
               <Plus className="w-4 h-4 mr-2" />
@@ -163,7 +137,7 @@ export default function WatchlistPage() {
         <div className="flex items-center justify-center py-16">
           <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
         </div>
-      ) : items.length === 0 ? (
+      ) : !items || items.length === 0 ? (
         <Card className="text-center py-16 px-6">
           <div className="w-20 h-20 mx-auto mb-4 bg-slate-800 rounded-full flex items-center justify-center">
             <Star className="w-10 h-10 text-slate-500" />
@@ -194,7 +168,7 @@ export default function WatchlistPage() {
                       onChange={(e) => setEditNotes(e.target.value)}
                       placeholder="Notes..."
                       className="flex-1"
-                      disabled={savingNotes}
+                      disabled={updateNotesMutation.isPending}
                       autoFocus
                       onKeyDown={(e) => {
                         if (e.key === "Enter") saveNotes(item.id);
@@ -205,9 +179,9 @@ export default function WatchlistPage() {
                       variant="primary"
                       size="sm"
                       onClick={() => saveNotes(item.id)}
-                      disabled={savingNotes}
+                      disabled={updateNotesMutation.isPending}
                     >
-                      {savingNotes ? (
+                      {updateNotesMutation.isPending ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
                       ) : (
                         <Check className="w-4 h-4" />
@@ -248,10 +222,14 @@ export default function WatchlistPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => handleDelete(item.id)}
-                  disabled={deletingId === item.id}
+                  onClick={() => removeMutation.mutate(item.id)}
+                  disabled={
+                    removeMutation.isPending &&
+                    removeMutation.variables === item.id
+                  }
                 >
-                  {deletingId === item.id ? (
+                  {removeMutation.isPending &&
+                  removeMutation.variables === item.id ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
                     <Trash2 className="w-4 h-4 text-red-400" />

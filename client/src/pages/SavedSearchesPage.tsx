@@ -1,53 +1,34 @@
-import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Search, Trash2, Eye, Plus, Clock, Tag, Loader2 } from "lucide-react";
 import { Button, Card, Alert, Badge } from "../components/ui";
-import { useAuthenticatedFetch } from "../hooks/useAuthenticatedApi";
 import { RelativeTable } from "../components/RelativeTable";
 import {
-  fetchSavedAnalyses,
-  deleteSavedAnalysis,
-  type SavedAnalysis,
-} from "../api/userApi";
+  useSavedSearchList,
+  useDeleteSavedSearch,
+} from "../queries/useSavedSearchQueries";
+import type { SavedAnalysisParsed } from "../schemas/userResources";
 
 export default function SavedSearchesPage() {
   const navigate = useNavigate();
-  const { authenticatedFetch } = useAuthenticatedFetch();
-  const [analyses, setAnalyses] = useState<SavedAnalysis[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const {
+    data: analyses,
+    isLoading: loading,
+    error: queryError,
+  } = useSavedSearchList();
+  const deleteMutation = useDeleteSavedSearch();
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await fetchSavedAnalyses(authenticatedFetch);
-      setAnalyses(data);
-    } catch (err: any) {
-      setError(err.message || "Failed to load saved searches");
-    } finally {
-      setLoading(false);
-    }
-  }, [authenticatedFetch]);
+  const error =
+    queryError instanceof Error
+      ? queryError.message
+      : queryError
+        ? String(queryError)
+        : null;
+  const deleteError =
+    deleteMutation.isError && deleteMutation.error instanceof Error
+      ? deleteMutation.error.message
+      : null;
 
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const handleDelete = async (id: number) => {
-    setDeletingId(id);
-    try {
-      await deleteSavedAnalysis(authenticatedFetch, id);
-      setAnalyses((prev) => prev.filter((a) => a.id !== id));
-    } catch (err: any) {
-      setError(err.message || "Failed to delete");
-    } finally {
-      setDeletingId(null);
-    }
-  };
-
-  const handleLoad = (analysis: SavedAnalysis) => {
+  const handleLoad = (analysis: SavedAnalysisParsed) => {
     // Navigate to browse page with the saved analysis config pre-loaded
     navigate("/browse", {
       state: {
@@ -77,9 +58,9 @@ export default function SavedSearchesPage() {
         </Button>
       </div>
 
-      {error && (
+      {(error || deleteError) && (
         <Alert variant="error" title="Error">
-          {error}
+          {error || deleteError}
         </Alert>
       )}
 
@@ -87,7 +68,7 @@ export default function SavedSearchesPage() {
         <div className="flex items-center justify-center py-16">
           <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
         </div>
-      ) : analyses.length === 0 ? (
+      ) : !analyses || analyses.length === 0 ? (
         <Card className="text-center py-16 px-6">
           <div className="w-20 h-20 mx-auto mb-4 bg-slate-800 rounded-full flex items-center justify-center">
             <Search className="w-10 h-10 text-slate-500" />
@@ -176,10 +157,14 @@ export default function SavedSearchesPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => handleDelete(a.id)}
-                  disabled={deletingId === a.id}
+                  onClick={() => deleteMutation.mutate(a.id)}
+                  disabled={
+                    deleteMutation.isPending &&
+                    deleteMutation.variables === a.id
+                  }
                 >
-                  {deletingId === a.id ? (
+                  {deleteMutation.isPending &&
+                  deleteMutation.variables === a.id ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
                     <Trash2 className="w-4 h-4" />

@@ -1,7 +1,7 @@
 /**
  * User profile page showing account info, subscription status, and usage.
  */
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
 import {
@@ -16,36 +16,14 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { Card, Button, Alert } from "../components/ui";
-import { useAuthenticatedFetch } from "../hooks/useAuthenticatedApi";
-import { fetchProfile, type UserProfile } from "../api/profileApi";
+import { useProfileQuery } from "../queries/useProfileQuery";
 
 export default function ProfilePage() {
   const navigate = useNavigate();
-  const { authenticatedFetch } = useAuthenticatedFetch();
   const { user: auth0User } = useAuth0();
+  const { profile, loading, error } = useProfileQuery();
 
-  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [avatarFailed, setAvatarFailed] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        const data = await fetchProfile(authenticatedFetch);
-        if (!cancelled) setProfile(data);
-      } catch (err: any) {
-        if (!cancelled) setError(err.message);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [authenticatedFetch]);
 
   if (loading) {
     return (

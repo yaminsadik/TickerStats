@@ -1,46 +1,19 @@
-import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { FileText, Trash2, Eye, Clock, Loader2, Cpu } from "lucide-react";
 import { Button, Card, Alert, Badge } from "../components/ui";
-import { useAuthenticatedFetch } from "../hooks/useAuthenticatedApi";
-import { fetchDecks, deleteDeckFromDB, type DeckMeta } from "../api/userApi";
+import { useDeckList, useDeleteDeck } from "../queries/useDeckQueries";
 
 export default function DecksListPage() {
   const navigate = useNavigate();
-  const { authenticatedFetch } = useAuthenticatedFetch();
-  const [decks, setDecks] = useState<DeckMeta[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const { data: decks, isLoading: loading, error: queryError } = useDeckList();
+  const deleteMutation = useDeleteDeck();
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await fetchDecks(authenticatedFetch);
-      setDecks(data);
-    } catch (err: any) {
-      setError(err.message || "Failed to load decks");
-    } finally {
-      setLoading(false);
-    }
-  }, [authenticatedFetch]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const handleDelete = async (id: number) => {
-    setDeletingId(id);
-    try {
-      await deleteDeckFromDB(authenticatedFetch, id);
-      setDecks((prev) => prev.filter((d) => d.id !== id));
-    } catch (err: any) {
-      setError(err.message || "Failed to delete deck");
-    } finally {
-      setDeletingId(null);
-    }
-  };
+  const error =
+    queryError instanceof Error ? queryError.message : queryError ? String(queryError) : null;
+  const deleteError =
+    deleteMutation.isError && deleteMutation.error instanceof Error
+      ? deleteMutation.error.message
+      : null;
 
   return (
     <div className="space-y-6">
@@ -57,9 +30,9 @@ export default function DecksListPage() {
         </Button>
       </div>
 
-      {error && (
+      {(error || deleteError) && (
         <Alert variant="error" title="Error">
-          {error}
+          {error || deleteError}
         </Alert>
       )}
 
@@ -67,11 +40,11 @@ export default function DecksListPage() {
         <div className="flex items-center justify-center py-16">
           <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
         </div>
-      ) : decks.length === 0 ? (
+      ) : !decks || decks.length === 0 ? (
         <Card className="text-center py-16 px-6">
           <div className="w-20 h-20 mx-auto mb-4 bg-slate-800 rounded-full flex items-center justify-center">
             <FileText className="w-10 h-10 text-slate-500" />
-          </div>
+            </div>
           <h3 className="text-xl font-bold text-white mb-2">
             No Decks Generated Yet
           </h3>
@@ -125,10 +98,14 @@ export default function DecksListPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => handleDelete(d.id)}
-                  disabled={deletingId === d.id}
+                  onClick={() => deleteMutation.mutate(d.id)}
+                  disabled={
+                    deleteMutation.isPending &&
+                    deleteMutation.variables === d.id
+                  }
                 >
-                  {deletingId === d.id ? (
+                  {deleteMutation.isPending &&
+                  deleteMutation.variables === d.id ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
                     <Trash2 className="w-4 h-4" />
