@@ -94,6 +94,10 @@ VALID_PERF_PERIODS = ["1mo", "3mo", "6mo", "ytd", "1y", "2y", "5y", "10y", "max"
 MAX_WORKERS = 10
 FETCH_TIMEOUT_SECONDS = 30
 
+# yfinance concurrency limiter (per process)
+# Prevents yfinance throttling under concurrent load.
+YFINANCE_MAX_CONCURRENCY = int(os.getenv("YFINANCE_MAX_CONCURRENCY", "6"))
+
 # API version
 API_VERSION = "1.0.0"
 

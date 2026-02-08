@@ -2,6 +2,7 @@
 API routes for the TickerStats relative table backend.
 """
 
+import asyncio
 import csv
 import io
 import logging
@@ -199,8 +200,9 @@ async def get_relative_table(
             ),
         )
 
-    # Fetch data
-    rows_data, cache_hit = yfinance_service.get_relative(
+    # Fetch data (run in thread to avoid blocking the async event loop)
+    rows_data, cache_hit = await asyncio.to_thread(
+        yfinance_service.get_relative,
         symbols=validated_symbols,
         fields=validated_fields,
         perf_metrics=validated_perf_metrics,
@@ -282,8 +284,9 @@ async def export_relative_table(
     validated_fields = parse_and_validate_fields(fields)
     validated_perf_metrics, validated_perf_period = parse_and_validate_perf(perf, perfPeriod)
 
-    # Fetch data
-    rows_data, cache_hit = yfinance_service.get_relative(
+    # Fetch data (run in thread to avoid blocking the async event loop)
+    rows_data, cache_hit = await asyncio.to_thread(
+        yfinance_service.get_relative,
         symbols=validated_symbols,
         fields=validated_fields,
         perf_metrics=validated_perf_metrics,
