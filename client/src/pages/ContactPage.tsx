@@ -17,15 +17,36 @@ export default function ContactPage() {
     message: "",
   });
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Placeholder - no backend integration yet
-    console.log("Contact form submission:", formData);
-    setSubmitted(true);
-    setTimeout(() => {
-      navigate("/");
-    }, 2000);
+    setSubmitting(true);
+    setError("");
+
+    try {
+      const response = await fetch("https://formspree.io/f/xbdaljjr", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(formData),
+      });
+
+      if (response.ok) {
+        setSubmitted(true);
+        setTimeout(() => {
+          navigate("/");
+        }, 2000);
+      } else {
+        setError("Failed to send message. Please try again.");
+      }
+    } catch (err) {
+      setError("Network error. Please check your connection and try again.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleChange = (
@@ -165,13 +186,20 @@ export default function ContactPage() {
               />
             </div>
 
+            {error && (
+              <div className="bg-red-500/10 border border-red-500/50 rounded-lg p-4">
+                <p className="text-red-400 text-sm">{error}</p>
+              </div>
+            )}
+
             <Button
               type="submit"
               variant="primary"
               className="w-full justify-center"
+              disabled={submitting}
             >
               <Send className="w-4 h-4 mr-2" />
-              Send
+              {submitting ? "Sending..." : "Send"}
             </Button>
           </form>
         </div>
