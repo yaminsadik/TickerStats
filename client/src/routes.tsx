@@ -1,7 +1,7 @@
 import { createBrowserRouter, Navigate } from "react-router-dom";
 import PageShell from "./components/layout/PageShell";
 import ProtectedRoute from "./components/ProtectedRoute";
-import LandingPage from "./pages/LandingPage";
+import LandingPage from "./pages/landing/LandingPage";
 import ContactPage from "./pages/ContactPage";
 import BrowsePage from "./pages/BrowsePage";
 import DeckWizardPage from "./pages/DeckWizardPage";
