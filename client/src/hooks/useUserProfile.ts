@@ -1,42 +1,17 @@
-import { useEffect, useState, useCallback } from "react";
-import { useAuth0 } from "@auth0/auth0-react";
-import { fetchProfile, type UserProfile } from "../api/profileApi";
-import { useAuthenticatedFetch } from "./useAuthenticatedApi";
+import { useProfileQuery } from "../queries/useProfileQuery";
 
 /**
  * Hook that fetches and caches the current user's profile (tier, limits, etc.).
  * Returns `null` while loading or when the user is not authenticated.
+ *
+ * Internally backed by React Query + Zod validation.
  */
 export function useUserProfile() {
-  const { isAuthenticated, isLoading: authLoading } = useAuth0();
-  const { authenticatedFetch } = useAuthenticatedFetch();
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const refresh = useCallback(async () => {
-    if (!isAuthenticated) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const p = await fetchProfile(authenticatedFetch);
-      setProfile(p);
-    } catch (err: any) {
-      setError(err.message || "Failed to load profile");
-    } finally {
-      setLoading(false);
-    }
-  }, [isAuthenticated, authenticatedFetch]);
-
-  useEffect(() => {
-    if (!authLoading && isAuthenticated) {
-      refresh();
-    }
-  }, [authLoading, isAuthenticated, refresh]);
+  const { profile, loading, error, refresh } = useProfileQuery();
 
   return {
     profile,
-    loading: loading || authLoading,
+    loading,
     error,
     refresh,
     /** Convenience: is user on a paid plan (pro/enterprise) or admin? */

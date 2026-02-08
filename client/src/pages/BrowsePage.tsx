@@ -21,17 +21,19 @@ import SignalConfigDrawer from "../components/SignalConfigDrawer";
 import { useRelativeTable } from "../hooks/useRelativeTable";
 import { useSignalSettings } from "../hooks/useSignalSettings";
 import { useUserProfile } from "../hooks/useUserProfile";
-import { getExportUrl, type ExportFormat } from "../api/client";
-import { useAuthenticatedFetch } from "../hooks/useAuthenticatedApi";
-import { createSavedAnalysis, addToWatchlist } from "../api/userApi";
+import { type ExportFormat } from "../api/client";
 import { Button, Card, Alert, Input, TableSkeleton } from "../components/ui";
 import { SNAPSHOT_FIELDS, PERF_METRICS, type PerfPeriod } from "../types/api";
 import type { FetchRelativeParams } from "../api/client";
+import {
+  useSaveSearch,
+  useAddToWatchlist,
+  useExportTable,
+} from "../queries/useBrowseMutations";
 
 export default function BrowsePage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { authenticatedFetch } = useAuthenticatedFetch();
 
   // User profile for free-tier gates
   const {
@@ -42,7 +44,6 @@ export default function BrowsePage() {
     compareCount,
     compareLimit,
     tier,
-    refresh: refreshProfile,
   } = useUserProfile();
 
   // Ticker input state
@@ -95,17 +96,17 @@ export default function BrowsePage() {
   // Fetch data
   const { data, isLoading, error, isFetching } = useRelativeTable(queryParams);
 
+  // --- Mutation hooks ---
+  const saveSearchMutation = useSaveSearch();
+  const addWatchlistMutation = useAddToWatchlist();
+  const exportTableMutation = useExportTable();
+
   // --- Save Search state ---
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [saveName, setSaveName] = useState("");
   const [saveDesc, setSaveDesc] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [saveSuccess, setSaveSuccess] = useState(false);
-  const [exportError, setExportError] = useState<string | null>(null);
 
   // --- Watchlist feedback ---
-  const [watchlistAdding, setWatchlistAdding] = useState<string | null>(null);
   const [watchlistMsg, setWatchlistMsg] = useState<string | null>(null);
 
   // Load saved analysis from navigation state (coming from SavedSearchesPage)
@@ -133,13 +134,10 @@ export default function BrowsePage() {
   }, [location.state]);
 
   // --- Save Search handler ---
-  const handleSaveSearch = useCallback(async () => {
+  const handleSaveSearch = useCallback(() => {
     if (!saveName.trim() || tickers.length === 0) return;
-    setSaving(true);
-    setSaveError(null);
-    setSaveSuccess(false);
-    try {
-      await createSavedAnalysis(authenticatedFetch, {
+    saveSearchMutation.mutate(
+      {
         name: saveName.trim(),
         description: saveDesc.trim() || undefined,
         symbols: tickers,
@@ -147,21 +145,19 @@ export default function BrowsePage() {
         perf_periods: showPerf ? selectedPerfMetrics : undefined,
         include_dcf: showDcf,
         snapshot_data: data ?? undefined,
-      });
-      setSaveSuccess(true);
-      setShowSaveModal(false);
-      setSaveName("");
-      setSaveDesc("");
-      refreshProfile(); // update saved-search count
-      // Auto-dismiss success after 3s
-      setTimeout(() => setSaveSuccess(false), 3000);
-    } catch (err: any) {
-      setSaveError(err.message || "Failed to save");
-    } finally {
-      setSaving(false);
-    }
+      },
+      {
+        onSuccess: () => {
+          setShowSaveModal(false);
+          setSaveName("");
+          setSaveDesc("");
+          // Auto-dismiss success after 3s
+          setTimeout(() => saveSearchMutation.reset(), 3000);
+        },
+      },
+    );
   }, [
-    authenticatedFetch,
+    saveSearchMutation,
     saveName,
     saveDesc,
     tickers,
@@ -169,30 +165,29 @@ export default function BrowsePage() {
     showPerf,
     selectedPerfMetrics,
     showDcf,
+    data,
   ]);
 
   // --- Add to Watchlist handler ---
   const handleAddToWatchlist = useCallback(
-    async (ticker: string) => {
-      setWatchlistAdding(ticker);
+    (ticker: string) => {
       setWatchlistMsg(null);
-      try {
-        await addToWatchlist(authenticatedFetch, ticker);
-        setWatchlistMsg(`${ticker} added to watchlist`);
-        setTimeout(() => setWatchlistMsg(null), 3000);
-      } catch (err: any) {
-        // 409 means already exists – not really an error for the user
-        if (err.message?.includes("already")) {
-          setWatchlistMsg(`${ticker} is already in your watchlist`);
-        } else {
-          setWatchlistMsg(`Failed to add ${ticker}: ${err.message}`);
-        }
-        setTimeout(() => setWatchlistMsg(null), 3000);
-      } finally {
-        setWatchlistAdding(null);
-      }
+      addWatchlistMutation.mutate(ticker, {
+        onSuccess: () => {
+          setWatchlistMsg(`${ticker} added to watchlist`);
+          setTimeout(() => setWatchlistMsg(null), 3000);
+        },
+        onError: (err: Error) => {
+          if (err.message?.includes("already")) {
+            setWatchlistMsg(`${ticker} is already in your watchlist`);
+          } else {
+            setWatchlistMsg(`Failed to add ${ticker}: ${err.message}`);
+          }
+          setTimeout(() => setWatchlistMsg(null), 3000);
+        },
+      });
     },
-    [authenticatedFetch],
+    [addWatchlistMutation],
   );
 
   // Handle Compare button
@@ -225,33 +220,11 @@ export default function BrowsePage() {
 
   // Handle Export button
   const handleExport = useCallback(
-    async (format: ExportFormat = "csv") => {
+    (format: ExportFormat = "csv") => {
       if (!queryParams || !data) return;
-      setExportError(null);
-
-      const ext = format === "xlsx" ? "xlsx" : format === "pdf" ? "pdf" : "csv";
-      const url = getExportUrl(queryParams, format);
-
-      try {
-        const res = await authenticatedFetch(url);
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.detail || `Export failed (${res.status})`);
-        }
-
-        const blob = await res.blob();
-        const link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.download = `relative_table_${new Date().toISOString().split("T")[0]}.${ext}`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(link.href);
-      } catch (err: any) {
-        setExportError(err.message || "Export failed");
-      }
+      exportTableMutation.mutate({ params: queryParams, format });
     },
-    [queryParams, data, authenticatedFetch],
+    [queryParams, data, exportTableMutation],
   );
 
   // Handle Generate Deck - navigate to wizard with selected ticker
@@ -309,14 +282,8 @@ export default function BrowsePage() {
               size="lg"
               className="flex items-center gap-2"
               onClick={() => {
-                if (atSaveLimit) {
-                  setSaveError(
-                    `Free plan limit reached (${savedSearchesLimit}/${savedSearchesLimit}). Upgrade to Pro for unlimited saved searches.`,
-                  );
-                  setShowSaveModal(true);
-                } else {
-                  setShowSaveModal(true);
-                }
+                saveSearchMutation.reset();
+                setShowSaveModal(true);
               }}
               aria-label="Save current search"
             >
@@ -347,7 +314,7 @@ export default function BrowsePage() {
       </div>
 
       {/* Success / info toasts */}
-      {saveSuccess && (
+      {saveSearchMutation.isSuccess && (
         <Alert variant="success" title="Saved">
           Search saved successfully!{" "}
           <button
@@ -366,9 +333,11 @@ export default function BrowsePage() {
           {watchlistMsg}
         </Alert>
       )}
-      {exportError && (
+      {exportTableMutation.isError && (
         <Alert variant="error" title="Export">
-          {exportError}
+          {exportTableMutation.error instanceof Error
+            ? exportTableMutation.error.message
+            : "Export failed"}
         </Alert>
       )}
 
@@ -397,7 +366,7 @@ export default function BrowsePage() {
                     size="sm"
                     onClick={() => {
                       setShowSaveModal(false);
-                      setSaveError(null);
+                      saveSearchMutation.reset();
                     }}
                   >
                     Close
@@ -432,8 +401,12 @@ export default function BrowsePage() {
                     used (free plan)
                   </p>
                 )}
-                {saveError && (
-                  <p className="text-sm text-red-400">{saveError}</p>
+                {saveSearchMutation.isError && (
+                  <p className="text-sm text-red-400">
+                    {saveSearchMutation.error instanceof Error
+                      ? saveSearchMutation.error.message
+                      : "Failed to save"}
+                  </p>
                 )}
                 <div className="flex gap-2 justify-end pt-2">
                   <Button
@@ -441,7 +414,7 @@ export default function BrowsePage() {
                     size="sm"
                     onClick={() => {
                       setShowSaveModal(false);
-                      setSaveError(null);
+                      saveSearchMutation.reset();
                     }}
                   >
                     Cancel
@@ -449,9 +422,9 @@ export default function BrowsePage() {
                   <Button
                     size="sm"
                     onClick={handleSaveSearch}
-                    disabled={saving || !saveName.trim()}
+                    disabled={saveSearchMutation.isPending || !saveName.trim()}
                   >
-                    {saving ? (
+                    {saveSearchMutation.isPending ? (
                       <Loader2 className="w-4 h-4 animate-spin mr-2" />
                     ) : (
                       <Save className="w-4 h-4 mr-2" />
@@ -900,9 +873,13 @@ export default function BrowsePage() {
                       variant="outline"
                       size="sm"
                       onClick={() => handleAddToWatchlist(row.symbol)}
-                      disabled={watchlistAdding === row.symbol}
+                      disabled={
+                        addWatchlistMutation.isPending &&
+                        addWatchlistMutation.variables === row.symbol
+                      }
                     >
-                      {watchlistAdding === row.symbol ? (
+                      {addWatchlistMutation.isPending &&
+                      addWatchlistMutation.variables === row.symbol ? (
                         <Loader2 className="w-4 h-4 mr-1 animate-spin" />
                       ) : (
                         <Star className="w-4 h-4 mr-1" />

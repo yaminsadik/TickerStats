@@ -21,9 +21,8 @@ import { useSignalSettings } from "../hooks/useSignalSettings";
 import { exportDeckToPDF, exportDeckToPPTX } from "../utils/deckExport";
 import { SNAPSHOT_FIELDS } from "../types/api";
 import type { RelativeTableResponse, RowData } from "../types/api";
-import { useAuthenticatedFetch } from "../hooks/useAuthenticatedApi";
 import { useUserProfile } from "../hooks/useUserProfile";
-import { fetchDeck, deleteDeckFromDB, type DeckFull } from "../api/userApi";
+import { useDeckDetail, useDeleteDeck } from "../queries/useDeckQueries";
 import type { GeneratedSection, Slide, BulletPoint } from "../api/deckApi";
 
 function convertCompsToRelativeTable(
@@ -69,38 +68,32 @@ function convertCompsToRelativeTable(
 export default function DeckViewPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { authenticatedFetch } = useAuthenticatedFetch();
   const { canExport } = useUserProfile();
 
-  const [deck, setDeck] = useState<DeckFull | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    data: deck,
+    isLoading: loading,
+    error: queryError,
+  } = useDeckDetail(id ? Number(id) : undefined);
+  const error = queryError instanceof Error ? queryError.message : queryError ? String(queryError) : null;
+
+  const deleteMutation = useDeleteDeck();
+
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(),
   );
   const [showJsonViewer, setShowJsonViewer] = useState(false);
   const { settings: signalSettings } = useSignalSettings();
 
+  // Expand all sections when deck loads
   useEffect(() => {
-    if (!id) return;
-    (async () => {
-      setLoading(true);
-      try {
-        const data = await fetchDeck(authenticatedFetch, Number(id));
-        setDeck(data);
-        // Expand all sections
-        const sections =
-          (data.content as any)?.results ||
-          (data.content as any)?.sections ||
-          [];
-        setExpandedSections(new Set(sections.map((s: any) => s.section_id)));
-      } catch (err: any) {
-        setError(err.message || "Failed to load deck");
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [id, authenticatedFetch]);
+    if (!deck) return;
+    const sections =
+      (deck.content as any)?.results ||
+      (deck.content as any)?.sections ||
+      [];
+    setExpandedSections(new Set(sections.map((s: any) => s.section_id)));
+  }, [deck]);
 
   const toggleSection = (sectionId: string) => {
     setExpandedSections((prev) => {
@@ -111,14 +104,11 @@ export default function DeckViewPage() {
     });
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (!id || !confirm("Delete this deck permanently?")) return;
-    try {
-      await deleteDeckFromDB(authenticatedFetch, Number(id));
-      navigate("/decks");
-    } catch (err: any) {
-      setError(err.message || "Failed to delete");
-    }
+    deleteMutation.mutate(Number(id), {
+      onSuccess: () => navigate("/decks"),
+    });
   };
 
   const content = deck?.content as any;

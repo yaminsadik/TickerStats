@@ -29,13 +29,16 @@ import type { FetchRelativeParams } from "../api/client";
 import { useSignalSettings } from "../hooks/useSignalSettings";
 import { useAuthenticatedFetch } from "../hooks/useAuthenticatedApi";
 import { useUserProfile } from "../hooks/useUserProfile";
-import { createDeckInDB } from "../api/userApi";
 import {
   fetchSections,
   generateDeckAuthed,
   type Section,
   type GenerateDeckResponse,
 } from "../api/deckApi";
+import { queryKeys } from "../lib/queryKeys";
+import { sectionSchema } from "../schemas/deck";
+import { useSaveDeck } from "../queries/useDeckQueries";
+import { z } from "zod";
 import {
   createDraft,
   updateDraftBasics,
@@ -129,14 +132,17 @@ export default function DeckWizardPage() {
     useState<GenerateDeckResponse | null>(null);
   const [limitError, setLimitError] = useState<string | null>(null);
 
-  // Fetch sections
+  // Fetch sections (with Zod validation)
   const {
     data: availableSections,
     isLoading: sectionsLoading,
     error: sectionsError,
   } = useQuery({
-    queryKey: ["sections"],
-    queryFn: fetchSections,
+    queryKey: queryKeys.sections,
+    queryFn: async () => {
+      const raw = await fetchSections();
+      return z.array(sectionSchema).parse(raw) as Section[];
+    },
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
 
@@ -150,9 +156,13 @@ export default function DeckWizardPage() {
     }
   }, [availableSections, config.sections.length]);
 
+  // Save deck to DB mutation
+  const saveDeckMutation = useSaveDeck();
+
   // Generate deck mutation
   const generateMutation = useMutation({
-    mutationFn: (payload) => generateDeckAuthed(authenticatedFetch, payload),
+    mutationFn: (payload: import("../api/deckApi").GenerateDeckRequest) =>
+      generateDeckAuthed(authenticatedFetch, payload),
     onMutate: () => {
       if (draft) {
         markDraftGenerating(draft.id);
@@ -166,12 +176,12 @@ export default function DeckWizardPage() {
 
         // Persist to DB if authenticated, then navigate to DB-backed view
         try {
-          const dbDeck = await createDeckInDB(authenticatedFetch, {
+          const dbDeck = await saveDeckMutation.mutateAsync({
             ticker: basics.ticker,
             title: data.company_name
               ? `${data.company_name} Pitch Deck`
               : `${basics.ticker} Pitch Deck`,
-            content: data,
+            content: data as unknown as Record<string, unknown>,
             llm_provider: config.provider,
           });
           navigate(`/deck/db/${dbDeck.id}`);
