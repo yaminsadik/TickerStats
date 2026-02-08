@@ -1,0 +1,54 @@
+# Docker Compose for local development and testing
+# NOT required for DigitalOcean deployment (App Platform handles orchestration)
+# Use this for local testing of the containerized app
+
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/ticketstats
+      - ASYNC_DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/ticketstats
+      - AUTH0_DOMAIN=${AUTH0_DOMAIN}
+      - AUTH0_AUDIENCE=${AUTH0_API_AUDIENCE}
+      - AUTH0_ALGORITHMS=${AUTH0_ALGORITHMS}
+      - DEBUG=false
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - ticketstats-network
+    restart: unless-stopped
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=ticketstats
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ticketstats-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  ticketstats-network:
+    driver: bridge

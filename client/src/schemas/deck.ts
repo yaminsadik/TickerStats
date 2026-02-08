@@ -7,12 +7,20 @@ import { z } from "zod";
 
 // -- Section (from deckApi.ts) ------------------------------------------------
 
-export const sectionSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  description: z.string(),
-  default: z.boolean(),
-});
+export const sectionSchema = z
+  .object({
+    id: z.string(),
+    name: z.string().optional(),
+    label: z.string().optional(),
+    description: z.string().nullable().optional(),
+    default: z.boolean().optional(),
+  })
+  .transform((section) => ({
+    id: section.id,
+    name: section.name ?? section.label ?? section.id,
+    description: section.description ?? "",
+    default: section.default ?? false,
+  }));
 
 export type SectionParsed = z.infer<typeof sectionSchema>;
 

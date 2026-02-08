@@ -5,7 +5,7 @@ const NOISE_URI =
   "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNTAiIGhlaWdodD0iMjUwIj48ZmlsdGVyIGlkPSJuIj48ZmVUdXJidWxlbmNlIHR5cGU9ImZyYWN0YWxOb2lzZSIgYmFzZUZyZXF1ZW5jeT0iMC44IiBudW1PY3RhdmVzPSI0IiBzdGl0Y2hUaWxlcz0ic3RpdGNoIi8+PC9maWx0ZXI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsdGVyPSJ1cmwoI24pIiBvcGFjaXR5PSIxIi8+PC9zdmc+";
 
 /**
- * InteractiveHero — Auth0-style interactive hero background.
+ * InteractiveHero: Auth0-style interactive hero background.
  *
  * Color cycling is 100% CSS keyframes (no JS state changes).
  * Cursor spotlight + tilt use rAF + CSS variables (no re-renders).
@@ -99,17 +99,17 @@ export default function InteractiveHero({
         }}
       />
 
-      {/* 2. Orb A — center top */}
+      {/* 2. Orb A - center top */}
       <div
         className={`absolute z-0 top-[-5%] left-1/2 -translate-x-1/2 w-[700px] h-[700px] rounded-full blur-[140px] ${animClass}-orb-a`}
         aria-hidden="true"
       />
-      {/* 3. Orb B — left */}
+      {/* 3. Orb B - left */}
       <div
         className={`absolute z-0 top-[15%] left-[5%] w-[480px] h-[480px] rounded-full blur-[120px] ${animClass}-orb-b`}
         aria-hidden="true"
       />
-      {/* 4. Orb C — right */}
+      {/* 4. Orb C - right */}
       <div
         className={`absolute z-0 top-[15%] right-[5%] w-[420px] h-[420px] rounded-full blur-[110px] ${animClass}-orb-c`}
         aria-hidden="true"

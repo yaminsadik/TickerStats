@@ -22,8 +22,8 @@ const rowDataSchema = z.object({
   snapshot: z.record(z.string(), z.number().nullable()),
   performance: z.record(z.string(), z.number().nullable()).nullable(),
   dcf: z.record(z.string(), z.number().nullable()).nullable(),
-  missingFields: z.array(z.string()).optional(),
-  missingPerf: z.array(z.string()).optional(),
+  missingFields: z.array(z.string()).default([]),
+  missingPerf: z.array(z.string()).nullable().optional(),
   error: z.string().nullable(),
 });
 

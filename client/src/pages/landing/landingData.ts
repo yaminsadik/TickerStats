@@ -1,5 +1,5 @@
 /**
- * Landing page mocked data — deterministic, no API calls.
+ * Landing page mocked data: deterministic, no API calls.
  * All numbers match the real product screenshots.
  */
 
@@ -430,15 +430,15 @@ export const deckSections: DeckSection[] = [
     icon: "overview",
     variations: [
       {
-        title: "Apple Inc. (AAPL) — Overview & Near-Term Catalysts",
+        title: "Apple Inc. (AAPL): Overview & Near-Term Catalysts",
         bullets: [
           "Apple's Services revenue reached $24.2B in Q4 2025, growing 14% YoY and now representing 26% of total revenue.",
           "iPhone 17 cycle expected to drive a multi-quarter upgrade supercycle with on-device AI features.",
-          "Margin expansion driven by Services mix shift — gross margin improved 180bps YoY to 46.9%.",
+          "Margin expansion driven by Services mix shift. Gross margin improved 180bps YoY to 46.9%.",
           "Catalyst: Vision Pro 2 launch in Q2 2026 could open a new $50B+ spatial computing TAM.",
         ],
         speakerNotes:
-          "Focus on the services narrative — this is the margin story Wall Street cares about. The hardware cycle is the catalyst, but services is the thesis.",
+          "Focus on the services narrative. This is the margin story Wall Street cares about. The hardware cycle is the catalyst, but services is the thesis.",
         claims: [
           { text: "Services revenue $24.2B", verified: true, timestamp: "Q4 2025 10-Q" },
           { text: "14% YoY growth", verified: true, timestamp: "Q4 2025 earnings" },
@@ -446,7 +446,7 @@ export const deckSections: DeckSection[] = [
         ],
       },
       {
-        title: "Apple Inc. (AAPL) — Company Profile & Growth Drivers",
+        title: "Apple Inc. (AAPL): Company Profile & Growth Drivers",
         bullets: [
           "World's most valuable company by market cap ($3.58T) with dominant ecosystem lock-in across 2.2B active devices.",
           "Services segment (App Store, iCloud, Apple TV+, Apple Pay) is the highest-margin business at ~71% gross margin.",
@@ -469,7 +469,7 @@ export const deckSections: DeckSection[] = [
     icon: "swot",
     variations: [
       {
-        title: "SWOT — Apple Inc.",
+        title: "SWOT: Apple Inc.",
         bullets: [
           "Strengths: Unmatched brand loyalty, ecosystem lock-in, $162B cash position, and leading ASP in smartphones.",
           "Weaknesses: Revenue concentration in iPhone (~52%), limited AI cloud infrastructure vs. peers, China regulatory risk.",
@@ -477,7 +477,7 @@ export const deckSections: DeckSection[] = [
           "Threats: DOJ antitrust case on App Store, EU DMA compliance costs, Huawei resurgence in China market.",
         ],
         speakerNotes:
-          "The SWOT is balanced — don't oversell strengths. The antitrust risk is real and worth addressing in Q&A prep.",
+          "The SWOT is balanced. Don't oversell strengths. The antitrust risk is real and worth addressing in Q&A prep.",
         claims: [
           { text: "$162B cash position", verified: true, timestamp: "Q4 2025 balance sheet" },
           { text: "iPhone ~52% of revenue", verified: true, timestamp: "Q4 2025 10-Q" },
@@ -485,7 +485,7 @@ export const deckSections: DeckSection[] = [
         ],
       },
       {
-        title: "SWOT Matrix — AAPL Strategic Position",
+        title: "SWOT Matrix: AAPL Strategic Position",
         bullets: [
           "Strengths: Best-in-class supply chain (70+ day inventory turns), premium pricing power, and R&D spend of $31B/yr.",
           "Weaknesses: Late to generative AI race, declining China market share (17% → 14%), hardware growth plateauing.",
@@ -508,7 +508,7 @@ export const deckSections: DeckSection[] = [
     icon: "bull",
     variations: [
       {
-        title: "Bull Case — Why AAPL Could Reach $280+",
+        title: "Bull Case: Why AAPL Could Reach $280+",
         bullets: [
           "Services revenue growing 14% CAGR reaches $120B by FY2028 at 70%+ margins, driving EPS expansion.",
           "iPhone 17 AI features trigger largest upgrade cycle since iPhone 6, adding $15B+ incremental revenue.",
@@ -524,12 +524,12 @@ export const deckSections: DeckSection[] = [
         ],
       },
       {
-        title: "Bull Thesis — AAPL Upside Scenario",
+        title: "Bull Thesis: AAPL Upside Scenario",
         bullets: [
           "On-device AI creates a new monetization layer: $5-10/month Apple Intelligence Pro subscription (500M+ potential subs).",
           "India becomes the next China-scale growth market: 700M smartphone users, Apple at <5% share today.",
           "Healthcare pivot: Apple Watch FDA-cleared glucose monitoring could unlock $30B+ digital health TAM.",
-          "Multiple expansion: market rewards predictable, high-margin recurring revenue — 38-40x forward P/E justified.",
+          "Multiple expansion: market rewards predictable, high-margin recurring revenue, 38-40x forward P/E justified.",
         ],
         speakerNotes:
           "India TAM is the most overlooked bull argument. Start here to differentiate your pitch from consensus.",
@@ -547,7 +547,7 @@ export const deckSections: DeckSection[] = [
     icon: "bear",
     variations: [
       {
-        title: "Bear Case — Downside Risks for AAPL",
+        title: "Bear Case: Downside Risks for AAPL",
         bullets: [
           "DOJ antitrust ruling forces App Store fee reduction from 30% to 15%, cutting Services revenue by $8-12B annually.",
           "China revenue (18% of total) at risk from nationalism trends and Huawei's AI-powered smartphone resurgence.",
@@ -555,7 +555,7 @@ export const deckSections: DeckSection[] = [
           "Consumer spending slowdown: iPhone ASPs at $950+ are vulnerable to trade-down in a recession.",
         ],
         speakerNotes:
-          "Quantify the App Store risk — it's the bear case that matters most. Model a 15% fee scenario to show EPS impact.",
+          "Quantify the App Store risk. It's the bear case that matters most. Model a 15% fee scenario to show EPS impact.",
         claims: [
           { text: "App Store 30% fee", verified: true, timestamp: "Current policy" },
           { text: "China 18% of revenue", verified: true, timestamp: "Q4 2025 geographic" },
@@ -563,15 +563,15 @@ export const deckSections: DeckSection[] = [
         ],
       },
       {
-        title: "Bear Thesis — What Could Go Wrong",
+        title: "Bear Thesis: What Could Go Wrong",
         bullets: [
-          "Hardware innovation plateau: iPhone, Mac, and iPad cycles elongating — consumers refreshing every 4+ years.",
-          "Regulatory cascading: EU DMA + Japan + India all imposing sideloading and payment alternatives — death by a thousand cuts.",
+          "Hardware innovation plateau: iPhone, Mac, and iPad cycles elongating, consumers refreshing every 4+ years.",
+          "Regulatory cascading: EU DMA + Japan + India all imposing sideloading and payment alternatives, death by a thousand cuts.",
           "Vision Pro disappoints: $3,499 price point limits TAM, developer ecosystem fails to reach escape velocity.",
           "Talent attrition: key AI/ML researchers leaving for startups and competitors offering better equity packages.",
         ],
         speakerNotes:
-          "The elongating refresh cycle is subtle but important — it means hardware revenue becomes ex-growth sooner than consensus expects.",
+          "The elongating refresh cycle is subtle but important. It means hardware revenue becomes ex-growth sooner than consensus expects.",
         claims: [
           { text: "4+ year refresh cycle", verified: false, timestamp: "Industry surveys" },
           { text: "Vision Pro $3,499", verified: true, timestamp: "Apple.com pricing" },
@@ -586,15 +586,15 @@ export const deckSections: DeckSection[] = [
     icon: "relative",
     variations: [
       {
-        title: "Relative Valuation — AAPL vs. Mega-Cap Tech Peers",
+        title: "Relative Valuation: AAPL vs. Mega-Cap Tech Peers",
         bullets: [
-          "AAPL trades at 31.2x forward P/E vs. peer median of 28.4x — a 10% premium justified by margin stability.",
+          "AAPL trades at 31.2x forward P/E vs. peer median of 28.4x, a 10% premium justified by margin stability.",
           "EV/Revenue of 9.1x vs. peer median 8.2x reflects Services mix shift and buyback-enhanced returns.",
-          "Peer group: MSFT (33.8x), GOOGL (22.4x), AMZN (37.6x), META (24.1x) — AAPL sits mid-range.",
+          "Peer group: MSFT (33.8x), GOOGL (22.4x), AMZN (37.6x), META (24.1x). AAPL sits mid-range.",
           "Key differentiator: AAPL's 26.3% net margin with 157% ROE vs. peer median 28% margin, 37% ROE.",
         ],
         speakerNotes:
-          "The relative val table is your strongest slide — let the numbers speak. Point out that AAPL's premium is smaller than it looks once you adjust for buyback yield.",
+          "The relative val table is your strongest slide. Let the numbers speak. Point out that AAPL's premium is smaller than it looks once you adjust for buyback yield.",
         claims: [
           { text: "31.2x forward P/E", verified: true, timestamp: "Live market data" },
           { text: "Peer median 28.4x", verified: true, timestamp: "Computed from comps" },
@@ -602,12 +602,12 @@ export const deckSections: DeckSection[] = [
         ],
       },
       {
-        title: "Peer Comparison — Valuation Multiples",
+        title: "Peer Comparison: Valuation Multiples",
         bullets: [
           "On P/S basis, AAPL (9.1x) is cheaper than MSFT (14.3x) and NVDA (27.8x) but pricier than GOOGL (7.8x).",
-          "Debt/Equity: AAPL's 151.9% looks high but is intentional leverage for buybacks — net cash positive at $62B.",
-          "Beta of 1.08 indicates AAPL trades roughly in line with the market — defensive for mega-cap tech.",
-          "DCF intrinsic value of $192.10 suggests 19% downside from current price — consensus still overweight.",
+          "Debt/Equity: AAPL's 151.9% looks high but is intentional leverage for buybacks, net cash positive at $62B.",
+          "Beta of 1.08 indicates AAPL trades roughly in line with the market, defensive for mega-cap tech.",
+          "DCF intrinsic value of $192.10 suggests 19% downside from current price, consensus still overweight.",
         ],
         speakerNotes:
           "Address the debt/equity concern proactively. Explain that Apple's leverage is a capital allocation choice, not distress.",
@@ -625,15 +625,15 @@ export const deckSections: DeckSection[] = [
     icon: "dcf",
     variations: [
       {
-        title: "DCF Valuation — Base Case Assumptions",
+        title: "DCF Valuation: Base Case Assumptions",
         bullets: [
           "5-year forecast period with 8% FCF growth rate (conservative vs. 12% historical CAGR).",
           "WACC of 9.0% based on CAPM: risk-free 4.2%, equity premium 5.5%, beta 1.08.",
           "Terminal growth rate: 2.5% (GDP+ assumption for platform with recurring revenue).",
-          "Implied target price: $192.10/share — represents 19.1% downside from current $237.42.",
+          "Implied target price: $192.10/share, represents 19.1% downside from current $237.42.",
         ],
         speakerNotes:
-          "Walk through each assumption. The 8% FCF growth is the key lever — show sensitivity table for 6%/8%/10% scenarios.",
+          "Walk through each assumption. The 8% FCF growth is the key lever. Show sensitivity table for 6%/8%/10% scenarios.",
         claims: [
           { text: "8% FCF growth rate", verified: true, timestamp: "Model assumption" },
           { text: "9.0% WACC", verified: true, timestamp: "CAPM computation" },
@@ -641,15 +641,15 @@ export const deckSections: DeckSection[] = [
         ],
       },
       {
-        title: "Discounted Cash Flow — Sensitivity Analysis",
+        title: "Discounted Cash Flow: Sensitivity Analysis",
         bullets: [
-          "Base case ($192.10): 8% growth, 9% WACC, 2.5% terminal — 19% downside.",
-          "Bull case ($268.50): 12% growth, 8.5% WACC, 3% terminal — 13% upside.",
-          "Bear case ($142.30): 5% growth, 10% WACC, 2% terminal — 40% downside.",
-          "Terminal value represents 72% of total DCF — typical for mature, high-quality compounder.",
+          "Base case ($192.10): 8% growth, 9% WACC, 2.5% terminal, 19% downside.",
+          "Bull case ($268.50): 12% growth, 8.5% WACC, 3% terminal, 13% upside.",
+          "Bear case ($142.30): 5% growth, 10% WACC, 2% terminal, 40% downside.",
+          "Terminal value represents 72% of total DCF, typical for mature, high-quality compounder.",
         ],
         speakerNotes:
-          "The sensitivity table is critical. Professors will ask about terminal value dominance — explain it's expected for a mature business.",
+          "The sensitivity table is critical. Professors will ask about terminal value dominance. Explain it's expected for a mature business.",
         claims: [
           { text: "Terminal value 72% of DCF", verified: true, timestamp: "Model output" },
           { text: "Bull case $268.50", verified: true, timestamp: "Scenario analysis" },

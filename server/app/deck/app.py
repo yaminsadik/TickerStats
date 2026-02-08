@@ -71,7 +71,10 @@ def _init_cors(app: Flask) -> None:
     """Initialize CORS for the app."""
     CORS(app, resources={
         r"/api/*": {
-            "origins": "*",  # Configure appropriately for production
+            "origins": [
+                "http://localhost:3000",
+                "http://127.0.0.1:3000",
+            ],  # Configure appropriately for production
             "methods": ["GET", "POST", "OPTIONS"],
             "allow_headers": [
                 "Content-Type",
@@ -194,7 +197,7 @@ def _register_error_handlers(app: Flask) -> None:
     def rate_limited(e):
         return jsonify({
             "error": "Rate limit exceeded",
-            "message": "Too many requests. Please try again later.",
+            "message": str(e.description) if hasattr(e, "description") else str(e),
         }), 429
     
     @app.errorhandler(500)

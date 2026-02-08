@@ -268,7 +268,7 @@ export default function LandingPage() {
               {/* Subhead */}
               <p className="text-xl md:text-2xl text-slate-300 mb-8 font-light max-w-3xl mx-auto">
                 TickerStats builds comp tables, runs DCF, and writes
-                presentation-ready decks — all from a list of tickers.
+                presentation-ready decks, all from a list of tickers.
               </p>
 
               {/* CTAs - "Try the demo" is primary */}
@@ -428,7 +428,7 @@ export default function LandingPage() {
               See it in action
             </h2>
             <p className="text-lg text-slate-400 mb-10 text-center max-w-2xl mx-auto">
-              Try the real product experience — right here, no sign-up needed.
+              Try the real product experience right here, no sign-up needed.
             </p>
 
             {/* Demo A: Comp table */}
@@ -496,7 +496,7 @@ export default function LandingPage() {
               <TrustCard
                 icon={<Shield className="w-5 h-5 text-blue-400" />}
                 title="Computed vs written"
-                description="Metrics + DCF are deterministic. AI writes narrative only — no hallucinated numbers."
+                description="Metrics + DCF are deterministic. AI writes narrative only, no hallucinated numbers."
               />
               <TrustCard
                 icon={<Clock className="w-5 h-5 text-emerald-400" />}

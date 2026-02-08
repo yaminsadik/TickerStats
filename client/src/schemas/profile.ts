@@ -3,7 +3,7 @@ import { z } from "zod";
 const tierEnum = z.enum(["free", "pro", "enterprise"]);
 
 /**
- * Zod schema for UserProfile — mirrors the interface in api/profileApi.ts.
+ * Zod schema for UserProfile. Mirrors the interface in api/profileApi.ts.
  * Used to validate API responses at the query boundary.
  */
 export const userProfileSchema = z.object({

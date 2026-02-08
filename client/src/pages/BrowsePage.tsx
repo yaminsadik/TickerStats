@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
+import { useAuth0 } from "@auth0/auth0-react";
 import {
   FileText,
   ChevronRight,
@@ -34,6 +35,7 @@ import {
 export default function BrowsePage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { isAuthenticated, isLoading: authLoading, loginWithRedirect } = useAuth0();
 
   // User profile for free-tier gates
   const {
@@ -697,19 +699,45 @@ export default function BrowsePage() {
             <p className="text-sm">
               {error instanceof Error
                 ? error.message
-                : "An unexpected error occurred while fetching data."}{" "}
-              This might be due to invalid ticker symbols or network issues.
+                : "An unexpected error occurred while fetching data."}
+              {!isAuthenticated && (
+                <span className="block mt-2 text-yellow-400">
+                  You need to be logged in to access this feature.
+                </span>
+              )}
+              {isAuthenticated && error instanceof Error && error.message.toLowerCase().includes("auth") && (
+                <span className="block mt-2">
+                  This might be an authentication issue. Try logging out and back in.
+                </span>
+              )}
+              {isAuthenticated && (!error || (error instanceof Error && !error.message.toLowerCase().includes("auth"))) && (
+                <span className="block mt-2">
+                  This might be due to invalid ticker symbols or network issues.
+                </span>
+              )}
             </p>
             <div className="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleCompare}
-                className="text-white"
-              >
-                <RefreshCw className="w-4 h-4 mr-2" />
-                Retry
-              </Button>
+              {!isAuthenticated ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => loginWithRedirect()}
+                  className="text-white"
+                >
+                  <Lock className="w-4 h-4 mr-2" />
+                  Log In
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCompare}
+                  className="text-white"
+                >
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  Retry
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="sm"

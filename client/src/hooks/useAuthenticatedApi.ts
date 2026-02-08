@@ -5,7 +5,16 @@
 import { useCallback } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+
+// Log configuration in development mode
+if (import.meta.env.DEV) {
+  console.log("🔧 API Configuration:", {
+    API_BASE_URL,
+    AUTH0_AUDIENCE: import.meta.env.VITE_AUTH0_AUDIENCE,
+    AUTH0_DOMAIN: import.meta.env.VITE_AUTH0_DOMAIN,
+  });
+}
 
 interface FetchOptions extends RequestInit {
   requireAuth?: boolean;
@@ -41,9 +50,13 @@ export function useAuthenticatedFetch() {
             audience: import.meta.env.VITE_AUTH0_AUDIENCE,
           },
         });
+        if (!token) {
+          throw new Error("Token retrieval returned undefined");
+        }
       } catch (error) {
         console.error("Failed to get access token:", error);
-        throw new Error("Authentication required");
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        throw new Error(`Authentication failed: ${errorMsg}. Please try logging out and back in.`);
       }
     }
 
@@ -74,7 +87,22 @@ export function useAuthenticatedFetch() {
       } catch {
         // ignore JSON parse errors
       }
-      throw new Error(detail);
+      console.error(`401 Unauthorized from ${fullUrl}:`, detail);
+      throw new Error(`Authentication error: ${detail}`);
+    }
+
+    // Handle other HTTP errors with better messages
+    if (!response.ok) {
+      let errorDetail = `HTTP ${response.status}: ${response.statusText}`;
+      try {
+        const body = await response.clone().json();
+        if (body?.detail) {
+          errorDetail = body.detail;
+        }
+      } catch {
+        // ignore JSON parse errors
+      }
+      console.error(`Request to ${fullUrl} failed:`, errorDetail);
     }
 
     return response;
