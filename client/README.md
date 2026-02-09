@@ -1,24 +1,31 @@
-# TicketStats Client
+# TickerStats Client
 
-A polished React frontend for the Investment Club Relative Table app.
+React + TypeScript frontend for TickerStats - an investment research platform for student investment clubs.
 
 ## Features
 
-- **Ticker Input**: Type or paste multiple tickers (supports comma, space, or newline separation)
-- **Removable Chips**: Click X to remove individual tickers
-- **Relative Table**: Dense, readable comparison table with sticky header and first column
-- **Sorting**: Click any column header to sort (toggle asc/desc/none)
-- **Column Selection**: Show/hide snapshot columns and performance metrics
-- **Performance Metrics**: Toggle to include return, volatility, and max drawdown
-- **Timeframe Selection**: Choose from 1mo to max periods for performance calculations
-- **CSV Export**: Download current table data as CSV
-- **Smart Formatting**: Currency, percentage, and ratio formatting based on data type
+### Core Functionality
+- **Authentication**: Auth0 integration with protected routes
+- **Browse/Compare**: Real-time relative valuation tables with yfinance data
+- **Deck Generation**: AI-powered pitch deck creation using LLM providers (OpenAI/Gemini)
+- **Watchlists**: Save and track tickers with notes
+- **Saved Searches**: Persist analysis configurations
+- **User Profiles**: Subscription tiers, usage tracking, admin controls
+
+### UI/UX
+- **Responsive Design**: Tailwind CSS with custom design system
+- **Dark Mode**: Slate color scheme optimized for readability
+- **Real-time Updates**: TanStack Query for caching and optimistic updates
+- **Smart Formatting**: Currency, percentage, and ratio formatting
+- **CSV Export**: Download comparison data
+- **Signal Indicators**: Visual cues for valuation metrics
 
 ## Prerequisites
 
 - Node.js 18+
 - npm or yarn
-- Backend server running at `http://localhost:8000` (or configure via env)
+- Backend server running at `http://localhost:5000` (default)
+- Auth0 account configured (see root `AUTH0_SETUP.md`)
 
 ## Setup
 
@@ -28,10 +35,17 @@ A polished React frontend for the Investment Club Relative Table app.
    npm install
    ```
 
-2. **Configure environment (optional):**
+2. **Configure environment:**
    ```bash
    cp .env.example .env
-   # Edit .env to change API base URL if needed
+   ```
+   
+   Update `.env` with your settings:
+   ```bash
+   VITE_API_BASE_URL=http://localhost:5000
+   VITE_AUTH0_DOMAIN=your-tenant.us.auth0.com
+   VITE_AUTH0_AUDIENCE=https://api.tickerstats.com
+   VITE_AUTH0_CLIENT_ID=your-client-id
    ```
 
 3. **Start the development server:**
@@ -40,66 +54,130 @@ A polished React frontend for the Investment Club Relative Table app.
    ```
 
 4. **Open in browser:**
-   The app will open automatically at http://localhost:3000
+   Navigate to http://localhost:3000
 
 ## Environment Variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `VITE_API_BASE` | `http://localhost:8000` | Backend API base URL |
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `VITE_API_BASE_URL` | Yes | Backend API URL (default: `http://localhost:5000`) |
+| `VITE_AUTH0_DOMAIN` | Yes | Auth0 tenant domain |
+| `VITE_AUTH0_AUDIENCE` | Yes | Auth0 API identifier |
+| `VITE_AUTH0_CLIENT_ID` | Yes | Auth0 application client ID |
 
 ## Usage Examples
 
-### Basic Comparison
-1. Type tickers in the input: `AAPL MSFT NVDA GOOGL`
-2. Click **Compare**
-3. View the relative table with all metrics
+### Browse Comparables
+1. Navigate to `/browse`
+2. Enter tickers: `AAPL MSFT NVDA GOOGL`
+3. Select metrics to display
+4. Sort by any column
+5. Export to CSV
 
-### With Performance Metrics
-1. Enter tickers: `AAPL, MSFT, TSLA`
-2. Toggle **Include Performance** ON
-3. Select timeframe: `3 Months`
-4. Click **Compare**
-5. Table now shows return, volatility, and max drawdown
+### Generate Pitch Deck
+1. Navigate to `/deck/new`
+2. Enter ticker and company info
+3. Select deck sections (Overview, SWOT, Valuation, etc.)
+4. Choose LLM provider (OpenAI/Gemini) and quality level
+5. Click **Generate Deck**
+6. View/save generated slides
 
-### Custom Columns
-1. Click **Show Column Settings**
-2. Uncheck columns you don't need (e.g., hide evRevenue, debtEquity)
-3. The table updates immediately
+### Manage Watchlist
+1. Go to `/watchlist`
+2. Add tickers with optional notes
+3. View all saved tickers
+4. Update notes or remove entries
 
-### Export Data
-1. After viewing data, click **Export CSV**
-2. CSV file downloads with current columns and symbols
+### Saved Searches
+1. Run a comparison on `/browse`
+2. Click **Save Search**
+3. Access saved configurations from `/saved-searches`
+4. Re-run or delete saved searches
 
 ## Tech Stack
 
-- **Vite** - Fast build tool
-- **React 18** - UI framework
+- **Vite** - Fast build tool and dev server
+- **React 18** - UI framework with hooks
 - **TypeScript** - Type safety
-- **Tailwind CSS** - Styling
-- **TanStack Query** - Data fetching and caching
+- **React Router** - Client-side routing
+- **TanStack Query** - Server state management and caching
+- **Tailwind CSS** - Utility-first styling
+- **Auth0 React SDK** - Authentication
+- **Zod** - Runtime type validation
+- **Radix UI** - Accessible component primitives
+- **Lucide React** - Icon library
 
 ## Project Structure
 
 ```
 client/
 ├── src/
-│   ├── api/
-│   │   └── client.ts       # API client functions
-│   ├── components/
+│   ├── api/              # API client functions
+│   │   ├── client.ts     # Authenticated fetch wrapper
+│   │   ├── dcfApi.ts     # DCF valuation endpoints
+│   │   ├── deckApi.ts    # Deck generation endpoints
+│   │   ├── profileApi.ts # User profile endpoints
+│   │   └── userApi.ts    # User resources (watchlist, searches, decks)
+│   ├── components/       # Reusable UI components
+│   │   ├── layout/       # Header, footer, navigation
+│   │   ├── ui/           # Base UI primitives (Button, Input, etc.)
+│   │   ├── Breadcrumbs.tsx
 │   │   ├── ColumnPicker.tsx
 │   │   ├── Controls.tsx
+│   │   ├── ProtectedRoute.tsx
 │   │   ├── RelativeTable.tsx
-│   │   └── TickerInput.tsx
-│   ├── hooks/
-│   │   └── useRelativeTable.ts
-│   ├── types/
-│   │   └── api.ts          # TypeScript types
-│   ├── utils/
-│   │   └── formatters.ts   # Number formatting
-│   ├── App.tsx
-│   ├── index.css
-│   └── main.tsx
+│   │   ├── SignalConfigDrawer.tsx
+│   │   ├── TickerInput.tsx
+│   │   └── ...modals
+│   ├── hooks/            # Custom React hooks
+│   │   ├── useAuthenticatedApi.ts
+│   │   ├── useRelativeTable.ts
+│   │   ├── useSignalSettings.ts
+│   │   └── useUserProfile.ts
+│   ├── lib/              # Utility libraries
+│   │   ├── apiError.ts   # Error handling
+│   │   ├── parse.ts      # Zod parsing helpers
+│   │   └── queryKeys.ts  # TanStack Query key factory
+│   ├── pages/            # Route components
+│   │   ├── landing/      # Marketing pages
+│   │   ├── AdminPage.tsx
+│   │   ├── BrowsePage.tsx
+│   │   ├── ContactPage.tsx
+│   │   ├── DeckDraftPage.tsx
+│   │   ├── DecksListPage.tsx
+│   │   ├── DeckViewPage.tsx
+│   │   ├── DeckWizardPage.tsx
+│   │   ├── ProfilePage.tsx
+│   │   ├── SavedSearchesPage.tsx
+│   │   └── WatchlistPage.tsx
+│   ├── queries/          # TanStack Query hooks
+│   │   ├── useAdminQueries.ts
+│   │   ├── useBrowseMutations.ts
+│   │   ├── useDeckQueries.ts
+│   │   ├── useProfileQuery.ts
+│   │   ├── useSavedSearchQueries.ts
+│   │   └── useWatchlistQueries.ts
+│   ├── schemas/          # Zod validation schemas
+│   │   ├── admin.ts
+│   │   ├── deck.ts
+│   │   ├── profile.ts
+│   │   ├── relativeTable.ts
+│   │   └── userResources.ts
+│   ├── stores/           # Zustand state management
+│   │   └── deckDraft.ts  # Local deck draft persistence
+│   ├── styles/           # Design tokens
+│   │   └── tokens.ts
+│   ├── types/            # TypeScript type definitions
+│   │   ├── api.ts
+│   │   ├── dcf.ts
+│   │   └── ...
+│   ├── utils/            # Utility functions
+│   ├── App.tsx           # Root component with Auth0Provider
+│   ├── routes.tsx        # Route configuration
+│   ├── main.tsx          # App entry point
+│   └── index.css         # Global styles
+├── public/               # Static assets
+├── index.html
 ├── package.json
 ├── tailwind.config.js
 ├── tsconfig.json
