@@ -16,13 +16,10 @@ import {
   useUpdateWatchlistNotes,
   useRemoveFromWatchlist,
 } from "../queries/useWatchlistQueries";
+import type { WatchlistItemParsed } from "../schemas/userResources";
 
 export default function WatchlistPage() {
-  const {
-    data: items,
-    isLoading: loading,
-    error: queryError,
-  } = useWatchlist();
+  const { data: items, isLoading: loading, error: queryError } = useWatchlist();
   const addMutation = useAddToWatchlistFull();
   const updateNotesMutation = useUpdateWatchlistNotes();
   const removeMutation = useRemoveFromWatchlist();
@@ -152,7 +149,7 @@ export default function WatchlistPage() {
         </Card>
       ) : (
         <div className="space-y-2">
-          {items.map((item) => (
+          {items.map((item: WatchlistItemParsed) => (
             <Card
               key={item.id}
               className="flex items-center justify-between gap-4"

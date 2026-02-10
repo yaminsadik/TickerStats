@@ -5,7 +5,7 @@ import { Button, Card, Alert, Badge } from "../components/ui";
 import { useDeckList, useDeleteDeck } from "../queries/useDeckQueries";
 import { useAuthenticatedFetch } from "../hooks/useAuthenticatedApi";
 import { fetchDeck } from "../api/userApi";
-import { deckFullSchema } from "../schemas/deck";
+import { deckFullSchema, type DeckMetaParsed } from "../schemas/deck";
 import { parseOrThrow } from "../lib/parse";
 import { queryKeys } from "../lib/queryKeys";
 
@@ -78,7 +78,7 @@ export default function DecksListPage() {
         </Card>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {decks.map((d) => (
+          {decks.map((d: DeckMetaParsed) => (
             <div key={d.id} onMouseEnter={() => prefetchDeck(d.id)}>
             <Card className="flex flex-col justify-between">
               <div>

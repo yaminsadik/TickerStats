@@ -87,7 +87,7 @@ export default function SavedSearchesPage() {
         </Card>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {analyses.map((a) => (
+          {analyses.map((a: SavedAnalysisParsed) => (
             <Card key={a.id} className="flex flex-col justify-between">
               <div>
                 <div className="flex items-start justify-between mb-2">
@@ -112,7 +112,7 @@ export default function SavedSearchesPage() {
                       visibleFields={
                         a.snapshot_data.requested?.fields?.length
                           ? a.snapshot_data.requested.fields
-                          : a.snapshot_fields ?? []
+                          : (a.snapshot_fields ?? [])
                       }
                       visiblePerfMetrics={
                         a.snapshot_data.requested?.perf?.metrics ?? []
@@ -123,7 +123,7 @@ export default function SavedSearchesPage() {
                   </div>
                 ) : (
                   <div className="flex flex-wrap gap-1.5 mb-3">
-                    {a.symbols.slice(0, 8).map((s) => (
+                    {a.symbols.slice(0, 8).map((s: string) => (
                       <span
                         key={s}
                         className="inline-flex items-center px-2 py-0.5 bg-slate-800 text-slate-300 rounded text-xs font-medium"
