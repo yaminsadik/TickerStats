@@ -25,6 +25,7 @@ import { useUserProfile } from "../hooks/useUserProfile";
 import { type ExportFormat } from "../api/client";
 import { Button, Card, Alert, Input, TableSkeleton } from "../components/ui";
 import { SNAPSHOT_FIELDS, PERF_METRICS, type PerfPeriod } from "../types/api";
+import type { RowData } from "../types/api";
 import type { FetchRelativeParams } from "../api/client";
 import {
   useSaveSearch,
@@ -877,7 +878,7 @@ export default function BrowsePage() {
                   Select a ticker to generate an investment pitch deck
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  {data.rows.slice(0, 5).map((row) => (
+                  {data.rows.slice(0, 5).map((row: RowData) => (
                     <Button
                       key={row.symbol}
                       variant="outline"
@@ -895,7 +896,7 @@ export default function BrowsePage() {
                   Add a ticker to your watchlist
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  {data.rows.slice(0, 8).map((row) => (
+                  {data.rows.slice(0, 8).map((row: RowData) => (
                     <Button
                       key={row.symbol}
                       variant="outline"
