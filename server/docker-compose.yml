@@ -14,7 +14,7 @@ services:
     env_file:
       - .env
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/ticketstats
+      - DATABASE_URL=postgresql+psycopg2://tickerstats:a-strong-password@db:5432/tickerstats
       - ASYNC_DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/ticketstats
       - AUTH0_DOMAIN=${AUTH0_DOMAIN}
       - AUTH0_API_AUDIENCE=${AUTH0_API_AUDIENCE}
