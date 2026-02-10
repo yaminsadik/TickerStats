@@ -6,6 +6,41 @@ import { useCallback } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { API_BASE } from "../config/apiBase";
 
+const AUTH0_SCOPE = "openid profile email offline_access";
+
+// Avoid multiple simultaneous redirects when several queries fail at once.
+let tokenRecoveryRedirectInProgress = false;
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  return String(error);
+}
+
+function getErrorCode(error: unknown): string {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "error" in error &&
+    typeof (error as { error: unknown }).error === "string"
+  ) {
+    return (error as { error: string }).error;
+  }
+  return "";
+}
+
+function isRecoverableTokenError(error: unknown): boolean {
+  const code = getErrorCode(error);
+  if (code === "missing_refresh_token" || code === "invalid_grant") {
+    return true;
+  }
+
+  const message = getErrorMessage(error);
+  return /missing refresh token|missing_refresh_token|invalid_grant/i.test(
+    message,
+  );
+}
+
 // Log configuration in development mode
 if (import.meta.env.DEV) {
   console.log("🔧 API Configuration:", {
@@ -20,7 +55,8 @@ interface FetchOptions extends RequestInit {
 }
 
 export function useAuthenticatedFetch() {
-  const { getAccessTokenSilently, isAuthenticated } = useAuth0();
+  const { getAccessTokenSilently, isAuthenticated, loginWithRedirect } =
+    useAuth0();
 
   /**
    * Make an authenticated API request.
@@ -47,15 +83,47 @@ export function useAuthenticatedFetch() {
         token = await getAccessTokenSilently({
           authorizationParams: {
             audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+            scope: AUTH0_SCOPE,
           },
         });
         if (!token) {
           throw new Error("Token retrieval returned undefined");
         }
       } catch (error) {
+        if (isRecoverableTokenError(error)) {
+          console.warn(
+            "Recoverable Auth0 token error. Redirecting to refresh session.",
+            error,
+          );
+
+          if (!tokenRecoveryRedirectInProgress) {
+            tokenRecoveryRedirectInProgress = true;
+            try {
+              await loginWithRedirect({
+                appState: {
+                  returnTo:
+                    window.location.pathname +
+                    window.location.search +
+                    window.location.hash,
+                },
+                authorizationParams: {
+                  audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+                  scope: AUTH0_SCOPE,
+                },
+              });
+            } catch (redirectError) {
+              tokenRecoveryRedirectInProgress = false;
+              throw new Error(
+                `Authentication failed: ${getErrorMessage(redirectError)}.`,
+              );
+            }
+          }
+
+          throw new Error("Authentication session expired. Redirecting to sign in.");
+        }
+
         console.error("Failed to get access token:", error);
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        throw new Error(`Authentication failed: ${errorMsg}. Please try logging out and back in.`);
+        throw new Error(`Authentication failed: ${getErrorMessage(error)}.`);
       }
     }
 
@@ -105,7 +173,7 @@ export function useAuthenticatedFetch() {
     }
 
     return response;
-  }, [getAccessTokenSilently, isAuthenticated]);
+  }, [getAccessTokenSilently, isAuthenticated, loginWithRedirect]);
 
   return { authenticatedFetch, isAuthenticated };
 }

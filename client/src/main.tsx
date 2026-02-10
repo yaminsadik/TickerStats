@@ -27,6 +27,7 @@ const queryClient = new QueryClient({
 const auth0Domain = import.meta.env.VITE_AUTH0_DOMAIN || "";
 const auth0ClientId = import.meta.env.VITE_AUTH0_CLIENT_ID || "";
 const auth0Audience = import.meta.env.VITE_AUTH0_AUDIENCE || "";
+const auth0Scope = "openid profile email offline_access";
 
 // Validate Auth0 configuration
 if (!auth0Domain || !auth0ClientId) {
@@ -45,23 +46,21 @@ createRoot(document.getElementById("root")!).render(
         authorizationParams={{
           redirect_uri: window.location.origin,
           audience: auth0Audience,
+          scope: auth0Scope,
         }}
         useRefreshTokens={true}
+        useRefreshTokensFallback={true}
         cacheLocation="localstorage"
       >
         <QueryClientProvider client={queryClient}>
           <RouterProvider router={router} />
-          {import.meta.env.DEV && (
-            <ReactQueryDevtools initialIsOpen={false} />
-          )}
+          {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
         </QueryClientProvider>
       </Auth0Provider>
     ) : (
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />
-        {import.meta.env.DEV && (
-          <ReactQueryDevtools initialIsOpen={false} />
-        )}
+        {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
       </QueryClientProvider>
     )}
   </StrictMode>,

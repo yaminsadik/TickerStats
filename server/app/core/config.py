@@ -13,11 +13,11 @@ class Settings(BaseSettings):
 
     # Database
     DATABASE_URL: str = Field(
-        default="postgresql://tickerstats:tickerstats@localhost:5432/tickerstats",
+        default="postgresql://tickerstats:tickerstats@localhost:5432/ticketstats",
         validation_alias=AliasChoices("DATABASE_URL"),
     )
     ASYNC_DATABASE_URL: str = Field(
-        default="postgresql+asyncpg://tickerstats:tickerstats@localhost:5432/tickerstats",
+        default="postgresql+asyncpg://tickerstats:tickerstats@localhost:5432/ticketstats",
         validation_alias=AliasChoices("ASYNC_DATABASE_URL"),
     )
 
