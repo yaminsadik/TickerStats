@@ -26,6 +26,7 @@ function App() {
   // Performance toggle and period
   const [showPerf, setShowPerf] = useState(false);
   const [perfPeriod, setPerfPeriod] = useState<PerfPeriod>("3mo");
+  const [showDcf, setShowDcf] = useState(false);
 
   // Column picker visibility
   const [showColumnPicker, setShowColumnPicker] = useState(false);
@@ -63,9 +64,12 @@ function App() {
       params.perf = selectedPerfMetrics;
       params.perfPeriod = perfPeriod;
     }
+    if (showDcf) {
+      params.dcf = true;
+    }
 
     setQueryParams(params);
-  }, [tickers, selectedFields, showPerf, selectedPerfMetrics, perfPeriod]);
+  }, [tickers, selectedFields, showPerf, selectedPerfMetrics, perfPeriod, showDcf]);
 
   // Handle Export button
   const handleExport = useCallback(
@@ -130,6 +134,8 @@ function App() {
             <Controls
               showPerf={showPerf}
               onShowPerfChange={setShowPerf}
+              showDcf={showDcf}
+              onShowDcfChange={setShowDcf}
               perfPeriod={perfPeriod}
               onPerfPeriodChange={setPerfPeriod}
               onCompare={handleCompare}
@@ -169,6 +175,7 @@ function App() {
           <SignalControls
             settings={signalSettings}
             onToggle={toggleSignals}
+            onModeChange={setSignalMode}
             onConfigure={() => setShowSignalConfig(true)}
           />
         </div>
@@ -273,6 +280,7 @@ function App() {
             visibleFields={selectedFields}
             visiblePerfMetrics={selectedPerfMetrics}
             showPerf={showPerf}
+            showDcf={showDcf}
             signalSettings={signalSettings}
           />
         )}
@@ -283,7 +291,6 @@ function App() {
           onClose={() => setShowSignalConfig(false)}
           settings={signalSettings}
           onUpdateRule={updateSignalRule}
-          onModeChange={setSignalMode}
           onReset={resetSignalSettings}
         />
       </main>

@@ -1,7 +1,7 @@
-import { ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 import { cn } from "../../utils/cn";
 
-interface CardProps {
+interface CardProps extends Omit<HTMLAttributes<HTMLDivElement>, "onClick"> {
   children: ReactNode;
   className?: string;
   padding?: "none" | "sm" | "md" | "lg";
@@ -17,6 +17,7 @@ export default function Card({
   elevation = "flat",
   interactive = false,
   onClick,
+  ...rest
 }: CardProps) {
   const paddingStyles = {
     none: "",
@@ -57,6 +58,7 @@ export default function Card({
             }
           : undefined
       }
+      {...rest}
     >
       {children}
     </div>

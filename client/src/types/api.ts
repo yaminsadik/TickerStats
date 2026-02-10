@@ -16,7 +16,7 @@ export interface RowData {
   performance: Record<string, number | null> | null;
   dcf: Record<string, number | null> | null;
   missingFields?: string[];
-  missingPerf?: string[];
+  missingPerf?: string[] | null;
   error: string | null;
 }
 

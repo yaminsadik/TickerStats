@@ -4,13 +4,12 @@
  */
 import { useCallback } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+import { API_BASE } from "../config/apiBase";
 
 // Log configuration in development mode
 if (import.meta.env.DEV) {
   console.log("🔧 API Configuration:", {
-    API_BASE_URL,
+    API_BASE,
     AUTH0_AUDIENCE: import.meta.env.VITE_AUTH0_AUDIENCE,
     AUTH0_DOMAIN: import.meta.env.VITE_AUTH0_DOMAIN,
   });
@@ -25,7 +24,7 @@ export function useAuthenticatedFetch() {
 
   /**
    * Make an authenticated API request.
-   * @param url - API endpoint (relative to API_BASE_URL or absolute)
+   * @param url - API endpoint (relative to API_BASE or absolute)
    * @param options - Fetch options with optional requireAuth flag
    */
   const authenticatedFetch = useCallback(async (
@@ -39,7 +38,7 @@ export function useAuthenticatedFetch() {
     }
 
     // Build full URL
-    const fullUrl = url.startsWith("http") ? url : `${API_BASE_URL}${url}`;
+    const fullUrl = url.startsWith("http") ? url : `${API_BASE}${url}`;
 
     // Get access token if authenticated and required
     let token: string | undefined;
@@ -61,13 +60,13 @@ export function useAuthenticatedFetch() {
     }
 
     // Add Authorization header if token exists
-    const headers: HeadersInit = {
-      "Content-Type": "application/json",
-      ...fetchOptions.headers,
-    };
+    const headers = new Headers(fetchOptions.headers);
+    if (!headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json");
+    }
 
     if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
+      headers.set("Authorization", `Bearer ${token}`);
     }
 
     // Make the request

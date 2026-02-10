@@ -1,12 +1,9 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
-  Copy,
-  Download,
   AlertTriangle,
   ChevronDown,
   ChevronRight,
   FileCode,
-  Check,
   X,
 } from "lucide-react";
 import Modal from "./Modal";
@@ -93,7 +90,7 @@ interface JsonViewerModalProps {
   exportData: DeckExportData | null;
   deckName: string;
   ticker: string;
-  onDownload: () => void;
+  _onDownload: () => void;
   inline?: boolean;
 }
 
@@ -105,14 +102,14 @@ export default function JsonViewerModal({
   exportData,
   deckName,
   ticker,
-  onDownload,
+  _onDownload,
   inline = false,
 }: JsonViewerModalProps) {
+  void _onDownload;
   const [activeTab, setActiveTab] = useState<TabId>("rendered");
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(
     null,
   );
-  const [copied, setCopied] = useState(false);
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
   const [rawJson, setRawJson] = useState<string>("");
   const [isStringifying, setIsStringifying] = useState(false);
@@ -178,7 +175,6 @@ export default function JsonViewerModal({
     if (!isOpen) {
       setSelectedSectionId(null);
       setActiveTab("rendered");
-      setCopied(false);
       setExpandedNotes(new Set());
     }
   }, [isOpen]);
@@ -207,20 +203,6 @@ export default function JsonViewerModal({
       };
     }
   }, [isOpen, exportData, activeTab]);
-
-  // Copy to clipboard
-  const handleCopy = useCallback(async () => {
-    if (!exportData) return;
-
-    try {
-      const json = JSON.stringify(exportData, null, 2);
-      await navigator.clipboard.writeText(json);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error("Failed to copy:", err);
-    }
-  }, [exportData]);
 
   // Toggle speaker notes
   const toggleNotes = (slideId: string) => {

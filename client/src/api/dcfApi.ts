@@ -3,8 +3,7 @@
  */
 
 import type { DCFRequest, DCFResult, DCFInputsResponse } from '../types/dcf';
-
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:5000';
+import { API_BASE } from '../config/apiBase';
 
 /**
  * Calculate DCF valuation for a ticker

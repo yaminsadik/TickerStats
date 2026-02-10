@@ -221,6 +221,7 @@ export function mergeSectionIntoDraft(
 ): DeckDraft | null {
   const draft = getDraft(id);
   if (!draft || !draft.generatedContent) return null;
+  if (!draft.generatedContent.sections) return null;
 
   const updatedSections = draft.generatedContent.sections.map((s) =>
     s.section_id === section.section_id ? section : s

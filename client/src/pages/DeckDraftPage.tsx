@@ -4,7 +4,6 @@ import { useMutation } from "@tanstack/react-query";
 import Breadcrumbs, { BreadcrumbItem } from "../components/Breadcrumbs";
 import {
   ArrowLeft,
-  Download,
   RefreshCw,
   Trash2,
   ChevronDown,
@@ -19,7 +18,6 @@ import {
 import {
   Button,
   Card,
-  Badge,
   Alert,
   Spinner,
   JsonViewerModal,
@@ -129,7 +127,6 @@ export default function DeckDraftPage() {
     null,
   );
   const [showJsonViewer, setShowJsonViewer] = useState(false);
-  const { settings: signalSettings } = useSignalSettings();
 
   // Load draft on mount
   useEffect(() => {
@@ -459,12 +456,11 @@ export default function DeckDraftPage() {
             onToggle={() => toggleSection(section.section_id)}
             regenerating={regeneratingSection === section.section_id}
             onRegenerate={() => regenerateMutation.mutate(section.section_id)}
-            computedInputs={
-              computed_inputs || draft?.generatedContent?.computed_inputs
-            }
-            signalSettings={signalSettings}
-          />
-        ))}
+                computedInputs={
+                  computed_inputs || draft?.generatedContent?.computed_inputs
+                }
+              />
+            ))}
       </div>
 
       {/* JSON Viewer Modal */}
@@ -475,7 +471,7 @@ export default function DeckDraftPage() {
           exportData={exportData}
           deckName={safeMetadata.company_name}
           ticker={safeMetadata.ticker}
-          onDownload={handleExportJSON}
+          _onDownload={handleExportJSON}
         />
       )}
     </div>
@@ -490,7 +486,6 @@ function SectionCard({
   regenerating,
   onRegenerate,
   computedInputs,
-  signalSettings,
 }: {
   section: GeneratedSection;
   expanded: boolean;
@@ -498,7 +493,6 @@ function SectionCard({
   regenerating: boolean;
   onRegenerate: () => void;
   computedInputs?: any;
-  signalSettings?: any;
 }) {
   // Table customization state for relative heatmap
   const [showPerf, setShowPerf] = useState(false);

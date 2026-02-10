@@ -1,9 +1,8 @@
+import { API_BASE } from "../config/apiBase";
+
 /**
  * API client for user profile and admin endpoints.
  */
-
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 type AuthFetch = (url: string, options?: RequestInit) => Promise<Response>;
 
@@ -54,7 +53,7 @@ export interface ProfileUpdatePayload {
 export async function fetchProfile(
   authFetch: AuthFetch
 ): Promise<UserProfile> {
-  const res = await authFetch(`${API_BASE_URL}/api/user/profile`);
+  const res = await authFetch(`${API_BASE}/api/user/profile`);
   return jsonOrThrow<UserProfile>(res);
 }
 
@@ -62,7 +61,7 @@ export async function updateProfile(
   authFetch: AuthFetch,
   payload: ProfileUpdatePayload
 ): Promise<UserProfile> {
-  const res = await authFetch(`${API_BASE_URL}/api/user/profile`, {
+  const res = await authFetch(`${API_BASE}/api/user/profile`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -109,7 +108,7 @@ export interface AdminUserUpdatePayload {
 export async function fetchAdminUsers(
   authFetch: AuthFetch
 ): Promise<AdminUser[]> {
-  const res = await authFetch(`${API_BASE_URL}/api/admin/users`);
+  const res = await authFetch(`${API_BASE}/api/admin/users`);
   return jsonOrThrow<AdminUser[]>(res);
 }
 
@@ -119,7 +118,7 @@ export async function updateAdminUser(
   payload: AdminUserUpdatePayload
 ): Promise<AdminUser> {
   const res = await authFetch(
-    `${API_BASE_URL}/api/admin/users/${encodeURIComponent(userId)}`,
+    `${API_BASE}/api/admin/users/${encodeURIComponent(userId)}`,
     {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -132,6 +131,6 @@ export async function updateAdminUser(
 export async function fetchAdminStats(
   authFetch: AuthFetch
 ): Promise<AdminStats> {
-  const res = await authFetch(`${API_BASE_URL}/api/admin/stats`);
+  const res = await authFetch(`${API_BASE}/api/admin/stats`);
   return jsonOrThrow<AdminStats>(res);
 }

@@ -11,6 +11,7 @@ fall through to Flask.
 """
 
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -63,9 +64,14 @@ register_error_handlers(app)
 app.add_middleware(RequestTimingMiddleware)
 
 # Add CORS middleware for frontend access
+_raw_allowed_origins = os.getenv(
+    "ALLOWED_ORIGINS",
+    "http://localhost:3000,http://127.0.0.1:3000",
+)
 ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
+    origin.strip()
+    for origin in _raw_allowed_origins.split(",")
+    if origin.strip()
 ]
 
 app.add_middleware(

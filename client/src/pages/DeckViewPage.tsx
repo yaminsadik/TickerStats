@@ -279,7 +279,7 @@ export default function DeckViewPage() {
           exportData={deck.content as any}
           deckName={deck.title}
           ticker={deck.ticker}
-          onDownload={() => {
+          _onDownload={() => {
             const blob = new Blob([JSON.stringify(deck.content, null, 2)], {
               type: "application/json",
             });

@@ -35,7 +35,7 @@ import {
 export default function BrowsePage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { isAuthenticated, isLoading: authLoading, loginWithRedirect } = useAuth0();
+  const { isAuthenticated, loginWithRedirect } = useAuth0();
 
   // User profile for free-tier gates
   const {

@@ -1,11 +1,9 @@
+import { API_BASE } from "../config/apiBase";
+
 /**
  * API client for user-scoped endpoints (watchlist, saved analyses, decks).
  * All functions accept an `authenticatedFetch` obtained from useAuthenticatedApi().
  */
-
-// Re-use the same base URL that useAuthenticatedApi uses (FastAPI server)
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -66,7 +64,7 @@ async function jsonOrThrow<T>(response: Response): Promise<T> {
 export async function fetchWatchlist(
   authFetch: AuthFetch
 ): Promise<WatchlistItem[]> {
-  const res = await authFetch(`${API_BASE_URL}/api/user/watchlist`);
+  const res = await authFetch(`${API_BASE}/api/user/watchlist`);
   return jsonOrThrow<WatchlistItem[]>(res);
 }
 
@@ -75,7 +73,7 @@ export async function addToWatchlist(
   ticker: string,
   notes?: string
 ): Promise<WatchlistItem> {
-  const res = await authFetch(`${API_BASE_URL}/api/user/watchlist`, {
+  const res = await authFetch(`${API_BASE}/api/user/watchlist`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ticker: ticker.toUpperCase(), notes: notes ?? null }),
@@ -88,7 +86,7 @@ export async function updateWatchlistNotes(
   id: number,
   notes: string | null
 ): Promise<WatchlistItem> {
-  const res = await authFetch(`${API_BASE_URL}/api/user/watchlist/${id}`, {
+  const res = await authFetch(`${API_BASE}/api/user/watchlist/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ notes }),
@@ -100,7 +98,7 @@ export async function removeFromWatchlist(
   authFetch: AuthFetch,
   id: number
 ): Promise<void> {
-  const res = await authFetch(`${API_BASE_URL}/api/user/watchlist/${id}`, {
+  const res = await authFetch(`${API_BASE}/api/user/watchlist/${id}`, {
     method: "DELETE",
   });
   if (!res.ok) {
@@ -126,7 +124,7 @@ export interface SaveAnalysisPayload {
 export async function fetchSavedAnalyses(
   authFetch: AuthFetch
 ): Promise<SavedAnalysis[]> {
-  const res = await authFetch(`${API_BASE_URL}/api/user/saved-analyses`);
+  const res = await authFetch(`${API_BASE}/api/user/saved-analyses`);
   return jsonOrThrow<SavedAnalysis[]>(res);
 }
 
@@ -134,7 +132,7 @@ export async function createSavedAnalysis(
   authFetch: AuthFetch,
   payload: SaveAnalysisPayload
 ): Promise<SavedAnalysis> {
-  const res = await authFetch(`${API_BASE_URL}/api/user/saved-analyses`, {
+  const res = await authFetch(`${API_BASE}/api/user/saved-analyses`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -146,7 +144,7 @@ export async function fetchSavedAnalysis(
   authFetch: AuthFetch,
   id: number
 ): Promise<SavedAnalysis> {
-  const res = await authFetch(`${API_BASE_URL}/api/user/saved-analyses/${id}`);
+  const res = await authFetch(`${API_BASE}/api/user/saved-analyses/${id}`);
   return jsonOrThrow<SavedAnalysis>(res);
 }
 
@@ -154,7 +152,7 @@ export async function deleteSavedAnalysis(
   authFetch: AuthFetch,
   id: number
 ): Promise<void> {
-  const res = await authFetch(`${API_BASE_URL}/api/user/saved-analyses/${id}`, {
+  const res = await authFetch(`${API_BASE}/api/user/saved-analyses/${id}`, {
     method: "DELETE",
   });
   if (!res.ok) {
@@ -177,7 +175,7 @@ export interface CreateDeckPayload {
 export async function fetchDecks(
   authFetch: AuthFetch
 ): Promise<DeckMeta[]> {
-  const res = await authFetch(`${API_BASE_URL}/api/user/decks`);
+  const res = await authFetch(`${API_BASE}/api/user/decks`);
   return jsonOrThrow<DeckMeta[]>(res);
 }
 
@@ -185,7 +183,7 @@ export async function createDeckInDB(
   authFetch: AuthFetch,
   payload: CreateDeckPayload
 ): Promise<DeckFull> {
-  const res = await authFetch(`${API_BASE_URL}/api/user/decks`, {
+  const res = await authFetch(`${API_BASE}/api/user/decks`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -197,7 +195,7 @@ export async function fetchDeck(
   authFetch: AuthFetch,
   id: number
 ): Promise<DeckFull> {
-  const res = await authFetch(`${API_BASE_URL}/api/user/decks/${id}`);
+  const res = await authFetch(`${API_BASE}/api/user/decks/${id}`);
   return jsonOrThrow<DeckFull>(res);
 }
 
@@ -205,7 +203,7 @@ export async function deleteDeckFromDB(
   authFetch: AuthFetch,
   id: number
 ): Promise<void> {
-  const res = await authFetch(`${API_BASE_URL}/api/user/decks/${id}`, {
+  const res = await authFetch(`${API_BASE}/api/user/decks/${id}`, {
     method: "DELETE",
   });
   if (!res.ok) {

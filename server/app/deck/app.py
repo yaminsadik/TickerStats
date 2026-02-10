@@ -69,12 +69,15 @@ def create_deck_app(config: Optional[DeckConfig] = None) -> Flask:
 
 def _init_cors(app: Flask) -> None:
     """Initialize CORS for the app."""
+    raw_allowed_origins = os.getenv(
+        "ALLOWED_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000",
+    )
+    allowed_origins = [origin.strip() for origin in raw_allowed_origins.split(",") if origin.strip()]
+
     CORS(app, resources={
         r"/api/*": {
-            "origins": [
-                "http://localhost:3000",
-                "http://127.0.0.1:3000",
-            ],  # Configure appropriately for production
+            "origins": allowed_origins,
             "methods": ["GET", "POST", "OPTIONS"],
             "allow_headers": [
                 "Content-Type",

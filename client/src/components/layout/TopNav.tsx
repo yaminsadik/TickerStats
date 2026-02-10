@@ -4,14 +4,12 @@ import {
   BarChart3,
   LogIn,
   LogOut,
-  User,
   Menu,
   X,
   Star,
   Search,
   FileText,
   ChevronDown,
-  Shield,
   Settings,
 } from "lucide-react";
 import { useAuth0 } from "@auth0/auth0-react";
@@ -38,7 +36,7 @@ export default function TopNav() {
     loginWithRedirect = auth0.loginWithRedirect;
     logout = auth0.logout;
     user = auth0.user;
-  } catch (error) {
+  } catch {
     // Auth0 not configured, use defaults above
     console.log("Auth0 not available, authentication disabled");
   }

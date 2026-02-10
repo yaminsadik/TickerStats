@@ -1,6 +1,5 @@
 import type { RelativeTableResponse, PerfPeriod } from '../types/api';
-
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:5000';
+import { API_BASE } from '../config/apiBase';
 
 export interface FetchRelativeParams {
   symbols: string[];
