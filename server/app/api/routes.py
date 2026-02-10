@@ -18,7 +18,7 @@ from app.models import User
 from app.services.usage_limits import (
     compute_compare_hash,
     check_compare_limit_async,
-    apply_compare_increment_async,
+    enforce_compare_limit_and_increment_async,
 )
 from app.core.config import (
     DEFAULT_SNAPSHOT_FIELDS,
@@ -211,8 +211,22 @@ async def get_relative_table(
     )
 
     if should_increment:
-        await apply_compare_increment_async(current_user, now, compare_hash)
-        await db.flush()
+        # Enforce again under row lock to avoid limit bypass under concurrency.
+        allowed_after_fetch, locked_limit = await enforce_compare_limit_and_increment_async(
+            db,
+            current_user.auth0_user_id,
+            now,
+            compare_hash,
+        )
+        if not allowed_after_fetch:
+            blocked_limit = locked_limit or limit or 0
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"Free tier is limited to {blocked_limit} compare actions per month. "
+                    "Upgrade to Pro for unlimited compares."
+                ),
+            )
 
     # Set cache header
     response.headers["X-Cache"] = "HIT" if cache_hit else "MISS"

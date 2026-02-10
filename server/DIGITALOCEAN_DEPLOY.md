@@ -17,15 +17,16 @@ cd server
 docker build -t ticketstats-api .
 
 # Test locally with environment variables
-docker run -p 8000:8000 \
-  -e DATABASE_URL="postgresql+asyncpg://user:pass@host/db" \
+docker run -p 5000:5000 \
+  -e DATABASE_URL="postgresql://user:pass@host/db" \
+  -e ASYNC_DATABASE_URL="postgresql+asyncpg://user:pass@host/db" \
   -e AUTH0_DOMAIN="your-domain.auth0.com" \
-  -e AUTH0_AUDIENCE="your-audience" \
+  -e AUTH0_API_AUDIENCE="your-audience" \
   -e AUTH0_ALGORITHMS="RS256" \
   ticketstats-api
 
 # Verify health endpoint
-curl http://localhost:8000/health
+curl http://localhost:5000/health
 ```
 
 ### 2. Deploy to DigitalOcean App Platform
@@ -42,7 +43,7 @@ curl http://localhost:8000/health
    - **Type**: Web Service
    - **Source Directory**: `/server`
    - **Dockerfile Path**: `/server/Dockerfile`
-   - **HTTP Port**: `8000`
+   - **HTTP Port**: `5000`
    - **HTTP Request Routes**: `/` (all routes)
    - **Health Check Path**: `/health`
 3. **Set Environment Variables**
@@ -50,11 +51,12 @@ curl http://localhost:8000/health
 
    ```bash
    # Database
-   DATABASE_URL=postgresql+asyncpg://username:password@host:port/database
+   DATABASE_URL=postgresql://username:password@host:port/database
+   ASYNC_DATABASE_URL=postgresql+asyncpg://username:password@host:port/database
 
    # Auth0
    AUTH0_DOMAIN=your-domain.auth0.com
-   AUTH0_AUDIENCE=https://your-api-audience
+   AUTH0_API_AUDIENCE=https://your-api-audience
    AUTH0_ALGORITHMS=RS256
 
    # Optional: Application Settings
@@ -106,7 +108,7 @@ services:
     dockerfile_path: server/Dockerfile
     source_dir: /server
 
-    http_port: 8000
+    http_port: 5000
 
     health_check:
       http_path: /health
@@ -128,7 +130,7 @@ services:
         scope: RUN_TIME
         value: your-domain.auth0.com
 
-      - key: AUTH0_AUDIENCE
+      - key: AUTH0_API_AUDIENCE
         scope: RUN_TIME
         value: https://your-api-audience
 
@@ -235,9 +237,10 @@ doctl apps update YOUR_APP_ID --spec app-spec.yaml
 
 | Variable           | Required | Default | Description                                   |
 | ------------------ | -------- | ------- | --------------------------------------------- |
-| `DATABASE_URL`     | Yes      | -       | PostgreSQL connection string (asyncpg format) |
+| `DATABASE_URL`     | Yes      | -       | PostgreSQL sync connection string (psycopg2)  |
+| `ASYNC_DATABASE_URL` | Yes    | -       | PostgreSQL async connection string (asyncpg)   |
 | `AUTH0_DOMAIN`     | Yes      | -       | Auth0 tenant domain                           |
-| `AUTH0_AUDIENCE`   | Yes      | -       | Auth0 API audience/identifier                 |
+| `AUTH0_API_AUDIENCE` | Yes      | -       | Auth0 API audience/identifier               |
 | `AUTH0_ALGORITHMS` | No       | `RS256` | JWT verification algorithm                    |
 | `API_VERSION`      | No       | `1.0.0` | API version string                            |
 | `DEBUG`            | No       | `false` | Enable debug mode                             |
@@ -250,19 +253,20 @@ doctl apps update YOUR_APP_ID --spec app-spec.yaml
 
 - Check logs for startup errors
 - Verify DATABASE_URL is correct
-- Ensure port 8000 is properly exposed
+- Ensure port 5000 is properly exposed
 - Increase `initial_delay_seconds` if app needs more time to start
 
 ### Database connection errors
 
-- Verify DATABASE_URL format: `postgresql+asyncpg://user:pass@host:port/database`
+- Verify DATABASE_URL format: `postgresql://user:pass@host:port/database`
+- Verify ASYNC_DATABASE_URL format: `postgresql+asyncpg://user:pass@host:port/database`
 - Check firewall rules (DigitalOcean Managed DB has trusted sources)
 - Ensure database migrations have run
 
 ### Auth0 errors
 
 - Verify AUTH0_DOMAIN doesn't include `https://`
-- Check AUTH0_AUDIENCE matches your API identifier
+- Check AUTH0_API_AUDIENCE matches your API identifier
 - Ensure Auth0 Application has correct callback URLs
 
 ### Migration issues

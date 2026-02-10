@@ -92,27 +92,24 @@ def _init_cors(app: Flask) -> None:
 
 def _init_rate_limiter(app: Flask, config: DeckConfig) -> None:
     """Initialize rate limiting if enabled."""
+    logger = get_logger(__name__)
+
     if not config.RATE_LIMIT_ENABLED:
         return
-    
+
     try:
         from flask_limiter import Limiter
         from flask_limiter.util import get_remote_address
-        
+
         limiter = Limiter(
             key_func=get_remote_address,
             app=app,
             default_limits=[config.RATE_LIMIT_DEFAULT],
             storage_uri=config.REDIS_URL or "memory://",
         )
-        
-        # Apply specific limits to generate endpoint
-        @limiter.limit(config.RATE_LIMIT_GENERATE)
-        def _generate_limit():
-            pass
-        
+
         app.limiter = limiter
-        
+
     except ImportError:
         logger.warning("flask-limiter not installed, rate limiting disabled")
 
@@ -144,6 +141,8 @@ def _init_cache(config: DeckConfig) -> None:
 
 def _register_blueprints(app: Flask) -> None:
     """Register all blueprints."""
+    logger = get_logger(__name__)
+
     from app.deck.api.routes_deck import deck_bp
     from app.deck.api.routes_relative import relative_bp
     from app.deck.api.routes_dcf import dcf_bp
@@ -151,6 +150,16 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(deck_bp)
     app.register_blueprint(relative_bp)
     app.register_blueprint(dcf_bp)
+
+    # Apply endpoint-specific limits after routes are registered.
+    limiter = getattr(app, "limiter", None)
+    if limiter is not None:
+        endpoint = "deck.generate_deck"
+        view_fn = app.view_functions.get(endpoint)
+        if view_fn is not None:
+            app.view_functions[endpoint] = limiter.limit(app.deck_config.RATE_LIMIT_GENERATE)(view_fn)
+        else:
+            logger.warning("Could not apply generate endpoint limit: endpoint '%s' not found", endpoint)
     
     # Root health check
     @app.route("/")

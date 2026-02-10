@@ -28,10 +28,11 @@
 docker build -t ticketstats-api .
 
 # Run with environment variables
-docker run -p 8000:8000 \
-  -e DATABASE_URL="postgresql+asyncpg://user:pass@localhost/db" \
+docker run -p 5000:5000 \
+  -e DATABASE_URL="postgresql://user:pass@localhost/db" \
+  -e ASYNC_DATABASE_URL="postgresql+asyncpg://user:pass@localhost/db" \
   -e AUTH0_DOMAIN="domain.auth0.com" \
-  -e AUTH0_AUDIENCE="https://api-audience" \
+  -e AUTH0_API_AUDIENCE="https://api-audience" \
   ticketstats-api
 
 # Using docker-compose (includes PostgreSQL)
@@ -59,16 +60,17 @@ doctl apps logs YOUR_APP_ID --follow
 ## Environment Variables (Required)
 
 ```bash
-DATABASE_URL=postgresql+asyncpg://user:pass@host:port/database
+DATABASE_URL=postgresql://user:pass@host:port/database
+ASYNC_DATABASE_URL=postgresql+asyncpg://user:pass@host:port/database
 AUTH0_DOMAIN=your-domain.auth0.com
-AUTH0_AUDIENCE=https://your-api-audience
+AUTH0_API_AUDIENCE=https://your-api-audience
 AUTH0_ALGORITHMS=RS256
 ```
 
 ## Container Specifications
 
 - **Base Image**: python:3.12-slim
-- **Port**: 8000
+- **Port**: 5000
 - **Server**: Gunicorn + Uvicorn workers (2 workers default)
 - **User**: Non-root (appuser, UID 1000)
 - **Healthcheck**: HTTP GET `/health` every 30s
@@ -77,14 +79,14 @@ AUTH0_ALGORITHMS=RS256
 
 ```bash
 # Health check
-curl http://localhost:8000/health
+curl http://localhost:5000/health
 
 # API documentation
-open http://localhost:8000/docs
+open http://localhost:5000/docs
 
 # Test relative API (requires auth)
 curl -H "Authorization: Bearer TOKEN" \
-  "http://localhost:8000/api/relative?symbols=AAPL,MSFT"
+  "http://localhost:5000/api/relative?symbols=AAPL,MSFT"
 ```
 
 ## Production Notes

@@ -37,8 +37,8 @@ from app.core.database import SessionLocal
 from app.models import User
 from app.services.usage_limits import (
     check_deck_limit_sync,
+    enforce_deck_limit_and_increment_sync,
     get_plan_tier,
-    increment_deck_usage_sync,
 )
 
 logger = get_logger(__name__)
@@ -50,6 +50,19 @@ deck_bp = Blueprint("deck", __name__, url_prefix="/api/v1")
 # =============================================================================
 # MIDDLEWARE / DECORATORS
 # =============================================================================
+
+def _to_json_safe(value: Any) -> Any:
+    """Recursively convert values into JSON-serializable structures."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, list):
+        return [_to_json_safe(item) for item in value]
+    if isinstance(value, tuple):
+        return [_to_json_safe(item) for item in value]
+    if isinstance(value, dict):
+        return {str(k): _to_json_safe(v) for k, v in value.items()}
+    return str(value)
+
 
 def request_context():
     """Decorator to set up request context for logging."""
@@ -94,7 +107,7 @@ def handle_errors():
                 logger.warning(f"Validation error: {e}")
                 return jsonify({
                     "error": "Validation error",
-                    "details": e.errors(),
+                    "details": _to_json_safe(e.errors()),
                     "request_id": getattr(g, "request_id", None),
                 }), 400
             except ValueError as e:
@@ -350,10 +363,9 @@ def generate_deck():
         }), 401
     try:
         payload = verifier.verify_token(token)
-    except Exception as e:
+    except Exception:
         return jsonify({
             "error": "Invalid token",
-            "message": str(e),
             "request_id": getattr(g, "request_id", None),
         }), 401
 
@@ -375,7 +387,7 @@ def generate_deck():
         session.rollback()
         return jsonify({
             "error": "User lookup failed",
-            "message": str(e),
+            "message": str(e) if current_app.debug else "Failed to resolve authenticated user.",
             "request_id": getattr(g, "request_id", None),
         }), 500
     finally:
@@ -449,10 +461,19 @@ def generate_deck():
     # Increment deck usage on success
     session = SessionLocal()
     try:
-        user = session.get(User, user_id)
-        if user:
-            increment_deck_usage_sync(user, datetime.utcnow())
-            session.commit()
+        allowed_after_generate, locked_limit = enforce_deck_limit_and_increment_sync(
+            session,
+            user_id,
+            datetime.utcnow(),
+        )
+        if not allowed_after_generate:
+            session.rollback()
+            return jsonify({
+                "error": "Deck limit reached",
+                "message": f"Your plan is limited to {locked_limit} deck generations per month.",
+                "request_id": getattr(g, "request_id", None),
+            }), 403
+        session.commit()
     except Exception:
         session.rollback()
     finally:

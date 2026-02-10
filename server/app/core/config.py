@@ -1,40 +1,85 @@
 """
 Centralized configuration constants for the TickerStats API.
 """
+import json
 import os
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings
+from pydantic_settings import SettingsConfigDict
 
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
-    
+
     # Database
-    DATABASE_URL: str = os.getenv(
-        "DATABASE_URL", 
-        "postgresql://tickerstats:tickerstats@localhost:5432/tickerstats"
+    DATABASE_URL: str = Field(
+        default="postgresql://tickerstats:tickerstats@localhost:5432/tickerstats",
+        validation_alias=AliasChoices("DATABASE_URL"),
     )
-    ASYNC_DATABASE_URL: str = os.getenv(
-        "ASYNC_DATABASE_URL",
-        "postgresql+asyncpg://tickerstats:tickerstats@localhost:5432/tickerstats"
+    ASYNC_DATABASE_URL: str = Field(
+        default="postgresql+asyncpg://tickerstats:tickerstats@localhost:5432/tickerstats",
+        validation_alias=AliasChoices("ASYNC_DATABASE_URL"),
     )
-    
+
     # Auth0
-    AUTH0_DOMAIN: str = os.getenv("AUTH0_DOMAIN", "")
-    AUTH0_API_AUDIENCE: str = os.getenv("AUTH0_API_AUDIENCE", "")
-    AUTH0_ALGORITHMS: list[str] = ["RS256"]
+    AUTH0_DOMAIN: str = Field(
+        default="",
+        validation_alias=AliasChoices("AUTH0_DOMAIN"),
+    )
+    AUTH0_API_AUDIENCE: str = Field(
+        default="",
+        validation_alias=AliasChoices("AUTH0_API_AUDIENCE", "AUTH0_AUDIENCE"),
+    )
+    AUTH0_ALGORITHMS: list[str] = Field(
+        default_factory=lambda: ["RS256"],
+        validation_alias=AliasChoices("AUTH0_ALGORITHMS"),
+    )
+    AUTH0_JWKS_CACHE_TTL_SECONDS: int = Field(
+        default=3600,
+        validation_alias=AliasChoices("AUTH0_JWKS_CACHE_TTL_SECONDS"),
+    )
     AUTH0_ISSUER: str = ""  # Will be set in __init__
-    
+
     # Application
-    DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"
-    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
-    
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
-        extra = "ignore"  # Ignore extra fields in .env file
-    
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    DEBUG: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("DEBUG"),
+    )
+    ENVIRONMENT: str = Field(
+        default="development",
+        validation_alias=AliasChoices("ENVIRONMENT"),
+    )
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=True,
+        extra="ignore",
+    )
+
+    @field_validator("AUTH0_ALGORITHMS", mode="before")
+    @classmethod
+    def _parse_auth0_algorithms(cls, value):
+        if value is None:
+            return ["RS256"]
+        if isinstance(value, list):
+            return [str(v).strip() for v in value if str(v).strip()]
+        if isinstance(value, str):
+            parsed = value.strip()
+            if not parsed:
+                return ["RS256"]
+            if parsed.startswith("[") and parsed.endswith("]"):
+                try:
+                    decoded = json.loads(parsed)
+                    if isinstance(decoded, list):
+                        cleaned = [str(v).strip() for v in decoded if str(v).strip()]
+                        return cleaned or ["RS256"]
+                except json.JSONDecodeError:
+                    pass
+            cleaned = [item.strip() for item in parsed.split(",") if item.strip()]
+            return cleaned or ["RS256"]
+        return ["RS256"]
+
+    def model_post_init(self, __context):
         if self.AUTH0_DOMAIN:
             self.AUTH0_ISSUER = f"https://{self.AUTH0_DOMAIN}/"
 

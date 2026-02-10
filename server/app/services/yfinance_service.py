@@ -6,7 +6,7 @@ and in-flight request coalescing.
 import logging
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
 from datetime import datetime, timezone
 from typing import Any, Optional
 import math
@@ -95,7 +95,9 @@ def _fetch_with_coalescing(
 
     if event is not None:
         # Another thread is fetching -- wait for it
-        event.wait(timeout=FETCH_TIMEOUT_SECONDS)
+        completed = event.wait(timeout=FETCH_TIMEOUT_SECONDS)
+        if not completed:
+            raise TimeoutError(f"In-flight fetch timeout for {label} key={key}")
         if key in _inflight_results:
             return _inflight_results[key]
         # The leader failed; try cache (maybe stale) or raise
@@ -104,7 +106,7 @@ def _fetch_with_coalescing(
         err = _inflight_errors.get(key)
         if err:
             raise err
-        return None  # shouldn't happen, but safe
+        raise TimeoutError(f"In-flight fetch had no result for {label} key={key}")
 
     # 3) We are the leader -- acquire semaphore and fetch
     start = time.perf_counter()
@@ -339,6 +341,9 @@ class YFinanceService:
             label=f"perf:{period}",
         )
 
+        if not isinstance(cached, dict) or "data" not in cached:
+            return {m: None for m in metrics}, "Performance data unavailable"
+
         return {m: cached["data"].get(m) for m in metrics}, cached.get("error")
 
     def _raw_fetch_dcf(self, symbol: str) -> dict[str, Optional[float]]:
@@ -467,22 +472,40 @@ class YFinanceService:
 
         # Collect results preserving order
         results_by_symbol = {}
-        for future in as_completed(futures_map, timeout=FETCH_TIMEOUT_SECONDS):
-            symbol = futures_map[future]
-            try:
-                result = future.result()
-                results_by_symbol[symbol] = result
-            except Exception as e:
-                logger.error(f"Future error for {symbol}: {e}")
-                results_by_symbol[symbol] = {
-                    "symbol": symbol,
-                    "snapshot": {f: None for f in fields},
-                    "performance": {m: None for m in perf_metrics} if perf_metrics else None,
-                    "dcf": {"dcfPrice": None, "dcfUpside": None} if include_dcf else None,
-                    "missingFields": fields.copy(),
-                    "missingPerf": perf_metrics.copy() if perf_metrics else None,
-                    "error": str(e),
-                }
+        try:
+            for future in as_completed(futures_map, timeout=FETCH_TIMEOUT_SECONDS):
+                symbol = futures_map[future]
+                try:
+                    result = future.result()
+                    results_by_symbol[symbol] = result
+                except Exception as e:
+                    logger.error(f"Future error for {symbol}: {e}")
+                    results_by_symbol[symbol] = {
+                        "symbol": symbol,
+                        "snapshot": {f: None for f in fields},
+                        "performance": {m: None for m in perf_metrics} if perf_metrics else None,
+                        "dcf": {"dcfPrice": None, "dcfUpside": None} if include_dcf else None,
+                        "missingFields": fields.copy(),
+                        "missingPerf": perf_metrics.copy() if perf_metrics else None,
+                        "error": str(e),
+                    }
+        except FuturesTimeoutError:
+            logger.error("Timed out waiting for yfinance worker futures after %ss", FETCH_TIMEOUT_SECONDS)
+
+        # Fill in any symbols that never completed (timeout/cancellation path)
+        for future, symbol in futures_map.items():
+            if symbol in results_by_symbol:
+                continue
+            future.cancel()
+            results_by_symbol[symbol] = {
+                "symbol": symbol,
+                "snapshot": {f: None for f in fields},
+                "performance": {m: None for m in perf_metrics} if perf_metrics else None,
+                "dcf": {"dcfPrice": None, "dcfUpside": None} if include_dcf else None,
+                "missingFields": fields.copy(),
+                "missingPerf": perf_metrics.copy() if perf_metrics else None,
+                "error": f"Request timed out after {FETCH_TIMEOUT_SECONDS}s",
+            }
 
         # Preserve original symbol order
         for symbol in symbols:

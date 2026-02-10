@@ -31,6 +31,17 @@ def clear_request_context() -> None:
     _request_context.set({})
 
 
+class RequestContextFilter(logging.Filter):
+    """Inject request_id into log records so text formatters never fail."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        ctx = get_request_context()
+        request_id = ctx.get("request_id") if ctx else None
+        if not getattr(record, "request_id", None):
+            record.request_id = request_id or "-"
+        return True
+
+
 class JSONFormatter(logging.Formatter):
     """
     Custom JSON formatter for structured logging.
@@ -127,6 +138,7 @@ def configure_logging(
     # Create handler
     handler = logging.StreamHandler(stream or sys.stdout)
     handler.setLevel(root_logger.level)
+    handler.addFilter(RequestContextFilter())
 
     if json_output:
         handler.setFormatter(JSONFormatter())

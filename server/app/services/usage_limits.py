@@ -6,6 +6,10 @@ import hashlib
 import json
 from typing import Optional, Tuple
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
+
 from app.models import User
 
 # Limits
@@ -120,3 +124,59 @@ def check_deck_limit_sync(user: User, now: datetime) -> Tuple[bool, Optional[int
 def increment_deck_usage_sync(user: User, now: datetime) -> None:
     reset_monthly_usage(user, now)
     user.deck_count_month = (user.deck_count_month or 0) + 1
+
+
+async def enforce_compare_limit_and_increment_async(
+    db: AsyncSession,
+    user_id: str,
+    now: datetime,
+    compare_hash: str,
+) -> Tuple[bool, Optional[int]]:
+    """
+    Re-check and increment compare usage under row lock.
+    Prevents concurrent requests from over-incrementing monthly counters.
+    """
+    result = await db.execute(
+        select(User).where(User.auth0_user_id == user_id).with_for_update()
+    )
+    user = result.scalar_one_or_none()
+    if not user:
+        return False, None
+
+    allowed, should_increment, limit = await check_compare_limit_async(
+        user,
+        now,
+        compare_hash,
+    )
+    if allowed and should_increment:
+        await apply_compare_increment_async(user, now, compare_hash)
+
+    await db.flush()
+    return allowed, limit
+
+
+def enforce_deck_limit_and_increment_sync(
+    session: Session,
+    user_id: str,
+    now: datetime,
+) -> Tuple[bool, Optional[int]]:
+    """
+    Re-check and increment deck usage under row lock.
+    Prevents concurrent deck requests from bypassing monthly limits.
+    """
+    user = (
+        session.query(User)
+        .filter(User.auth0_user_id == user_id)
+        .with_for_update()
+        .one_or_none()
+    )
+    if not user:
+        return False, None
+
+    allowed, limit = check_deck_limit_sync(user, now)
+    if not allowed:
+        return False, limit
+
+    increment_deck_usage_sync(user, now)
+    session.flush()
+    return True, limit

@@ -69,6 +69,35 @@ class RequestTimingMiddleware(BaseHTTPMiddleware):
                 },
             )
             raise
+        else:
+            duration_ms = round((time.perf_counter() - start) * 1000, 2)
+
+            # Inject X-Request-ID into response
+            response.headers["X-Request-ID"] = req_id
+
+            # Read user_id that was set by auth dependency during this request
+            user_id = current_user_id_var.get(None)
+
+            log_data = {
+                "request_id": req_id,
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": response.status_code,
+                "duration_ms": duration_ms,
+            }
+            if user_id:
+                log_data["user_id"] = user_id
+
+            logger.info(
+                "%s %s %d %.0fms",
+                request.method,
+                request.url.path,
+                response.status_code,
+                duration_ms,
+                extra=log_data,
+            )
+
+            return response
         finally:
             request_id_var.reset(rid_token)
             current_user_id_var.reset(uid_token)
@@ -77,32 +106,3 @@ class RequestTimingMiddleware(BaseHTTPMiddleware):
                 clear_request_context()
             except ImportError:
                 pass
-
-        duration_ms = round((time.perf_counter() - start) * 1000, 2)
-
-        # Inject X-Request-ID into response
-        response.headers["X-Request-ID"] = req_id
-
-        # Read user_id that was set by auth dependency during this request
-        user_id = current_user_id_var.get(None)
-
-        log_data = {
-            "request_id": req_id,
-            "method": request.method,
-            "path": request.url.path,
-            "status_code": response.status_code,
-            "duration_ms": duration_ms,
-        }
-        if user_id:
-            log_data["user_id"] = user_id
-
-        logger.info(
-            "%s %s %d %.0fms",
-            request.method,
-            request.url.path,
-            response.status_code,
-            duration_ms,
-            extra=log_data,
-        )
-
-        return response

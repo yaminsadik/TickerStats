@@ -1,12 +1,11 @@
 """Auth0 JWT verification and authentication dependencies."""
-import os
+import threading
+import time
 from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import jwt, JWTError, jwk
-from jose.utils import base64url_decode
+from jose import jwt, JWTError
 import requests
-from functools import lru_cache
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -20,11 +19,11 @@ security = HTTPBearer()
 
 class Auth0JWTVerifier:
     """Verifies Auth0 JWT tokens using JWKS."""
-    
+
     def __init__(self):
         if not settings.AUTH0_DOMAIN:
             raise ValueError("AUTH0_DOMAIN environment variable is not set")
-        
+
         # Validate that AUTH0_DOMAIN looks like an Auth0 tenant domain or custom domain
         if not (".auth0.com" in settings.AUTH0_DOMAIN or ".auth0.app" in settings.AUTH0_DOMAIN):
             import logging
@@ -34,17 +33,44 @@ class Auth0JWTVerifier:
                 f"If this is a custom domain, ensure it is fully configured in Auth0 "
                 f"and that https://{settings.AUTH0_DOMAIN}/.well-known/jwks.json is reachable."
             )
-        
+
         self.jwks_url = f"https://{settings.AUTH0_DOMAIN}/.well-known/jwks.json"
-        self._jwks_cache = None
-    
-    def get_jwks(self) -> dict:
-        """Fetch and cache Auth0 JWKS (JSON Web Key Set)."""
+        self._jwks_cache: Optional[dict] = None
+        self._jwks_cached_at: float = 0.0
+        self._jwks_lock = threading.Lock()
+
+    def _is_jwks_cache_stale(self) -> bool:
         if self._jwks_cache is None:
+            return True
+        age_seconds = time.time() - self._jwks_cached_at
+        return age_seconds >= settings.AUTH0_JWKS_CACHE_TTL_SECONDS
+
+    @staticmethod
+    def _find_rsa_key(jwks: dict, kid: str) -> Optional[dict]:
+        for key in jwks.get("keys", []):
+            if key.get("kid") == kid:
+                return {
+                    "kty": key["kty"],
+                    "kid": key["kid"],
+                    "use": key["use"],
+                    "n": key["n"],
+                    "e": key["e"],
+                }
+        return None
+
+    def get_jwks(self, force_refresh: bool = False) -> dict:
+        """Fetch and cache Auth0 JWKS (JSON Web Key Set)."""
+        if not force_refresh and not self._is_jwks_cache_stale():
+            return self._jwks_cache or {}
+
+        with self._jwks_lock:
+            if not force_refresh and not self._is_jwks_cache_stale():
+                return self._jwks_cache or {}
             try:
                 response = requests.get(self.jwks_url, timeout=5)
                 response.raise_for_status()
                 self._jwks_cache = response.json()
+                self._jwks_cached_at = time.time()
             except requests.exceptions.Timeout:
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -55,12 +81,12 @@ class Auth0JWTVerifier:
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail=f"Failed to fetch Auth0 JWKS: {str(e)}. Please verify AUTH0_DOMAIN is correctly set to your Auth0 tenant domain (e.g., 'your-tenant.us.auth0.com')."
                 )
-        return self._jwks_cache
-    
+        return self._jwks_cache or {}
+
     def verify_token(self, token: str) -> dict:
         """
         Verify JWT token and return decoded payload.
-        
+
         Raises:
             HTTPException: If token is invalid or expired
         """
@@ -68,34 +94,28 @@ class Auth0JWTVerifier:
             # Get the key ID from token header
             unverified_header = jwt.get_unverified_header(token)
             kid = unverified_header.get("kid")
-            
+
             if not kid:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Invalid token: Missing key ID",
                 )
-            
+
             # Find the matching public key
             jwks = self.get_jwks()
-            rsa_key = None
-            
-            for key in jwks.get("keys", []):
-                if key.get("kid") == kid:
-                    rsa_key = {
-                        "kty": key["kty"],
-                        "kid": key["kid"],
-                        "use": key["use"],
-                        "n": key["n"],
-                        "e": key["e"],
-                    }
-                    break
-            
+            rsa_key = self._find_rsa_key(jwks, kid)
+
+            # If key is missing, force a JWKS refresh to handle Auth0 key rotation.
+            if not rsa_key:
+                jwks = self.get_jwks(force_refresh=True)
+                rsa_key = self._find_rsa_key(jwks, kid)
+
             if not rsa_key:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Invalid token: Unable to find appropriate key",
                 )
-            
+
             # Verify and decode the token
             payload = jwt.decode(
                 token,
@@ -104,9 +124,9 @@ class Auth0JWTVerifier:
                 audience=settings.AUTH0_API_AUDIENCE,
                 issuer=settings.AUTH0_ISSUER,
             )
-            
+
             return payload
-            
+
         except jwt.ExpiredSignatureError:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -122,10 +142,12 @@ class Auth0JWTVerifier:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=f"Invalid token: {str(e)}",
             )
-        except Exception as e:
+        except HTTPException:
+            raise
+        except Exception:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"Token verification failed: {str(e)}",
+                detail="Token verification failed",
             )
 
 
