@@ -33,11 +33,11 @@ export const router = createBrowserRouter([
     children: [
       {
         index: true,
-        element: <Navigate to="/deck/new" replace />,
+        element: <Navigate to="/browse" replace />,
       },
       {
         path: "deck",
-        element: <Navigate to="/deck/new" replace />,
+        element: <Navigate to="/browse" replace />,
       },
       {
         path: "compare",

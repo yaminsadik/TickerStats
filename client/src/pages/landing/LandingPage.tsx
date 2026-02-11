@@ -25,6 +25,7 @@ import InteractiveCompDemo from "./InteractiveCompDemo";
 import InteractiveDeckDemo from "./InteractiveDeckDemo";
 import PricingCalculator from "./PricingCalculator";
 import { TIERS, MODELS } from "./landingData";
+import { useProfileQuery } from "../../queries/useProfileQuery";
 
 // ─── Scroll-reveal hook ─────────────────────────────────────────────────────
 
@@ -74,6 +75,7 @@ const NAV_SECTIONS = [
 export default function LandingPage() {
   const navigate = useNavigate();
   const { isAuthenticated, loginWithRedirect } = useAuth0();
+  const { profile, loading: profileLoading } = useProfileQuery();
 
   // ── Scroll spy ──
   const [activeSection, setActiveSection] = useState("");
@@ -122,16 +124,59 @@ export default function LandingPage() {
   // ── CTA handlers ──
   const handlePrimaryCTA = useCallback(() => {
     if (isAuthenticated) {
-      navigate("/deck/new");
+      navigate("/browse");
     } else {
       loginWithRedirect({
         authorizationParams: { screen_hint: "signup" },
-        appState: { returnTo: "/deck/new" },
+        appState: { returnTo: "/browse" },
       });
     }
   }, [isAuthenticated, navigate, loginWithRedirect]);
 
   const primaryCTALabel = isAuthenticated ? "Go to app" : "Sign up free";
+  const stripeCheckoutUrl = (
+    import.meta.env.VITE_STRIPE_CHECKOUT_URL || ""
+  ).trim();
+  const hasProAccess =
+    profile?.subscription_tier === "pro" ||
+    profile?.subscription_tier === "enterprise";
+  const isResolvingTier = isAuthenticated && profileLoading;
+  const proCTALabel = !isAuthenticated
+    ? "Start Pro"
+    : hasProAccess
+      ? "Go to app"
+      : "Get Pro";
+
+  const handleProCTA = useCallback(() => {
+    if (isResolvingTier) return;
+
+    if (!isAuthenticated) {
+      loginWithRedirect({
+        authorizationParams: { screen_hint: "signup" },
+        appState: { returnTo: "/profile" },
+      });
+      return;
+    }
+
+    if (hasProAccess) {
+      navigate("/browse");
+      return;
+    }
+
+    if (stripeCheckoutUrl) {
+      window.location.assign(stripeCheckoutUrl);
+      return;
+    }
+
+    navigate("/profile");
+  }, [
+    hasProAccess,
+    isAuthenticated,
+    isResolvingTier,
+    loginWithRedirect,
+    navigate,
+    stripeCheckoutUrl,
+  ]);
 
   // ── Scroll reveal refs ──
   const demos = useScrollReveal<HTMLElement>();
@@ -559,17 +604,9 @@ export default function LandingPage() {
                 price={TIERS.pro.price}
                 period={TIERS.pro.period}
                 features={TIERS.pro.features}
-                cta={isAuthenticated ? "Go to app" : "Start Pro"}
-                onClick={() => {
-                  if (isAuthenticated) {
-                    navigate("/profile");
-                  } else {
-                    loginWithRedirect({
-                      authorizationParams: { screen_hint: "signup" },
-                      appState: { returnTo: "/profile" },
-                    });
-                  }
-                }}
+                cta={isResolvingTier ? "Checking plan..." : proCTALabel}
+                onClick={handleProCTA}
+                disabled={isResolvingTier}
                 highlighted
               />
 
@@ -751,6 +788,7 @@ function PricingCard({
   features,
   cta,
   onClick,
+  disabled = false,
   highlighted = false,
 }: {
   name: string;
@@ -759,6 +797,7 @@ function PricingCard({
   features: readonly { text: string; included: boolean }[];
   cta: string;
   onClick: () => void;
+  disabled?: boolean;
   highlighted?: boolean;
 }) {
   return (
@@ -817,8 +856,12 @@ function PricingCard({
         ))}
       </ul>
       <button
+        type="button"
         onClick={onClick}
+        disabled={disabled}
         className={`w-full py-3 rounded-lg font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+          disabled ? "opacity-70 cursor-not-allowed" : ""
+        } ${
           highlighted
             ? "bg-white text-blue-600 hover:bg-blue-50"
             : "bg-slate-800 text-white hover:bg-slate-700"
