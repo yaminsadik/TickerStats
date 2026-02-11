@@ -153,7 +153,7 @@ export default function LandingPage() {
       {/* ── Navigation ───────────────────────────────────────────────── */}
       <nav
         className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-          isNavSticky
+          isNavSticky || mobileMenuOpen
             ? "bg-slate-950/95 backdrop-blur-sm border-b border-slate-800 shadow-lg shadow-black/20"
             : "bg-transparent"
         }`}
@@ -218,7 +218,7 @@ export default function LandingPage() {
 
           {/* Mobile menu */}
           {mobileMenuOpen && (
-            <div className="md:hidden mt-4 pb-4 border-t border-slate-800 pt-4 space-y-2">
+            <div className="md:hidden mt-4 p-3 border border-slate-700/80 rounded-2xl bg-slate-950/95 backdrop-blur-md shadow-2xl shadow-black/40 space-y-2">
               {NAV_SECTIONS.map((s) => (
                 <button
                   key={s.id}
