@@ -7,6 +7,7 @@ because Auth0 tokens didn't include these claims initially.
 Usage:
     python update_users.py list                              # List all users
     python update_users.py update <auth0_id> <email> <name>  # Update a specific user
+    python update_users.py admin <email> <true|false>        # Grant/revoke admin access
     python update_users.py sync                              # Sync from Auth0 (requires Management API)
 """
 
@@ -27,22 +28,27 @@ async def list_users():
             print("No users found in database.")
             return
         
-        print(f"\n{'='*100}")
-        print(f"{'Auth0 User ID':<40} {'Email':<30} {'Name':<20} {'Tier':<10}")
-        print(f"{'='*100}")
+        print(f"\n{'='*110}")
+        print(f"{'Auth0 User ID':<40} {'Email':<30} {'Name':<20} {'Tier':<10} {'Admin':<5}")
+        print(f"{'='*110}")
         
         for user in users:
             email = user.email or "❌ NULL"
             name = user.name or "❌ NULL"
             tier = user.subscription_tier or "free"
-            print(f"{user.auth0_user_id:<40} {email:<30} {name:<20} {tier:<10}")
+            admin_status = "✅" if user.is_admin else ""
+            print(f"{user.auth0_user_id:<40} {email:<30} {name:<20} {tier:<10} {admin_status:<5}")
         
-        print(f"{'='*100}\n")
+        print(f"{'='*110}\n")
         print(f"Total users: {len(users)}")
         
         # Count users with missing info
         missing_email = sum(1 for u in users if not u.email)
         missing_name = sum(1 for u in users if not u.name)
+        admin_count = sum(1 for u in users if u.is_admin)
+        
+        if admin_count:
+            print(f"Admin users: {admin_count}")
         
         if missing_email or missing_name:
             print(f"\n⚠️  Users with missing data:")
@@ -76,6 +82,39 @@ async def update_user(auth0_id: str, email: str, name: str):
         
         await session.commit()
         print(f"✅ User updated successfully!\n")
+
+
+async def set_admin(email: str, is_admin: bool):
+    """Set admin status for a user by email."""
+    from datetime import datetime
+    
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(User).where(User.email == email)
+        )
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            print(f"❌ User not found with email: {email}")
+            return
+        
+        old_status = "Admin" if user.is_admin else "Regular User"
+        new_status = "Admin" if is_admin else "Regular User"
+        
+        print(f"\n🔐 Updating admin status for: {email}")
+        print(f"   Auth0 ID: {user.auth0_user_id}")
+        print(f"   Name: {user.name or 'N/A'}")
+        print(f"   Status: {old_status} → {new_status}")
+        
+        user.is_admin = is_admin
+        user.updated_at = datetime.utcnow()
+        
+        await session.commit()
+        print(f"✅ Admin status updated successfully!")
+        
+        if is_admin:
+            print(f"\n🎉 {email} now has unlimited access to all features!")
+        print()
 
 
 async def sync_from_auth0():
@@ -163,6 +202,9 @@ def print_usage():
     print("\n  python update_users.py update <auth0_id> <email> <name>")
     print("      Update a specific user")
     print("      Example: python update_users.py update 'auth0|123' 'user@example.com' 'John Doe'")
+    print("\n  python update_users.py admin <email> <true|false>")
+    print("      Grant or revoke admin access for a user")
+    print("      Example: python update_users.py admin 'user@example.com' true")
     print("\n  python update_users.py sync")
     print("      Sync all users from Auth0 Management API")
     print("      Requires: export AUTH0_MANAGEMENT_TOKEN='your_token'")
@@ -190,6 +232,22 @@ async def main():
         email = sys.argv[3]
         name = sys.argv[4]
         await update_user(auth0_id, email, name)
+    
+    elif command == "admin":
+        if len(sys.argv) < 4:
+            print("❌ Error: Missing arguments")
+            print("Usage: python update_users.py admin <email> <true|false>")
+            return
+        
+        email = sys.argv[2]
+        admin_value = sys.argv[3].lower()
+        
+        if admin_value not in {"true", "false"}:
+            print("❌ Error: Admin value must be 'true' or 'false'")
+            return
+        
+        is_admin = admin_value == "true"
+        await set_admin(email, is_admin)
     
     elif command == "sync":
         await sync_from_auth0()

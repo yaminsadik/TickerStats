@@ -88,3 +88,26 @@ class ErrorResponse(BaseModel):
     """Standard error response."""
 
     detail: str
+
+
+class LandingMarketRow(BaseModel):
+    """Public landing snapshot row (real market metrics only)."""
+
+    symbol: str
+    sharePrice: Optional[float] = None
+    marketCap: Optional[float] = None
+    return1mo: Optional[float] = None
+    volatility1mo: Optional[float] = None
+    beta: Optional[float] = None
+    profitMargin: Optional[float] = None
+    error: Optional[str] = None
+
+
+class LandingMarketResponse(BaseModel):
+    """Public landing response for the hero market terminal."""
+
+    asOf: str
+    period: str
+    source: str
+    delayDisclaimer: str
+    rows: list[LandingMarketRow]

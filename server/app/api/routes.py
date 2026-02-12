@@ -31,6 +31,8 @@ from app.core.config import (
 from app.schemas import (
     ErrorResponse,
     HealthResponse,
+    LandingMarketResponse,
+    LandingMarketRow,
     PerfRequest,
     RelativeTableResponse,
     RequestedParams,
@@ -41,6 +43,11 @@ from app.services.yfinance_service import yfinance_service
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+LANDING_MARKET_SYMBOLS = ["SPY", "QQQ", "NVDA", "MSFT", "AAPL", "AMZN", "META", "TSLA"]
+LANDING_MARKET_FIELDS = ["sharePrice", "marketCap", "beta", "profitMargin"]
+LANDING_MARKET_PERF_METRICS = ["return", "volatility"]
+LANDING_MARKET_PERF_PERIOD = "1mo"
 
 
 def parse_and_validate_symbols(symbols_str: str) -> list[str]:
@@ -262,6 +269,55 @@ async def get_relative_table(
     ]
 
     return RelativeTableResponse(asOf=as_of, requested=requested, units=units, rows=rows)
+
+
+@router.get(
+    "/api/public/market-snapshot",
+    response_model=LandingMarketResponse,
+    tags=["Landing"],
+)
+async def get_public_market_snapshot(response: Response):
+    """
+    Public, bounded market snapshot for the landing hero terminal.
+
+    Uses real metrics sourced from yfinance_service for a fixed symbol set.
+    No authentication required.
+    """
+    rows_data, cache_hit = await asyncio.to_thread(
+        yfinance_service.get_relative,
+        symbols=LANDING_MARKET_SYMBOLS,
+        fields=LANDING_MARKET_FIELDS,
+        perf_metrics=LANDING_MARKET_PERF_METRICS,
+        perf_period=LANDING_MARKET_PERF_PERIOD,
+        include_dcf=False,
+    )
+
+    response.headers["X-Cache"] = "HIT" if cache_hit else "MISS"
+
+    rows = []
+    for row in rows_data:
+        snapshot = row.get("snapshot") or {}
+        performance = row.get("performance") or {}
+        rows.append(
+            LandingMarketRow(
+                symbol=row["symbol"],
+                sharePrice=snapshot.get("sharePrice"),
+                marketCap=snapshot.get("marketCap"),
+                return1mo=performance.get("return"),
+                volatility1mo=performance.get("volatility"),
+                beta=snapshot.get("beta"),
+                profitMargin=snapshot.get("profitMargin"),
+                error=row.get("error"),
+            )
+        )
+
+    return LandingMarketResponse(
+        asOf=yfinance_service.get_as_of_timestamp(),
+        period=LANDING_MARKET_PERF_PERIOD,
+        source="Yahoo Finance via yfinance",
+        delayDisclaimer="Market data may be delayed and is for informational purposes only.",
+        rows=rows,
+    )
 
 
 @router.get(

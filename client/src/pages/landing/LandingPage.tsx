@@ -25,6 +25,7 @@ import InteractiveHero from "./InteractiveHero";
 import InteractiveCompDemo from "./InteractiveCompDemo";
 import InteractiveDeckDemo from "./InteractiveDeckDemo";
 import PricingCalculator from "./PricingCalculator";
+import HeroPipeline from "../../components/hero/HeroPipeline";
 import { TIERS, MODELS } from "./landingData";
 import { useProfileQuery } from "../../queries/useProfileQuery";
 
@@ -312,7 +313,7 @@ export default function LandingPage() {
             >
               {/* Badge pill */}
               <motion.div
-                className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 text-sm text-slate-300 font-medium mb-6"
+                className="relative z-10 inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 text-sm text-slate-300 font-medium mb-6"
                 initial={prefersReduced ? false : { opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{
@@ -327,7 +328,7 @@ export default function LandingPage() {
               {/* Headline */}
               <div className="overflow-hidden mb-5">
                 <motion.h1
-                  className="text-5xl sm:text-6xl lg:text-7xl font-bold text-white leading-[1.1] tracking-tight [text-shadow:0_8px_26px_rgba(2,6,23,0.48)]"
+                  className="relative z-10 text-5xl sm:text-6xl lg:text-7xl font-bold text-white leading-[1.1] tracking-tight [text-shadow:0_8px_26px_rgba(2,6,23,0.48)]"
                   initial={prefersReduced ? false : { y: 56 }}
                   animate={{ y: 0 }}
                   transition={{
@@ -367,7 +368,7 @@ export default function LandingPage() {
 
               {/* Subhead */}
               <motion.p
-                className="text-xl md:text-2xl text-slate-300 mb-8 font-light max-w-3xl mx-auto"
+                className="relative z-10 text-xl md:text-2xl text-slate-300 mb-2 font-light max-w-3xl mx-auto"
                 initial={prefersReduced ? false : { opacity: 0, y: 14 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{
@@ -380,8 +381,16 @@ export default function LandingPage() {
                 presentation-ready decks, all from a list of tickers.
               </motion.p>
 
+              {/* Dedicated pipeline slot in normal flow: no overlap, no layout shift */}
+              <div className="relative mt-6 h-[140px] sm:h-[164px]">
+                {/* Centered pipeline slot: absolute + translate, behind content (z-0) and non-interactive */}
+                <div className="absolute left-1/2 top-1/2 z-0 h-[140px] w-full max-w-[98vw] -translate-x-1/2 -translate-y-1/2 pointer-events-none sm:h-[164px] sm:max-w-[980px]">
+                  <HeroPipeline />
+                </div>
+              </div>
+
               {/* CTAs - "Try the demo" is primary */}
-              <div className="flex flex-wrap gap-4 justify-center mb-6">
+              <div className="relative z-10 mt-2 flex flex-wrap gap-4 justify-center mb-6">
                 <motion.button
                   onClick={() => scrollToSection("demos")}
                   className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-lg font-semibold text-base transition-all inline-flex items-center gap-2 shadow-lg shadow-blue-600/20 hover:shadow-blue-600/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
@@ -413,7 +422,7 @@ export default function LandingPage() {
 
               {/* Trust indicators */}
               <motion.div
-                className="flex flex-wrap items-center justify-center gap-4 text-sm text-slate-500"
+                className="relative z-10 flex flex-wrap items-center justify-center gap-4 text-sm text-slate-500"
                 initial={prefersReduced ? false : { opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{

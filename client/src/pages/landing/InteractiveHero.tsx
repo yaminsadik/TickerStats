@@ -6,7 +6,6 @@ import {
   useReducedMotion,
   useSpring,
 } from "framer-motion";
-import MarketOverlay from "./MarketOverlay";
 
 // ─── Tiny inline noise SVG ──────────────────────────────────────────────────
 const NOISE_URI =
@@ -180,9 +179,6 @@ export default function InteractiveHero({
           backgroundRepeat: "repeat",
         }}
       />
-
-      {/* 8. Finance market scene */}
-      <MarketOverlay prefersReduced={prefersReduced} />
 
       {/* Content with subtle tilt */}
       <motion.div

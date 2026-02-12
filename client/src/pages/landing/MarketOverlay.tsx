@@ -1,56 +1,92 @@
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
+import { API_BASE } from "../../config/apiBase";
 
 interface MarketOverlayProps {
   prefersReduced: boolean;
 }
 
-const tickerFeed = [
-  { sym: "SPY", price: "521.40", chg: "+0.92%" },
-  { sym: "QQQ", price: "446.88", chg: "+1.14%" },
-  { sym: "NVDA", price: "954.31", chg: "+2.47%" },
-  { sym: "MSFT", price: "428.74", chg: "+0.66%" },
-  { sym: "AAPL", price: "201.12", chg: "-0.42%" },
-  { sym: "AMZN", price: "188.40", chg: "+0.81%" },
-  { sym: "META", price: "519.77", chg: "+1.29%" },
-  { sym: "TSLA", price: "241.60", chg: "-0.95%" },
-];
+interface LandingMarketRow {
+  symbol: string;
+  sharePrice: number | null;
+  marketCap: number | null;
+  return1mo: number | null;
+  volatility1mo: number | null;
+  beta: number | null;
+  profitMargin: number | null;
+  error: string | null;
+}
 
-const watchlist = [
-  { sym: "NVDA", last: "954.31", chg: "+2.47%", vol: "44.2M" },
-  { sym: "MSFT", last: "428.74", chg: "+0.66%", vol: "18.1M" },
-  { sym: "AMZN", last: "188.40", chg: "+0.81%", vol: "27.3M" },
-  { sym: "AAPL", last: "201.12", chg: "-0.42%", vol: "56.7M" },
-  { sym: "TSLA", last: "241.60", chg: "-0.95%", vol: "71.0M" },
-  { sym: "META", last: "519.77", chg: "+1.29%", vol: "14.8M" },
-];
+interface LandingMarketSnapshot {
+  asOf: string;
+  period: string;
+  source: string;
+  delayDisclaimer: string;
+  rows: LandingMarketRow[];
+}
 
-const orderBook = [
-  { side: "ASK", price: "521.42", size: 140, width: 88 },
-  { side: "ASK", price: "521.41", size: 112, width: 70 },
-  { side: "ASK", price: "521.40", size: 96, width: 58 },
-  { side: "BID", price: "521.39", size: 118, width: 74 },
-  { side: "BID", price: "521.38", size: 150, width: 94 },
-  { side: "BID", price: "521.37", size: 132, width: 82 },
-];
+const REFRESH_MS = 90_000;
 
-function MarketTickerRow() {
+function asFiniteNumber(value: number | null | undefined): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return value;
+}
+
+function formatPrice(value: number | null): string {
+  if (value === null) return "--";
+  return value >= 1000
+    ? `$${value.toLocaleString("en-US", { maximumFractionDigits: 0 })}`
+    : `$${value.toLocaleString("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`;
+}
+
+function formatPercent(value: number | null): string {
+  if (value === null) return "--";
+  const pct = value * 100;
+  return `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`;
+}
+
+function formatMarketCap(value: number | null): string {
+  if (value === null) return "--";
+  if (value >= 1_000_000_000_000) return `$${(value / 1_000_000_000_000).toFixed(2)}T`;
+  if (value >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(1)}B`;
+  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
+  return `$${value.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+}
+
+function formatAsOf(isoTimestamp: string | null): string {
+  if (!isoTimestamp) return "As of: --";
+  const parsed = new Date(isoTimestamp);
+  if (Number.isNaN(parsed.getTime())) return "As of: --";
+  return `As of ${parsed.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  })}`;
+}
+
+function MarketTickerRow({ rows }: { rows: LandingMarketRow[] }) {
   return (
     <>
-      {tickerFeed.map((item, i) => {
-        const up = item.chg.startsWith("+");
+      {rows.map((item) => {
+        const ret = asFiniteNumber(item.return1mo);
+        const up = ret !== null ? ret >= 0 : false;
         return (
           <div
-            key={`${item.sym}-${i}`}
+            key={item.symbol}
             className="inline-flex items-center gap-2 border-r border-slate-700/70 px-4 py-1.5"
           >
-            <span className="text-slate-300 font-semibold">{item.sym}</span>
-            <span className="text-slate-400 tabular-nums">{item.price}</span>
+            <span className="text-slate-300 font-semibold">{item.symbol}</span>
+            <span className="text-slate-400 tabular-nums">
+              {formatPrice(asFiniteNumber(item.sharePrice))}
+            </span>
             <span
               className={`tabular-nums font-semibold ${
                 up ? "text-emerald-300" : "text-rose-300"
               }`}
             >
-              {item.chg}
+              {formatPercent(ret)}
             </span>
           </div>
         );
@@ -60,6 +96,102 @@ function MarketTickerRow() {
 }
 
 export default function MarketOverlay({ prefersReduced }: MarketOverlayProps) {
+  const [snapshot, setSnapshot] = useState<LandingMarketSnapshot | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let disposed = false;
+    const controller = new AbortController();
+
+    const loadSnapshot = async (signal?: AbortSignal) => {
+      try {
+        const response = await fetch(`${API_BASE}/api/public/market-snapshot`, {
+          signal,
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const data = (await response.json()) as LandingMarketSnapshot;
+        if (disposed) return;
+        setSnapshot(data);
+        setLoadError(null);
+      } catch (error) {
+        if (signal?.aborted || disposed) return;
+        setLoadError(`Live feed unavailable (${String(error)})`);
+      }
+    };
+
+    void loadSnapshot(controller.signal);
+    const intervalId = window.setInterval(() => {
+      void loadSnapshot();
+    }, REFRESH_MS);
+
+    return () => {
+      disposed = true;
+      controller.abort();
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  const rows = snapshot?.rows ?? [];
+  const tickerRows = useMemo(() => rows.slice(0, 8), [rows]);
+  const watchRows = useMemo(() => rows.slice(0, 6), [rows]);
+
+  const chartPoints = useMemo(() => {
+    if (!tickerRows.length) return [] as Array<{ x: number; y: number; value: number }>;
+    const values = tickerRows.map((row) => asFiniteNumber(row.return1mo) ?? 0);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const range = Math.max(max - min, 0.0001);
+    const step = values.length > 1 ? 420 / (values.length - 1) : 0;
+
+    return values.map((value, i) => {
+      const x = 18 + i * step;
+      const normalized = (value - min) / range;
+      const y = 132 - normalized * 88;
+      return { x, y, value };
+    });
+  }, [tickerRows]);
+
+  const linePath = useMemo(() => {
+    if (!chartPoints.length) return "";
+    return `M ${chartPoints.map((p) => `${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(" L ")}`;
+  }, [chartPoints]);
+
+  const areaPath = useMemo(() => {
+    if (!chartPoints.length) return "";
+    const firstX = chartPoints[0].x;
+    const lastX = chartPoints[chartPoints.length - 1].x;
+    return `${linePath} L ${lastX.toFixed(2)} 160 L ${firstX.toFixed(2)} 160 Z`;
+  }, [chartPoints, linePath]);
+
+  const bestMover = useMemo(() => {
+    const withReturn = rows.filter(
+      (row): row is LandingMarketRow & { return1mo: number } =>
+        asFiniteNumber(row.return1mo) !== null,
+    );
+    if (!withReturn.length) return null;
+    return withReturn.reduce((best, current) =>
+      current.return1mo > best.return1mo ? current : best,
+    );
+  }, [rows]);
+
+  const averageVolatility = useMemo(() => {
+    const values = rows
+      .map((row) => asFiniteNumber(row.volatility1mo))
+      .filter((value): value is number => value !== null);
+    if (!values.length) return null;
+    return values.reduce((sum, value) => sum + value, 0) / values.length;
+  }, [rows]);
+
+  const averageMargin = useMemo(() => {
+    const values = rows
+      .map((row) => asFiniteNumber(row.profitMargin))
+      .filter((value): value is number => value !== null);
+    if (!values.length) return null;
+    return values.reduce((sum, value) => sum + value, 0) / values.length;
+  }, [rows]);
+
   return (
     <div
       className="absolute inset-x-0 bottom-[-3%] z-[1] pointer-events-none px-4 sm:px-8"
@@ -104,9 +236,8 @@ export default function MarketOverlay({ prefersReduced }: MarketOverlayProps) {
               LIVE MARKET TERMINAL
             </div>
             <div className="hidden sm:inline-flex items-center gap-3 text-slate-400">
-              <span>US EQUITIES</span>
-              <span>LATENCY 21MS</span>
-              <span>FEED: REALTIME</span>
+              <span>{formatAsOf(snapshot?.asOf ?? null)}</span>
+              <span>{snapshot?.source ?? "Yahoo Finance via yfinance"}</span>
             </div>
           </div>
 
@@ -121,8 +252,16 @@ export default function MarketOverlay({ prefersReduced }: MarketOverlayProps) {
               }
             >
               <span className="inline-flex">
-                <MarketTickerRow />
-                <MarketTickerRow />
+                {tickerRows.length > 0 ? (
+                  <>
+                    <MarketTickerRow rows={tickerRows} />
+                    <MarketTickerRow rows={tickerRows} />
+                  </>
+                ) : (
+                  <span className="px-4 py-1.5 text-slate-500">
+                    Loading live snapshot...
+                  </span>
+                )}
               </span>
             </motion.div>
           </div>
@@ -130,48 +269,47 @@ export default function MarketOverlay({ prefersReduced }: MarketOverlayProps) {
           <div className="grid grid-cols-1 gap-3 px-3 pb-3 pt-3 md:grid-cols-12 md:gap-2.5">
             <section className="rounded-xl border border-slate-700/80 bg-slate-950/55 p-2.5 md:col-span-4">
               <div className="mb-2 text-[10px] uppercase tracking-[0.13em] text-cyan-300/80">
-                Watchlist
+                Relative Snapshot
               </div>
               <div className="space-y-1.5 text-[11px]">
-                {watchlist.map((row, i) => {
-                  const up = row.chg.startsWith("+");
-                  return (
-                    <motion.div
-                      key={row.sym}
-                      className="grid grid-cols-[48px_1fr_64px_54px] items-center rounded-md border border-slate-800/80 bg-slate-900/40 px-2 py-1"
-                      animate={
-                        prefersReduced
-                          ? undefined
-                          : { borderColor: ["rgba(30,41,59,0.8)", "rgba(34,211,238,0.32)", "rgba(30,41,59,0.8)"] }
-                      }
-                      transition={
-                        prefersReduced
-                          ? undefined
-                          : { duration: 12, delay: i * 0.2, repeat: Infinity, ease: "linear" }
-                      }
-                    >
-                      <span className="font-semibold text-slate-200">{row.sym}</span>
-                      <span className="tabular-nums text-slate-400">{row.last}</span>
-                      <span
-                        className={`tabular-nums text-right font-semibold ${
-                          up ? "text-emerald-300" : "text-rose-300"
-                        }`}
+                {watchRows.length > 0 ? (
+                  watchRows.map((row) => {
+                    const ret = asFiniteNumber(row.return1mo);
+                    const up = ret !== null ? ret >= 0 : false;
+                    return (
+                      <div
+                        key={row.symbol}
+                        className="grid grid-cols-[48px_1fr_68px_64px] items-center rounded-md border border-slate-800/80 bg-slate-900/40 px-2 py-1"
                       >
-                        {row.chg}
-                      </span>
-                      <span className="tabular-nums text-right text-slate-500">
-                        {row.vol}
-                      </span>
-                    </motion.div>
-                  );
-                })}
+                        <span className="font-semibold text-slate-200">{row.symbol}</span>
+                        <span className="tabular-nums text-slate-400">
+                          {formatPrice(asFiniteNumber(row.sharePrice))}
+                        </span>
+                        <span
+                          className={`tabular-nums text-right font-semibold ${
+                            up ? "text-emerald-300" : "text-rose-300"
+                          }`}
+                        >
+                          {formatPercent(ret)}
+                        </span>
+                        <span className="tabular-nums text-right text-slate-500">
+                          {formatMarketCap(asFiniteNumber(row.marketCap))}
+                        </span>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="rounded-md border border-slate-800/80 bg-slate-900/40 px-2 py-2 text-slate-500">
+                    Waiting for market snapshot...
+                  </div>
+                )}
               </div>
             </section>
 
             <section className="rounded-xl border border-slate-700/80 bg-slate-950/55 p-2.5 md:col-span-5">
               <div className="mb-2 flex items-center justify-between text-[10px] uppercase tracking-[0.13em]">
-                <span className="text-cyan-300/80">TSLA Intraday</span>
-                <span className="tabular-nums text-emerald-300">+1.87%</span>
+                <span className="text-cyan-300/80">1M Relative Return</span>
+                <span className="tabular-nums text-slate-400">{snapshot?.period?.toUpperCase() ?? "1MO"}</span>
               </div>
               <div className="rounded-lg border border-slate-800/80 bg-slate-950/65 p-1.5">
                 <svg viewBox="0 0 460 170" className="h-[130px] w-full">
@@ -197,119 +335,114 @@ export default function MarketOverlay({ prefersReduced }: MarketOverlayProps) {
                       strokeWidth="1"
                     />
                   ))}
-                  <motion.path
-                    d="M6 140 C44 120, 78 132, 112 104 C146 84, 184 112, 218 92 C252 72, 294 100, 328 70 C358 48, 392 64, 454 38"
-                    fill="none"
-                    stroke="rgba(34,211,238,0.95)"
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                    initial={prefersReduced ? false : { pathLength: 0.2, opacity: 0.2 }}
-                    animate={
-                      prefersReduced
-                        ? { pathLength: 1, opacity: 0.7 }
-                        : {
-                            pathLength: [0.92, 1, 0.92],
-                            opacity: [0.5, 0.88, 0.5],
-                          }
-                    }
-                    transition={
-                      prefersReduced
-                        ? { duration: 0.35, ease: "easeOut" }
-                        : { duration: 12, repeat: Infinity, ease: "linear" }
-                    }
-                  />
-                  <motion.path
-                    d="M6 140 C44 120, 78 132, 112 104 C146 84, 184 112, 218 92 C252 72, 294 100, 328 70 C358 48, 392 64, 454 38 L454 170 L6 170 Z"
-                    fill="rgba(34,211,238,0.12)"
-                    initial={prefersReduced ? false : { opacity: 0.2 }}
-                    animate={
-                      prefersReduced ? { opacity: 0.22 } : { opacity: [0.14, 0.28, 0.14] }
-                    }
-                    transition={
-                      prefersReduced
-                        ? undefined
-                        : { duration: 12, repeat: Infinity, ease: "linear" }
-                    }
-                  />
+                  {areaPath && (
+                    <motion.path
+                      d={areaPath}
+                      fill="rgba(34,211,238,0.12)"
+                      initial={prefersReduced ? false : { opacity: 0.2 }}
+                      animate={
+                        prefersReduced
+                          ? { opacity: 0.22 }
+                          : { opacity: [0.14, 0.28, 0.14] }
+                      }
+                      transition={
+                        prefersReduced
+                          ? undefined
+                          : { duration: 12, repeat: Infinity, ease: "linear" }
+                      }
+                    />
+                  )}
+                  {linePath && (
+                    <motion.path
+                      d={linePath}
+                      fill="none"
+                      stroke="rgba(34,211,238,0.95)"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      initial={prefersReduced ? false : { pathLength: 0.2, opacity: 0.2 }}
+                      animate={
+                        prefersReduced
+                          ? { pathLength: 1, opacity: 0.7 }
+                          : {
+                              pathLength: [0.92, 1, 0.92],
+                              opacity: [0.5, 0.88, 0.5],
+                            }
+                      }
+                      transition={
+                        prefersReduced
+                          ? { duration: 0.35, ease: "easeOut" }
+                          : { duration: 12, repeat: Infinity, ease: "linear" }
+                      }
+                    />
+                  )}
                 </svg>
               </div>
               <div className="mt-2 grid grid-cols-3 gap-1.5 text-[10px] sm:text-[11px]">
                 <div className="rounded-md border border-slate-800/70 bg-slate-900/45 px-2 py-1 text-slate-400">
-                  VWAP <span className="tabular-nums text-slate-200">239.44</span>
+                  Best <span className="tabular-nums text-emerald-300">{bestMover ? `${bestMover.symbol} ${formatPercent(bestMover.return1mo)}` : "--"}</span>
                 </div>
                 <div className="rounded-md border border-slate-800/70 bg-slate-900/45 px-2 py-1 text-slate-400">
-                  RSI <span className="tabular-nums text-emerald-300">61.2</span>
+                  Avg Vol <span className="tabular-nums text-cyan-300">{formatPercent(averageVolatility)}</span>
                 </div>
                 <div className="rounded-md border border-slate-800/70 bg-slate-900/45 px-2 py-1 text-slate-400">
-                  Vol <span className="tabular-nums text-cyan-300">2.3M</span>
+                  Avg Margin <span className="tabular-nums text-slate-200">{formatPercent(averageMargin)}</span>
                 </div>
               </div>
             </section>
 
             <section className="rounded-xl border border-slate-700/80 bg-slate-950/55 p-2.5 md:col-span-3">
               <div className="mb-2 flex items-center justify-between text-[10px] uppercase tracking-[0.13em]">
-                <span className="text-cyan-300/80">Order Book</span>
-                <span className="tabular-nums text-slate-400">SPY</span>
+                <span className="text-cyan-300/80">Factor Snapshot</span>
+                <span className="tabular-nums text-slate-400">Beta / Margin</span>
               </div>
               <div className="space-y-1.5 text-[11px]">
-                {orderBook.map((level, i) => {
-                  const ask = level.side === "ASK";
-                  return (
-                    <div
-                      key={`${level.side}-${level.price}`}
-                      className="relative overflow-hidden rounded-md border border-slate-800/80 bg-slate-900/50 px-2 py-1.5"
-                    >
-                      <motion.div
-                        className={`absolute inset-y-0 ${
-                          ask ? "right-0 bg-rose-400/14" : "left-0 bg-emerald-400/14"
-                        }`}
-                        style={{ width: `${level.width}%` }}
-                        animate={
-                          prefersReduced
-                            ? undefined
-                            : { opacity: [0.25, 0.55, 0.25] }
-                        }
-                        transition={{
-                          duration: prefersReduced ? 0 : 11,
-                          delay: prefersReduced ? 0 : i * 0.1,
-                          repeat: prefersReduced ? 0 : Infinity,
-                          ease: "linear",
-                        }}
-                      />
-                      <div className="relative grid grid-cols-[34px_1fr_48px] items-center">
-                        <span
-                          className={`font-semibold ${
-                            ask ? "text-rose-300" : "text-emerald-300"
-                          }`}
-                        >
-                          {level.side}
-                        </span>
-                        <span className="tabular-nums text-center text-slate-300">
-                          {level.price}
-                        </span>
-                        <span className="tabular-nums text-right text-slate-500">
-                          {level.size}
-                        </span>
+                {watchRows.length > 0 ? (
+                  watchRows.map((row) => {
+                    const beta = asFiniteNumber(row.beta);
+                    const margin = asFiniteNumber(row.profitMargin);
+                    const marginPositive = margin !== null ? margin >= 0 : false;
+                    return (
+                      <div
+                        key={`${row.symbol}-factor`}
+                        className="rounded-md border border-slate-800/80 bg-slate-900/50 px-2 py-1.5"
+                      >
+                        <div className="grid grid-cols-[48px_1fr_58px] items-center">
+                          <span className="font-semibold text-slate-200">{row.symbol}</span>
+                          <span className="tabular-nums text-center text-slate-400">
+                            b {beta === null ? "--" : beta.toFixed(2)}
+                          </span>
+                          <span
+                            className={`tabular-nums text-right font-semibold ${
+                              marginPositive ? "text-emerald-300" : "text-rose-300"
+                            }`}
+                          >
+                            {formatPercent(margin)}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })
+                ) : (
+                  <div className="rounded-md border border-slate-800/80 bg-slate-900/50 px-2 py-2 text-slate-500">
+                    No factors yet.
+                  </div>
+                )}
               </div>
               <div className="mt-2 rounded-md border border-cyan-400/25 bg-cyan-400/5 px-2 py-1 text-[10px] text-cyan-300/90">
-                Spread 0.03 | Imbalance +0.18
+                Real snapshot only. No order-book simulation.
               </div>
             </section>
           </div>
 
-          <div className="grid grid-cols-3 border-t border-slate-700/70 text-[10px] sm:text-[11px]">
-            <div className="border-r border-slate-700/70 px-3 py-1.5 text-slate-400">
-              Signal Engine: <span className="text-emerald-300">Momentum Long</span>
+          <div className="grid grid-cols-1 gap-0 border-t border-slate-700/70 text-[10px] sm:grid-cols-3 sm:text-[11px]">
+            <div className="border-b border-slate-700/70 px-3 py-1.5 text-slate-400 sm:border-b-0 sm:border-r">
+              {formatAsOf(snapshot?.asOf ?? null)}
             </div>
-            <div className="border-r border-slate-700/70 px-3 py-1.5 text-slate-400">
-              Risk Pulse: <span className="text-cyan-300">Stable</span>
+            <div className="border-b border-slate-700/70 px-3 py-1.5 text-slate-400 sm:border-b-0 sm:border-r">
+              {snapshot?.source ?? "Yahoo Finance via yfinance"}
             </div>
-            <div className="px-3 py-1.5 text-slate-400">
-              Session: <span className="text-slate-200">NYSE Open</span>
+            <div className="px-3 py-1.5 text-slate-500">
+              {loadError ?? snapshot?.delayDisclaimer ?? "Market data may be delayed."}
             </div>
           </div>
         </div>
