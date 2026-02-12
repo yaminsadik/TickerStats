@@ -1,3 +1,5 @@
 {
-  "buildCommand": "rm -rf node_modules/.tmp node_modules/.vite && npm run build"
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/" }
+  ]
 }

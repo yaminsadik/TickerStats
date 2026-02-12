@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { ChevronDown, ChevronRight, CheckCircle, AlertTriangle } from "lucide-react";
+import { CheckCircle, AlertTriangle } from "lucide-react";
 import type { RelativeTableResponse, RowData } from "../types/api";
 import { FIELD_LABELS, DCF_METRICS } from "../types/api";
 import { formatValue, formatTimestamp } from "../utils/formatters";
@@ -230,27 +230,6 @@ export function RelativeTable({
     }
   };
 
-  // Priority columns for mobile (most important metrics)
-  const priorityColumns = useMemo(() => {
-    const priority = ["sharePrice", "marketCap", "forwardPE", "profitMargin"];
-    return columns.filter((col) => priority.includes(col)).slice(0, 4);
-  }, [columns]);
-
-  // Mobile expanded state
-  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
-  
-  const toggleRowExpansion = (symbol: string) => {
-    setExpandedRows((prev) => {
-      const next = new Set(prev);
-      if (next.has(symbol)) {
-        next.delete(symbol);
-      } else {
-        next.add(symbol);
-      }
-      return next;
-    });
-  };
-
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-lg shadow-sm overflow-hidden">
       {/* Header with timestamp */}
@@ -266,98 +245,9 @@ export function RelativeTable({
         </span>
       </div>
 
-      {/* Mobile Card Layout */}
-      <div className="block md:hidden divide-y divide-slate-800">
-        {sortedRows.map((row) => {
-          const isExpanded = expandedRows.has(row.symbol);
-          const displayColumns = isExpanded ? columns : priorityColumns;
-
-          return (
-            <div key={row.symbol} className="p-4 hover:bg-slate-800/30 transition-colors">
-              {/* Header row with ticker and expand button */}
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-lg font-bold text-white">{row.symbol}</span>
-                  {row.error && (
-                    <span
-                      title={row.error}
-                      className="inline-flex items-center justify-center w-5 h-5 text-xs bg-amber-100 text-amber-700 rounded-full"
-                      aria-label="Error"
-                    >
-                      !
-                    </span>
-                  )}
-                </div>
-                <button
-                  onClick={() => toggleRowExpansion(row.symbol)}
-                  className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors px-2 py-1 rounded hover:bg-slate-800"
-                  aria-expanded={isExpanded}
-                  aria-label={isExpanded ? "Show less" : "Show more"}
-                >
-                  {isExpanded ? (
-                    <>
-                      <ChevronDown className="w-4 h-4" />
-                      Less
-                    </>
-                  ) : (
-                    <>
-                      <ChevronRight className="w-4 h-4" />
-                      More
-                    </>
-                  )}
-                </button>
-              </div>
-
-              {/* Metrics grid */}
-              <dl className="grid grid-cols-2 gap-3">
-                {displayColumns.map((col) => {
-                  const value = getValue(row, col);
-                  const unit = data.units[col];
-                  const isMissing =
-                    row.missingFields?.includes(col) ||
-                    row.missingPerf?.includes(col);
-                  const signalLevel = signalMap?.get(`${row.symbol}:${col}`);
-                  const isDcf = isDcfColumn(col);
-
-                  return (
-                    <div
-                      key={col}
-                      className={`${getSignalClass(signalLevel)} p-2 rounded`}
-                    >
-                      <dt className="text-xs text-slate-400 mb-1">
-                        {FIELD_LABELS[col] || col}
-                      </dt>
-                      <dd
-                        className={`text-sm font-semibold tabular-nums ${
-                          isDcf
-                            ? "text-purple-300"
-                            : isFieldColumn(col)
-                              ? "text-slate-200"
-                              : "text-green-300"
-                        } ${isMissing ? "text-slate-500" : ""}`}
-                      >
-                        {getSignalIcon(signalLevel)}
-                        {formatValue(value, unit, col)}
-                      </dd>
-                    </div>
-                  );
-                })}
-              </dl>
-
-              {/* Show hint if not expanded */}
-              {!isExpanded && columns.length > priorityColumns.length && (
-                <div className="mt-2 text-xs text-slate-500 text-center">
-                  +{columns.length - priorityColumns.length} more metrics
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Desktop Table Layout */}
-      <div className="hidden md:block overflow-auto max-h-[600px]">
-        <table className="w-full text-sm">
+      {/* Responsive Table Layout (mobile + desktop) */}
+      <div className="overflow-auto max-h-[65vh] md:max-h-[600px]">
+        <table className="w-full min-w-[760px] text-sm">
           <thead className="sticky-header">
             <tr className="bg-slate-800/50 border-b border-slate-700">
               {/* Symbol column - sticky */}
