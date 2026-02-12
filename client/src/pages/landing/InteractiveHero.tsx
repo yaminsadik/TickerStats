@@ -1,4 +1,11 @@
 import { useRef, useEffect, useCallback, useState } from "react";
+import {
+  motion,
+  useMotionValue,
+  useReducedMotion,
+  useSpring,
+} from "framer-motion";
+import MarketOverlay from "./MarketOverlay";
 
 // ─── Tiny inline noise SVG ──────────────────────────────────────────────────
 const NOISE_URI =
@@ -8,7 +15,7 @@ const NOISE_URI =
  * InteractiveHero: Auth0-style interactive hero background.
  *
  * Color cycling is 100% CSS keyframes (no JS state changes).
- * Cursor spotlight + tilt use rAF + CSS variables (no re-renders).
+ * Cursor spotlight + tilt are driven by Framer Motion values.
  */
 export default function InteractiveHero({
   children,
@@ -16,59 +23,72 @@ export default function InteractiveHero({
   children: React.ReactNode;
 }) {
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const rafId = useRef(0);
   const [isHovering, setIsHovering] = useState(false);
-  const [prefersReduced, setPrefersReduced] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
+  const [canTrackPointer, setCanTrackPointer] = useState(false);
+  const prefersReduced = useReducedMotion() ?? false;
+  const rotateX = useMotionValue(0);
+  const rotateY = useMotionValue(0);
+  const smoothRotateX = useSpring(rotateX, {
+    stiffness: 160,
+    damping: 24,
+    mass: 0.5,
+  });
+  const smoothRotateY = useSpring(rotateY, {
+    stiffness: 160,
+    damping: 24,
+    mass: 0.5,
+  });
 
   useEffect(() => {
-    const mql = window.matchMedia("(prefers-reduced-motion: reduce)");
-    setPrefersReduced(mql.matches);
-    const handler = (e: MediaQueryListEvent) => setPrefersReduced(e.matches);
-    mql.addEventListener("change", handler);
-
-    const checkMobile = () => setIsMobile(window.innerWidth < 768);
-    checkMobile();
-    window.addEventListener("resize", checkMobile, { passive: true });
+    const pointerQuery = window.matchMedia("(hover: hover) and (pointer: fine)");
+    const setTracking = (pointerMatch: boolean) => {
+      setCanTrackPointer(pointerMatch && window.innerWidth >= 768);
+    };
+    const onPointerChange = (e: MediaQueryListEvent) => setTracking(e.matches);
+    const onResize = () => setTracking(pointerQuery.matches);
+    setTracking(pointerQuery.matches);
+    pointerQuery.addEventListener("change", onPointerChange);
+    window.addEventListener("resize", onResize, { passive: true });
 
     return () => {
-      mql.removeEventListener("change", handler);
-      window.removeEventListener("resize", checkMobile);
+      pointerQuery.removeEventListener("change", onPointerChange);
+      window.removeEventListener("resize", onResize);
     };
   }, []);
 
-  const shouldTrack = !prefersReduced && !isMobile;
+  const shouldTrack = !prefersReduced && canTrackPointer;
+
+  useEffect(() => {
+    if (shouldTrack) return;
+    rotateX.set(0);
+    rotateY.set(0);
+    setIsHovering(false);
+  }, [rotateX, rotateY, shouldTrack]);
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       if (!shouldTrack) return;
-      cancelAnimationFrame(rafId.current);
-      rafId.current = requestAnimationFrame(() => {
-        const el = wrapperRef.current;
-        if (!el) return;
-        const rect = el.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        el.style.setProperty("--mx", `${x}px`);
-        el.style.setProperty("--my", `${y}px`);
-        const cx = rect.width / 2;
-        const cy = rect.height / 2;
-        el.style.setProperty("--rotX", `${((cy - y) / cy) * 1.5}deg`);
-        el.style.setProperty("--rotY", `${((x - cx) / cx) * 2}deg`);
-      });
+      const el = wrapperRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      el.style.setProperty("--mx", `${x}px`);
+      el.style.setProperty("--my", `${y}px`);
+      const cx = rect.width / 2 || 1;
+      const cy = rect.height / 2 || 1;
+      rotateX.set(((cy - y) / cy) * 1.5);
+      rotateY.set(((x - cx) / cx) * 2);
     },
-    [shouldTrack],
+    [rotateX, rotateY, shouldTrack],
   );
 
   const handleMouseEnter = useCallback(() => setIsHovering(true), []);
   const handleMouseLeave = useCallback(() => {
     setIsHovering(false);
-    const el = wrapperRef.current;
-    if (el) {
-      el.style.setProperty("--rotX", "0deg");
-      el.style.setProperty("--rotY", "0deg");
-    }
-  }, []);
+    rotateX.set(0);
+    rotateY.set(0);
+  }, [rotateX, rotateY]);
 
   const animClass = prefersReduced ? "" : "hero-bg-cycle";
 
@@ -83,8 +103,6 @@ export default function InteractiveHero({
         {
           "--mx": "50%",
           "--my": "50%",
-          "--rotX": "0deg",
-          "--rotY": "0deg",
         } as React.CSSProperties
       }
     >
@@ -117,12 +135,12 @@ export default function InteractiveHero({
 
       {/* 5. Cursor spotlight */}
       {shouldTrack && (
-        <div
+        <motion.div
           className={`absolute inset-0 z-0 pointer-events-none ${animClass}-spot`}
           aria-hidden="true"
+          animate={{ opacity: isHovering ? 1 : 0 }}
+          transition={{ duration: 0.35, ease: "easeOut" }}
           style={{
-            opacity: isHovering ? 1 : 0,
-            transition: "opacity 0.4s ease",
             background:
               "radial-gradient(600px circle at var(--mx) var(--my), var(--spot-color, rgba(99,102,241,0.18)), transparent 50%)",
           }}
@@ -145,22 +163,25 @@ export default function InteractiveHero({
         }}
       />
 
+      {/* 8. Finance market scene */}
+      <MarketOverlay prefersReduced={prefersReduced} />
+
       {/* Content with subtle tilt */}
-      <div
+      <motion.div
         className="relative z-10"
         style={
           shouldTrack
             ? {
-                transform:
-                  "perspective(1200px) rotateX(var(--rotX)) rotateY(var(--rotY))",
-                transition: "transform 0.15s ease-out",
+                transformPerspective: 1200,
+                rotateX: smoothRotateX,
+                rotateY: smoothRotateY,
                 willChange: "transform",
               }
             : undefined
         }
       >
         {children}
-      </div>
+      </motion.div>
     </div>
   );
 }

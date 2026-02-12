@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
+import { motion, useReducedMotion } from "framer-motion";
 import {
   ChevronDown,
   CheckCircle,
@@ -76,6 +77,7 @@ export default function LandingPage() {
   const navigate = useNavigate();
   const { isAuthenticated, loginWithRedirect } = useAuth0();
   const { profile, loading: profileLoading } = useProfileQuery();
+  const prefersReduced = useReducedMotion() ?? false;
 
   // ── Scroll spy ──
   const [activeSection, setActiveSection] = useState("");
@@ -184,6 +186,28 @@ export default function LandingPage() {
   const pricing = useScrollReveal<HTMLElement>();
   const faq = useScrollReveal<HTMLElement>();
   const cta = useScrollReveal<HTMLElement>();
+  const heroContainerVariants = {
+    hidden: { opacity: 0, y: prefersReduced ? 0 : 12 },
+    show: {
+      opacity: 1,
+      y: 0,
+      transition: {
+        duration: prefersReduced ? 0.2 : 0.55,
+        staggerChildren: prefersReduced ? 0 : 0.1,
+        delayChildren: prefersReduced ? 0 : 0.08,
+      },
+    },
+  };
+  const heroItemVariants = {
+    hidden: { opacity: 0, y: prefersReduced ? 0 : 18 },
+    show: {
+      opacity: 1,
+      y: 0,
+      transition: {
+        duration: prefersReduced ? 0.15 : 0.45,
+      },
+    },
+  };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -296,28 +320,45 @@ export default function LandingPage() {
             className="min-h-[100svh] flex flex-col items-center justify-center px-6 pt-20 relative print:min-h-0 print:pt-8 print:pb-8 print:break-inside-avoid"
             aria-label="Hero"
           >
-            <div className="max-w-5xl mx-auto text-center">
+            <motion.div
+              className="max-w-5xl mx-auto text-center"
+              variants={heroContainerVariants}
+              initial="hidden"
+              animate="show"
+            >
               {/* Badge pill */}
-              <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 text-sm text-slate-300 font-medium mb-6">
+              <motion.div
+                className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 text-sm text-slate-300 font-medium mb-6"
+                variants={heroItemVariants}
+              >
                 Compare + DCF + AI Pitch Decks
-              </div>
+              </motion.div>
 
               {/* Headline */}
-              <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold text-white mb-5 leading-[1.1] tracking-tight">
+              <motion.h1
+                className="text-5xl sm:text-6xl lg:text-7xl font-bold text-white mb-5 leading-[1.1] tracking-tight"
+                variants={heroItemVariants}
+              >
                 Your next pitch deck starts with a{" "}
                 <span className="bg-gradient-to-r from-blue-400 via-cyan-400 to-blue-500 bg-clip-text text-transparent animate-gradient-x">
                   ticker.
                 </span>
-              </h1>
+              </motion.h1>
 
               {/* Subhead */}
-              <p className="text-xl md:text-2xl text-slate-300 mb-8 font-light max-w-3xl mx-auto">
+              <motion.p
+                className="text-xl md:text-2xl text-slate-300 mb-8 font-light max-w-3xl mx-auto"
+                variants={heroItemVariants}
+              >
                 TickerStats builds comp tables, runs DCF, and writes
                 presentation-ready decks, all from a list of tickers.
-              </p>
+              </motion.p>
 
               {/* CTAs - "Try the demo" is primary */}
-              <div className="flex flex-wrap gap-4 justify-center mb-6">
+              <motion.div
+                className="flex flex-wrap gap-4 justify-center mb-6"
+                variants={heroItemVariants}
+              >
                 <button
                   onClick={() => scrollToSection("demos")}
                   className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-lg font-semibold text-base transition-all inline-flex items-center gap-2 shadow-lg shadow-blue-600/20 hover:shadow-blue-600/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
@@ -331,10 +372,13 @@ export default function LandingPage() {
                 >
                   {primaryCTALabel}
                 </button>
-              </div>
+              </motion.div>
 
               {/* Trust indicators */}
-              <div className="flex flex-wrap items-center justify-center gap-4 text-sm text-slate-500">
+              <motion.div
+                className="flex flex-wrap items-center justify-center gap-4 text-sm text-slate-500"
+                variants={heroItemVariants}
+              >
                 <span className="inline-flex items-center gap-1.5">
                   <CheckCircle className="w-4 h-4 text-emerald-400" />
                   100 tickers
@@ -349,13 +393,29 @@ export default function LandingPage() {
                   <CheckCircle className="w-4 h-4 text-blue-400" />
                   No hallucinations
                 </span>
-              </div>
-            </div>
+              </motion.div>
+            </motion.div>
 
             {/* Scroll-down indicator */}
-            <div className="absolute bottom-8 left-1/2 -translate-x-1/2 animate-bounce print:hidden">
+            <motion.div
+              className="absolute bottom-8 left-1/2 -translate-x-1/2 print:hidden"
+              animate={
+                prefersReduced
+                  ? undefined
+                  : { y: [0, 8, 0], opacity: [0.65, 1, 0.65] }
+              }
+              transition={
+                prefersReduced
+                  ? undefined
+                  : {
+                      duration: 1.8,
+                      repeat: Infinity,
+                      ease: "easeInOut",
+                    }
+              }
+            >
               <ChevronDown className="w-6 h-6 text-slate-500" />
-            </div>
+            </motion.div>
           </section>
         </InteractiveHero>
 
