@@ -37,7 +37,7 @@ export default function PricingCalculator() {
       tier: "pro" as const,
       label: "You need Pro",
       color: "blue",
-      message: `$29/month: unlocks unlimited compares, ${
+      message: `$19.99/month: unlocks unlimited compares, ${
         decks > 3 ? `${Math.min(decks, 100)} decks/month` : "100 decks/month"
       }, and all exports.`,
     };

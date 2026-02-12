@@ -17,11 +17,14 @@ import {
 } from "lucide-react";
 import { Card, Button, Alert } from "../components/ui";
 import { useProfileQuery } from "../queries/useProfileQuery";
+import { useSubscriptionMutations } from "../queries/useSubscriptionMutations";
 
 export default function ProfilePage() {
   const navigate = useNavigate();
   const { user: auth0User } = useAuth0();
   const { profile, loading, error } = useProfileQuery();
+  const { createCheckout, isCreatingCheckout, createPortal, isCreatingPortal } =
+    useSubscriptionMutations();
 
   const [avatarFailed, setAvatarFailed] = useState(false);
 
@@ -172,15 +175,43 @@ export default function ProfilePage() {
             <Button
               variant="primary"
               size="sm"
-              onClick={() => {
-                // TODO: Integrate with Stripe Checkout
-                alert("Stripe integration coming soon!");
-              }}
+              onClick={() => createCheckout("pro")}
+              disabled={isCreatingCheckout}
             >
-              <ExternalLink className="w-4 h-4 mr-1" />
-              Upgrade Now
+              {isCreatingCheckout ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                  Loading...
+                </>
+              ) : (
+                <>
+                  <ExternalLink className="w-4 h-4 mr-1" />
+                  Upgrade Now
+                </>
+              )}
             </Button>
           </div>
+        )}
+        {profile.subscription_tier !== "free" && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => createPortal()}
+            disabled={isCreatingPortal}
+            className="w-full"
+          >
+            {isCreatingPortal ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                Loading...
+              </>
+            ) : (
+              <>
+                <ExternalLink className="w-4 h-4 mr-1" />
+                Manage Subscription
+              </>
+            )}
+          </Button>
         )}
       </Card>
 

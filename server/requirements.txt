@@ -40,3 +40,6 @@ pytest-cov>=4.1.0
 
 # Optional: Redis for distributed caching
 # redis>=5.0.0
+
+# Add after line 20 (after Authentication section)
+stripe>=7.0.0

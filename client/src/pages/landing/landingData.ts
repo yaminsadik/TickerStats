@@ -679,7 +679,7 @@ export const TIERS = {
   },
   pro: {
     name: "Pro",
-    price: "$29",
+    price: "$19.99",
     period: "/month",
     comparesPerMonth: Infinity,
     decksPerMonth: 100,
