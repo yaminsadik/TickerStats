@@ -368,7 +368,7 @@ export default function LandingPage() {
 
               {/* Subhead */}
               <motion.p
-                className="relative z-10 text-base sm:text-xl md:text-2xl text-slate-300 mb-2 font-light max-w-3xl mx-auto"
+                className="relative z-10 text-base sm:text-xl md:text-2xl text-slate-300 mb-6 font-light max-w-3xl mx-auto"
                 initial={prefersReduced ? false : { opacity: 0, y: 14 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{
@@ -380,14 +380,6 @@ export default function LandingPage() {
                 TickerStats builds comp tables, runs DCF, and writes
                 presentation-ready decks, all from a list of tickers.
               </motion.p>
-
-              {/* Dedicated pipeline slot in normal flow: no overlap, no layout shift */}
-              <div className="relative mt-5 sm:mt-6 h-[96px] sm:h-[132px] lg:h-[164px]">
-                {/* Centered pipeline slot: absolute + translate, behind content (z-0) and non-interactive */}
-                <div className="absolute left-1/2 top-1/2 z-0 h-[96px] w-full max-w-[94vw] -translate-x-1/2 -translate-y-1/2 pointer-events-none sm:h-[132px] sm:max-w-[860px] lg:h-[164px] lg:max-w-[980px]">
-                  <HeroPipeline />
-                </div>
-              </div>
 
               {/* CTAs - "Try the demo" is primary */}
               <div className="relative z-10 mt-2 flex flex-wrap gap-3 sm:gap-4 justify-center mb-5 sm:mb-6">
@@ -435,12 +427,10 @@ export default function LandingPage() {
                   <CheckCircle className="w-4 h-4 text-emerald-400" />
                   100 tickers
                 </span>
-                <span className="hidden sm:inline">·</span>
                 <span className="inline-flex items-center gap-1.5">
                   <CheckCircle className="w-4 h-4 text-cyan-400" />
                   Sourced metrics
                 </span>
-                <span className="hidden sm:inline">·</span>
                 <span className="inline-flex items-center gap-1.5">
                   <CheckCircle className="w-4 h-4 text-blue-400" />
                   No hallucinations
@@ -524,6 +514,12 @@ export default function LandingPage() {
                   Regenerate any section, export to PDF/PPTX, defend your
                   thesis.
                 </p>
+              </div>
+            </div>
+
+            <div className="relative mt-12 sm:mt-14 h-[96px] sm:h-[124px] lg:h-[136px]">
+              <div className="absolute left-1/2 top-1/2 z-0 h-[96px] w-full max-w-[94vw] -translate-x-1/2 -translate-y-1/2 pointer-events-none opacity-[0.9] sm:h-[124px] sm:max-w-[820px] lg:h-[136px] lg:max-w-[900px]">
+                <HeroPipeline />
               </div>
             </div>
           </div>

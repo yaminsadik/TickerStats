@@ -6,6 +6,7 @@ import {
   useReducedMotion,
   useSpring,
 } from "framer-motion";
+import HeroFinanceAnimation from "../../components/hero/HeroFinanceAnimation";
 
 // ─── Tiny inline noise SVG ──────────────────────────────────────────────────
 const NOISE_URI =
@@ -150,6 +151,14 @@ export default function InteractiveHero({
         className={`absolute z-0 top-[15%] right-[5%] w-[420px] h-[420px] rounded-full blur-[110px] ${animClass}-orb-c`}
         aria-hidden="true"
       />
+
+      {/* 4b. Finance chart background animation */}
+      <div
+        className="absolute inset-0 z-0 opacity-[0.32] pointer-events-none"
+        aria-hidden="true"
+      >
+        <HeroFinanceAnimation prefersReduced={prefersReduced} />
+      </div>
 
       {/* 5. Cursor spotlight */}
       {shouldTrack && (
