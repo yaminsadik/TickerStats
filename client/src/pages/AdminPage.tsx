@@ -21,6 +21,8 @@ import {
   useUpdateAdminUser,
 } from "../queries/useAdminQueries";
 
+const ADMIN_TIERS = ["free", "pro", "enterprise"] as const;
+
 export default function AdminPage() {
   const {
     data: users,
@@ -40,7 +42,10 @@ export default function AdminPage() {
         ? updateMutation.error.message
         : null;
 
-  const handleTierChange = (userId: string, newTier: string) => {
+  const handleTierChange = (
+    userId: string,
+    newTier: (typeof ADMIN_TIERS)[number],
+  ) => {
     updateMutation.mutate({
       userId,
       payload: { subscription_tier: newTier },
@@ -258,7 +263,7 @@ export default function AdminPage() {
                         <p className="text-xs text-slate-400 w-full mb-1">
                           Change tier:
                         </p>
-                        {["free", "pro", "enterprise"].map((tier) => (
+                        {ADMIN_TIERS.map((tier) => (
                           <Button
                             key={tier}
                             size="sm"

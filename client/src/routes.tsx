@@ -12,6 +12,7 @@ import DecksListPage from "./pages/DecksListPage";
 import DeckViewPage from "./pages/DeckViewPage";
 import ProfilePage from "./pages/ProfilePage";
 import AdminPage from "./pages/AdminPage";
+import AdminRoute from "./components/AdminRoute";
 
 export const router = createBrowserRouter([
   {
@@ -147,7 +148,11 @@ export const router = createBrowserRouter([
     children: [
       {
         index: true,
-        element: <AdminPage />,
+        element: (
+          <AdminRoute>
+            <AdminPage />
+          </AdminRoute>
+        ),
       },
     ],
   },

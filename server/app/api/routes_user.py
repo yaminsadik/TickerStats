@@ -1,7 +1,7 @@
 """User-related API routes (profile, watchlists, saved analyses, decks, admin)."""
 import logging
-from datetime import datetime
-from typing import List, Optional
+from datetime import datetime, timezone
+from typing import List, Optional, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, func, update
@@ -152,7 +152,7 @@ class AdminUserResponse(BaseModel):
     email: Optional[str]
     name: Optional[str]
     picture: Optional[str]
-    subscription_tier: str
+    subscription_tier: Literal["free", "pro", "enterprise"]
     stripe_customer_id: Optional[str]
     subscription_expires_at: Optional[str]
     is_admin: bool
@@ -164,9 +164,9 @@ class AdminUserResponse(BaseModel):
 
 
 class AdminUserUpdate(BaseModel):
-    subscription_tier: Optional[str] = None
+    subscription_tier: Optional[Literal["free", "pro", "enterprise"]] = None
     is_admin: Optional[bool] = None
-    subscription_expires_at: Optional[str] = None
+    subscription_expires_at: Optional[datetime] = None
 
 
 # ---------------------------------------------------------------------------
@@ -739,8 +739,6 @@ async def admin_update_user(
 
     # --- Tier change ---
     if body.subscription_tier is not None:
-        if body.subscription_tier not in ("free", "pro", "enterprise"):
-            raise HTTPException(status_code=400, detail="Invalid tier. Must be free, pro, or enterprise.")
         if body.subscription_tier != target.subscription_tier:
             db.add(AdminAuditLog(
                 admin_user_id=admin.auth0_user_id,
@@ -760,6 +758,22 @@ async def admin_update_user(
 
     # --- Admin toggle ---
     if body.is_admin is not None and body.is_admin != target.is_admin:
+        if not body.is_admin and target.auth0_user_id == admin.auth0_user_id:
+            raise HTTPException(
+                status_code=400,
+                detail="You cannot remove your own admin access.",
+            )
+
+        if not body.is_admin and target.is_admin:
+            admin_count = (await db.execute(
+                select(func.count()).select_from(User).where(User.is_admin.is_(True))
+            )).scalar() or 0
+            if admin_count <= 1:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot remove admin access from the last admin.",
+                )
+
         db.add(AdminAuditLog(
             admin_user_id=admin.auth0_user_id,
             target_user_id=user_id,
@@ -778,19 +792,23 @@ async def admin_update_user(
 
     # --- Expiry change ---
     if body.subscription_expires_at is not None:
+        new_expiry_dt = body.subscription_expires_at
+        if new_expiry_dt.tzinfo is not None:
+            new_expiry_dt = new_expiry_dt.astimezone(timezone.utc).replace(tzinfo=None)
+
         old_expiry = target.subscription_expires_at.isoformat() if target.subscription_expires_at else None
-        new_expiry_dt = datetime.fromisoformat(body.subscription_expires_at)
+        new_expiry_iso = new_expiry_dt.isoformat()
         db.add(AdminAuditLog(
             admin_user_id=admin.auth0_user_id,
             target_user_id=user_id,
             action="update_expiry",
             old_value=old_expiry,
-            new_value=body.subscription_expires_at,
+            new_value=new_expiry_iso,
             request_id=req_id,
         ))
         logger.info(
             "Admin expiry change: %s -> %s for user %s by %s",
-            old_expiry, body.subscription_expires_at,
+            old_expiry, new_expiry_iso,
             user_id, admin.auth0_user_id,
             extra={"request_id": req_id},
         )

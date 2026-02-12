@@ -78,7 +78,7 @@ export interface AdminUser {
   email: string | null;
   name: string | null;
   picture: string | null;
-  subscription_tier: string;
+  subscription_tier: "free" | "pro" | "enterprise";
   stripe_customer_id: string | null;
   subscription_expires_at: string | null;
   is_admin: boolean;
@@ -96,7 +96,7 @@ export interface AdminStats {
 }
 
 export interface AdminUserUpdatePayload {
-  subscription_tier?: string;
+  subscription_tier?: "free" | "pro" | "enterprise";
   is_admin?: boolean;
   subscription_expires_at?: string;
 }

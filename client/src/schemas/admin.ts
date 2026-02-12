@@ -10,7 +10,7 @@ export const adminUserSchema = z.object({
   email: z.string().nullable(),
   name: z.string().nullable(),
   picture: z.string().nullable(),
-  subscription_tier: z.string(),
+  subscription_tier: z.enum(["free", "pro", "enterprise"]),
   stripe_customer_id: z.string().nullable(),
   subscription_expires_at: z.string().nullable(),
   is_admin: z.boolean(),
