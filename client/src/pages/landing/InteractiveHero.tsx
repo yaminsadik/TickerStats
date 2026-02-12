@@ -1,6 +1,7 @@
 import { useRef, useEffect, useCallback, useState } from "react";
 import {
   motion,
+  useMotionTemplate,
   useMotionValue,
   useReducedMotion,
   useSpring,
@@ -28,16 +29,29 @@ export default function InteractiveHero({
   const prefersReduced = useReducedMotion() ?? false;
   const rotateX = useMotionValue(0);
   const rotateY = useMotionValue(0);
+  const mouseX = useMotionValue(0);
+  const mouseY = useMotionValue(0);
   const smoothRotateX = useSpring(rotateX, {
-    stiffness: 160,
-    damping: 24,
-    mass: 0.5,
+    stiffness: 120,
+    damping: 34,
+    mass: 0.7,
   });
   const smoothRotateY = useSpring(rotateY, {
-    stiffness: 160,
-    damping: 24,
-    mass: 0.5,
+    stiffness: 120,
+    damping: 34,
+    mass: 0.7,
   });
+  const smoothMouseX = useSpring(mouseX, {
+    stiffness: 52,
+    damping: 28,
+    mass: 1,
+  });
+  const smoothMouseY = useSpring(mouseY, {
+    stiffness: 52,
+    damping: 28,
+    mass: 1,
+  });
+  const spotBackground = useMotionTemplate`radial-gradient(780px circle at ${smoothMouseX}px ${smoothMouseY}px, var(--spot-color, rgba(125,211,252,0.10)), transparent 62%)`;
 
   useEffect(() => {
     const pointerQuery = window.matchMedia("(hover: hover) and (pointer: fine)");
@@ -45,8 +59,19 @@ export default function InteractiveHero({
       setCanTrackPointer(pointerMatch && window.innerWidth >= 768);
     };
     const onPointerChange = (e: MediaQueryListEvent) => setTracking(e.matches);
-    const onResize = () => setTracking(pointerQuery.matches);
+    const setSpotCenter = () => {
+      const el = wrapperRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      mouseX.set(rect.width / 2);
+      mouseY.set(rect.height / 2);
+    };
+    const onResize = () => {
+      setTracking(pointerQuery.matches);
+      setSpotCenter();
+    };
     setTracking(pointerQuery.matches);
+    setSpotCenter();
     pointerQuery.addEventListener("change", onPointerChange);
     window.addEventListener("resize", onResize, { passive: true });
 
@@ -73,14 +98,14 @@ export default function InteractiveHero({
       const rect = el.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
-      el.style.setProperty("--mx", `${x}px`);
-      el.style.setProperty("--my", `${y}px`);
+      mouseX.set(x);
+      mouseY.set(y);
       const cx = rect.width / 2 || 1;
       const cy = rect.height / 2 || 1;
       rotateX.set(((cy - y) / cy) * 1.5);
       rotateY.set(((x - cx) / cx) * 2);
     },
-    [rotateX, rotateY, shouldTrack],
+    [mouseX, mouseY, rotateX, rotateY, shouldTrack],
   );
 
   const handleMouseEnter = useCallback(() => setIsHovering(true), []);
@@ -99,12 +124,6 @@ export default function InteractiveHero({
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       className="relative isolate overflow-hidden"
-      style={
-        {
-          "--mx": "50%",
-          "--my": "50%",
-        } as React.CSSProperties
-      }
     >
       {/* 1. Base gradient with color cycle */}
       <div
@@ -138,11 +157,10 @@ export default function InteractiveHero({
         <motion.div
           className={`absolute inset-0 z-0 pointer-events-none ${animClass}-spot`}
           aria-hidden="true"
-          animate={{ opacity: isHovering ? 1 : 0 }}
+          animate={{ opacity: isHovering ? 0.45 : 0 }}
           transition={{ duration: 0.35, ease: "easeOut" }}
           style={{
-            background:
-              "radial-gradient(600px circle at var(--mx) var(--my), var(--spot-color, rgba(99,102,241,0.18)), transparent 50%)",
+            background: spotBackground,
           }}
         />
       )}

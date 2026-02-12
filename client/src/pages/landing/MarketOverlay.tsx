@@ -72,11 +72,11 @@ export default function MarketOverlay({ prefersReduced }: MarketOverlayProps) {
       <motion.div
         className="relative mx-auto max-w-6xl rounded-2xl border border-cyan-400/25 bg-slate-950/60 shadow-[0_0_80px_rgba(34,211,238,0.08)] backdrop-blur-xl overflow-hidden"
         initial={prefersReduced ? false : { opacity: 0, y: 18 }}
-        animate={prefersReduced ? { opacity: 1, y: 0 } : { opacity: 1, y: [0, -4, 0] }}
+        animate={{ opacity: 1, y: 0 }}
         transition={
           prefersReduced
-            ? { duration: 0.35 }
-            : { duration: 7.5, repeat: Infinity, ease: "easeInOut" }
+            ? { duration: 0.35, ease: "easeOut" }
+            : { duration: 0.4, ease: "easeOut" }
         }
       >
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_10%_20%,rgba(56,189,248,0.16),transparent_45%),radial-gradient(circle_at_90%_15%,rgba(52,211,153,0.10),transparent_40%),linear-gradient(to_bottom,rgba(2,6,23,0.98),rgba(2,6,23,0.78))]" />
@@ -85,7 +85,7 @@ export default function MarketOverlay({ prefersReduced }: MarketOverlayProps) {
           <motion.div
             className="absolute inset-y-0 w-[20%] bg-[linear-gradient(to_right,transparent,rgba(34,211,238,0.11),transparent)]"
             animate={{ x: ["-30%", "620%"] }}
-            transition={{ duration: 6.5, repeat: Infinity, ease: "linear" }}
+            transition={{ duration: 12, repeat: Infinity, ease: "linear" }}
           />
         )}
 
@@ -98,7 +98,7 @@ export default function MarketOverlay({ prefersReduced }: MarketOverlayProps) {
                 transition={
                   prefersReduced
                     ? undefined
-                    : { duration: 1.2, repeat: Infinity, ease: "easeInOut" }
+                    : { duration: 12, repeat: Infinity, ease: "linear" }
                 }
               />
               LIVE MARKET TERMINAL
@@ -117,7 +117,7 @@ export default function MarketOverlay({ prefersReduced }: MarketOverlayProps) {
               transition={
                 prefersReduced
                   ? undefined
-                  : { duration: 15, repeat: Infinity, ease: "linear" }
+                  : { duration: 18, repeat: Infinity, ease: "linear" }
               }
             >
               <span className="inline-flex">
@@ -147,7 +147,7 @@ export default function MarketOverlay({ prefersReduced }: MarketOverlayProps) {
                       transition={
                         prefersReduced
                           ? undefined
-                          : { duration: 3.2, delay: i * 0.12, repeat: Infinity, ease: "easeInOut" }
+                          : { duration: 12, delay: i * 0.2, repeat: Infinity, ease: "linear" }
                       }
                     >
                       <span className="font-semibold text-slate-200">{row.sym}</span>
@@ -207,12 +207,15 @@ export default function MarketOverlay({ prefersReduced }: MarketOverlayProps) {
                     animate={
                       prefersReduced
                         ? { pathLength: 1, opacity: 0.7 }
-                        : { pathLength: [0.2, 1, 0.2], opacity: [0.25, 0.9, 0.25] }
+                        : {
+                            pathLength: [0.92, 1, 0.92],
+                            opacity: [0.5, 0.88, 0.5],
+                          }
                     }
                     transition={
                       prefersReduced
-                        ? { duration: 0.35 }
-                        : { duration: 4.6, repeat: Infinity, ease: "easeInOut" }
+                        ? { duration: 0.35, ease: "easeOut" }
+                        : { duration: 12, repeat: Infinity, ease: "linear" }
                     }
                   />
                   <motion.path
@@ -225,7 +228,7 @@ export default function MarketOverlay({ prefersReduced }: MarketOverlayProps) {
                     transition={
                       prefersReduced
                         ? undefined
-                        : { duration: 3.2, repeat: Infinity, ease: "easeInOut" }
+                        : { duration: 12, repeat: Infinity, ease: "linear" }
                     }
                   />
                 </svg>
@@ -267,10 +270,10 @@ export default function MarketOverlay({ prefersReduced }: MarketOverlayProps) {
                             : { opacity: [0.25, 0.55, 0.25] }
                         }
                         transition={{
-                          duration: prefersReduced ? 0 : 2.6,
+                          duration: prefersReduced ? 0 : 11,
                           delay: prefersReduced ? 0 : i * 0.1,
                           repeat: prefersReduced ? 0 : Infinity,
-                          ease: "easeInOut",
+                          ease: "linear",
                         }}
                       />
                       <div className="relative grid grid-cols-[34px_1fr_48px] items-center">

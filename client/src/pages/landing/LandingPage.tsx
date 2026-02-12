@@ -186,28 +186,12 @@ export default function LandingPage() {
   const pricing = useScrollReveal<HTMLElement>();
   const faq = useScrollReveal<HTMLElement>();
   const cta = useScrollReveal<HTMLElement>();
-  const heroContainerVariants = {
-    hidden: { opacity: 0, y: prefersReduced ? 0 : 12 },
-    show: {
-      opacity: 1,
-      y: 0,
-      transition: {
-        duration: prefersReduced ? 0.2 : 0.55,
-        staggerChildren: prefersReduced ? 0 : 0.1,
-        delayChildren: prefersReduced ? 0 : 0.08,
-      },
-    },
-  };
-  const heroItemVariants = {
-    hidden: { opacity: 0, y: prefersReduced ? 0 : 18 },
-    show: {
-      opacity: 1,
-      y: 0,
-      transition: {
-        duration: prefersReduced ? 0.15 : 0.45,
-      },
-    },
-  };
+  const badgeDelay = prefersReduced ? 0 : 0.04;
+  const headlineDelay = prefersReduced ? 0 : 0.02;
+  const subtextDelay = prefersReduced ? 0 : 0.1;
+  const primaryButtonDelay = prefersReduced ? 0 : 0.24;
+  const secondaryButtonDelay = prefersReduced ? 0 : 0.34;
+  const trustDelay = prefersReduced ? 0 : 0.46;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -322,62 +306,121 @@ export default function LandingPage() {
           >
             <motion.div
               className="max-w-5xl mx-auto text-center"
-              variants={heroContainerVariants}
-              initial="hidden"
-              animate="show"
+              initial={prefersReduced ? false : { opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: prefersReduced ? 0.2 : 0.3, ease: "easeOut" }}
             >
               {/* Badge pill */}
               <motion.div
                 className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 text-sm text-slate-300 font-medium mb-6"
-                variants={heroItemVariants}
+                initial={prefersReduced ? false : { opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{
+                  duration: prefersReduced ? 0.2 : 0.32,
+                  delay: badgeDelay,
+                  ease: "easeOut",
+                }}
               >
                 Compare + DCF + AI Pitch Decks
               </motion.div>
 
               {/* Headline */}
-              <motion.h1
-                className="text-5xl sm:text-6xl lg:text-7xl font-bold text-white mb-5 leading-[1.1] tracking-tight"
-                variants={heroItemVariants}
-              >
-                Your next pitch deck starts with a{" "}
-                <span className="bg-gradient-to-r from-blue-400 via-cyan-400 to-blue-500 bg-clip-text text-transparent animate-gradient-x">
-                  ticker.
-                </span>
-              </motion.h1>
+              <div className="overflow-hidden mb-5">
+                <motion.h1
+                  className="text-5xl sm:text-6xl lg:text-7xl font-bold text-white leading-[1.1] tracking-tight [text-shadow:0_8px_26px_rgba(2,6,23,0.48)]"
+                  initial={prefersReduced ? false : { y: 56 }}
+                  animate={{ y: 0 }}
+                  transition={{
+                    duration: prefersReduced ? 0.22 : 0.4,
+                    delay: headlineDelay,
+                    ease: "easeOut",
+                  }}
+                >
+                  Your next pitch deck starts with a{" "}
+                  <motion.span
+                    className="bg-gradient-to-r from-blue-400 via-cyan-300 to-blue-500 bg-clip-text text-transparent"
+                    animate={
+                      prefersReduced
+                        ? undefined
+                        : {
+                            filter: [
+                              "drop-shadow(0 0 0 rgba(56,189,248,0))",
+                              "drop-shadow(0 0 10px rgba(56,189,248,0.35))",
+                              "drop-shadow(0 0 0 rgba(56,189,248,0))",
+                            ],
+                          }
+                    }
+                    transition={
+                      prefersReduced
+                        ? undefined
+                        : {
+                            duration: 12,
+                            repeat: Infinity,
+                            ease: "linear",
+                          }
+                    }
+                  >
+                    ticker.
+                  </motion.span>
+                </motion.h1>
+              </div>
 
               {/* Subhead */}
               <motion.p
                 className="text-xl md:text-2xl text-slate-300 mb-8 font-light max-w-3xl mx-auto"
-                variants={heroItemVariants}
+                initial={prefersReduced ? false : { opacity: 0, y: 14 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{
+                  duration: prefersReduced ? 0.2 : 0.3,
+                  delay: subtextDelay,
+                  ease: "easeOut",
+                }}
               >
                 TickerStats builds comp tables, runs DCF, and writes
                 presentation-ready decks, all from a list of tickers.
               </motion.p>
 
               {/* CTAs - "Try the demo" is primary */}
-              <motion.div
-                className="flex flex-wrap gap-4 justify-center mb-6"
-                variants={heroItemVariants}
-              >
-                <button
+              <div className="flex flex-wrap gap-4 justify-center mb-6">
+                <motion.button
                   onClick={() => scrollToSection("demos")}
                   className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-lg font-semibold text-base transition-all inline-flex items-center gap-2 shadow-lg shadow-blue-600/20 hover:shadow-blue-600/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                  initial={prefersReduced ? false : { opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{
+                    duration: prefersReduced ? 0.2 : 0.3,
+                    delay: primaryButtonDelay,
+                    ease: "easeOut",
+                  }}
                 >
                   Try the demo
                   <ArrowRight className="w-5 h-5" />
-                </button>
-                <button
+                </motion.button>
+                <motion.button
                   onClick={handlePrimaryCTA}
                   className="bg-white/5 hover:bg-white/10 text-white px-8 py-4 rounded-lg font-semibold text-base transition-colors border border-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                  initial={prefersReduced ? false : { opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{
+                    duration: prefersReduced ? 0.2 : 0.3,
+                    delay: secondaryButtonDelay,
+                    ease: "easeOut",
+                  }}
                 >
                   {primaryCTALabel}
-                </button>
-              </motion.div>
+                </motion.button>
+              </div>
 
               {/* Trust indicators */}
               <motion.div
                 className="flex flex-wrap items-center justify-center gap-4 text-sm text-slate-500"
-                variants={heroItemVariants}
+                initial={prefersReduced ? false : { opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{
+                  duration: prefersReduced ? 0.2 : 0.28,
+                  delay: trustDelay,
+                  ease: "easeOut",
+                }}
               >
                 <span className="inline-flex items-center gap-1.5">
                   <CheckCircle className="w-4 h-4 text-emerald-400" />
@@ -402,15 +445,15 @@ export default function LandingPage() {
               animate={
                 prefersReduced
                   ? undefined
-                  : { y: [0, 8, 0], opacity: [0.65, 1, 0.65] }
+                  : { y: [0, 5, 0], opacity: [0.35, 0.62, 0.35] }
               }
               transition={
                 prefersReduced
                   ? undefined
                   : {
-                      duration: 1.8,
+                      duration: 12,
                       repeat: Infinity,
-                      ease: "easeInOut",
+                      ease: "linear",
                     }
               }
             >
