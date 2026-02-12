@@ -185,10 +185,10 @@ export default function ProfilePage() {
       </Card>
 
       {/* Usage Card */}
-      <Card className="p-6 space-y-4">
+      <Card className="p-5 sm:p-6 space-y-5">
         <h3 className="text-lg font-semibold text-white">Usage</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-          <div className="bg-slate-800/50 rounded-lg p-4 text-center">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-5">
+          <div className="bg-slate-800/50 rounded-lg p-4 sm:p-5 text-center">
             <Search className="w-5 h-5 text-blue-400 mx-auto mb-1" />
             <p className="text-2xl font-bold text-white">
               {profile.saved_searches_count}
@@ -203,7 +203,7 @@ export default function ProfilePage() {
             <p className="text-xs text-slate-400 mt-1">Saved Searches</p>
           </div>
 
-          <div className="bg-slate-800/50 rounded-lg p-4 text-center">
+          <div className="bg-slate-800/50 rounded-lg p-4 sm:p-5 text-center">
             <FileText className="w-5 h-5 text-indigo-400 mx-auto mb-1" />
             <p className="text-2xl font-bold text-white">
               {profile.deck_count_month}
@@ -215,7 +215,7 @@ export default function ProfilePage() {
             <p className="text-xs text-slate-400 mt-1">Decks / month</p>
           </div>
 
-          <div className="bg-slate-800/50 rounded-lg p-4 text-center">
+          <div className="bg-slate-800/50 rounded-lg p-4 sm:p-5 text-center">
             <Search className="w-5 h-5 text-purple-400 mx-auto mb-1" />
             <p className="text-2xl font-bold text-white">
               {profile.compare_count_month}
@@ -227,7 +227,7 @@ export default function ProfilePage() {
             <p className="text-xs text-slate-400 mt-1">Compare / month</p>
           </div>
 
-          <div className="bg-slate-800/50 rounded-lg p-4 text-center">
+          <div className="bg-slate-800/50 rounded-lg p-4 sm:p-5 text-center">
             <FileText className="w-5 h-5 text-green-400 mx-auto mb-1" />
             <p className="text-2xl font-bold text-white">
               {profile.can_export ? "✓" : "✗"}
@@ -235,7 +235,7 @@ export default function ProfilePage() {
             <p className="text-xs text-slate-400 mt-1">Export Access</p>
           </div>
 
-          <div className="bg-slate-800/50 rounded-lg p-4 text-center">
+          <div className="bg-slate-800/50 rounded-lg p-4 sm:p-5 text-center">
             <Star className="w-5 h-5 text-yellow-400 mx-auto mb-1" />
             <p className="text-xl font-bold text-white capitalize leading-tight [overflow-wrap:anywhere]">
               {profile.plan_tier || profile.subscription_tier}

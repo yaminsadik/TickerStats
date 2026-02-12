@@ -302,18 +302,18 @@ export default function LandingPage() {
         {/* ── HERO ─────────────────────────────────────────────────── */}
         <InteractiveHero>
           <section
-            className="min-h-[100svh] flex flex-col items-center justify-center px-6 pt-20 relative print:min-h-0 print:pt-8 print:pb-8 print:break-inside-avoid"
+            className="min-h-[100svh] flex flex-col items-center justify-center px-4 sm:px-6 pt-24 sm:pt-20 pb-8 sm:pb-0 relative print:min-h-0 print:pt-8 print:pb-8 print:break-inside-avoid"
             aria-label="Hero"
           >
             <motion.div
-              className="max-w-5xl mx-auto text-center"
+              className="max-w-5xl mx-auto text-center w-full"
               initial={prefersReduced ? false : { opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: prefersReduced ? 0.2 : 0.3, ease: "easeOut" }}
             >
               {/* Badge pill */}
               <motion.div
-                className="relative z-10 inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 text-sm text-slate-300 font-medium mb-6"
+                className="relative z-10 inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-full bg-white/5 border border-white/10 text-xs sm:text-sm text-slate-300 font-medium mb-5 sm:mb-6"
                 initial={prefersReduced ? false : { opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{
@@ -328,7 +328,7 @@ export default function LandingPage() {
               {/* Headline */}
               <div className="overflow-hidden mb-5">
                 <motion.h1
-                  className="relative z-10 text-5xl sm:text-6xl lg:text-7xl font-bold text-white leading-[1.1] tracking-tight [text-shadow:0_8px_26px_rgba(2,6,23,0.48)]"
+                  className="relative z-10 text-4xl sm:text-6xl lg:text-7xl font-bold text-white leading-[1.08] tracking-tight [text-shadow:0_8px_26px_rgba(2,6,23,0.48)]"
                   initial={prefersReduced ? false : { y: 56 }}
                   animate={{ y: 0 }}
                   transition={{
@@ -368,7 +368,7 @@ export default function LandingPage() {
 
               {/* Subhead */}
               <motion.p
-                className="relative z-10 text-xl md:text-2xl text-slate-300 mb-2 font-light max-w-3xl mx-auto"
+                className="relative z-10 text-base sm:text-xl md:text-2xl text-slate-300 mb-2 font-light max-w-3xl mx-auto"
                 initial={prefersReduced ? false : { opacity: 0, y: 14 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{
@@ -382,18 +382,18 @@ export default function LandingPage() {
               </motion.p>
 
               {/* Dedicated pipeline slot in normal flow: no overlap, no layout shift */}
-              <div className="relative mt-6 h-[140px] sm:h-[164px]">
+              <div className="relative mt-5 sm:mt-6 h-[96px] sm:h-[132px] lg:h-[164px]">
                 {/* Centered pipeline slot: absolute + translate, behind content (z-0) and non-interactive */}
-                <div className="absolute left-1/2 top-1/2 z-0 h-[140px] w-full max-w-[98vw] -translate-x-1/2 -translate-y-1/2 pointer-events-none sm:h-[164px] sm:max-w-[980px]">
+                <div className="absolute left-1/2 top-1/2 z-0 h-[96px] w-full max-w-[94vw] -translate-x-1/2 -translate-y-1/2 pointer-events-none sm:h-[132px] sm:max-w-[860px] lg:h-[164px] lg:max-w-[980px]">
                   <HeroPipeline />
                 </div>
               </div>
 
               {/* CTAs - "Try the demo" is primary */}
-              <div className="relative z-10 mt-2 flex flex-wrap gap-4 justify-center mb-6">
+              <div className="relative z-10 mt-2 flex flex-wrap gap-3 sm:gap-4 justify-center mb-5 sm:mb-6">
                 <motion.button
                   onClick={() => scrollToSection("demos")}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-lg font-semibold text-base transition-all inline-flex items-center gap-2 shadow-lg shadow-blue-600/20 hover:shadow-blue-600/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                  className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-6 sm:px-8 py-3 sm:py-4 rounded-lg font-semibold text-sm sm:text-base transition-all inline-flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20 hover:shadow-blue-600/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
                   initial={prefersReduced ? false : { opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{
@@ -407,7 +407,7 @@ export default function LandingPage() {
                 </motion.button>
                 <motion.button
                   onClick={handlePrimaryCTA}
-                  className="bg-white/5 hover:bg-white/10 text-white px-8 py-4 rounded-lg font-semibold text-base transition-colors border border-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                  className="w-full sm:w-auto bg-white/5 hover:bg-white/10 text-white px-6 sm:px-8 py-3 sm:py-4 rounded-lg font-semibold text-sm sm:text-base transition-colors border border-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
                   initial={prefersReduced ? false : { opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{
@@ -422,7 +422,7 @@ export default function LandingPage() {
 
               {/* Trust indicators */}
               <motion.div
-                className="relative z-10 flex flex-wrap items-center justify-center gap-4 text-sm text-slate-500"
+                className="relative z-10 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs sm:text-sm text-slate-500"
                 initial={prefersReduced ? false : { opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{
@@ -435,12 +435,12 @@ export default function LandingPage() {
                   <CheckCircle className="w-4 h-4 text-emerald-400" />
                   100 tickers
                 </span>
-                <span>·</span>
+                <span className="hidden sm:inline">·</span>
                 <span className="inline-flex items-center gap-1.5">
                   <CheckCircle className="w-4 h-4 text-cyan-400" />
                   Sourced metrics
                 </span>
-                <span>·</span>
+                <span className="hidden sm:inline">·</span>
                 <span className="inline-flex items-center gap-1.5">
                   <CheckCircle className="w-4 h-4 text-blue-400" />
                   No hallucinations
@@ -450,7 +450,7 @@ export default function LandingPage() {
 
             {/* Scroll-down indicator */}
             <motion.div
-              className="absolute bottom-8 left-1/2 -translate-x-1/2 print:hidden"
+              className="hidden sm:block absolute bottom-6 sm:bottom-8 left-1/2 -translate-x-1/2 print:hidden pointer-events-none"
               animate={
                 prefersReduced
                   ? undefined
@@ -474,7 +474,7 @@ export default function LandingPage() {
         {/* ── HOW IT WORKS ───────────────────────────────────────── */}
         <section
           id="how-it-works"
-          className="scroll-mt-24 py-12 md:py-16 px-6 bg-slate-900/30 print:break-inside-avoid"
+          className="scroll-mt-24 py-12 md:py-16 px-4 sm:px-6 bg-slate-900/30 print:break-inside-avoid"
           aria-label="How it works"
         >
           <div className="max-w-5xl mx-auto">
@@ -533,7 +533,7 @@ export default function LandingPage() {
         <section
           id="demos"
           ref={demos.ref}
-          className={`scroll-mt-24 py-12 md:py-16 px-6 transition-all duration-700 print:break-inside-avoid ${
+          className={`scroll-mt-24 py-12 md:py-16 px-4 sm:px-6 transition-all duration-700 print:break-inside-avoid ${
             demos.visible
               ? "opacity-100 translate-y-0"
               : "opacity-0 translate-y-8"
@@ -542,10 +542,10 @@ export default function LandingPage() {
         >
           <div className="max-w-7xl mx-auto">
             {/* Pre-header: persona strip + trust callout */}
-            <div className="space-y-4 md:space-y-5 mb-8">
+            <div className="space-y-6 md:space-y-8 mb-16 md:mb-20">
               {/* Who it's for */}
               <div className="text-center" aria-label="Who it's for">
-                <h3 className="text-xl md:text-2xl font-semibold text-white mb-4">
+                <h3 className="text-xl md:text-2xl font-semibold text-white mb-6">
                   Built for student funds, class pitches, and research teams
                 </h3>
                 <div className="flex flex-wrap items-center justify-center gap-8 text-sm text-slate-400">
@@ -584,7 +584,7 @@ export default function LandingPage() {
             <h2 className="text-3xl md:text-4xl font-bold text-white mb-3 text-center">
               See it in action
             </h2>
-            <p className="text-lg text-slate-400 mb-10 text-center max-w-2xl mx-auto">
+            <p className="text-lg text-slate-400 mb-12 text-center max-w-2xl mx-auto">
               Try the real product experience right here, no sign-up needed.
             </p>
 
@@ -633,7 +633,7 @@ export default function LandingPage() {
         <section
           id="trust"
           ref={trust.ref}
-          className={`scroll-mt-24 py-16 md:py-20 px-6 bg-slate-900/30 transition-all duration-700 ${
+          className={`scroll-mt-24 py-16 md:py-20 px-4 sm:px-6 bg-slate-900/30 transition-all duration-700 ${
             trust.visible
               ? "opacity-100 translate-y-0"
               : "opacity-0 translate-y-8"
@@ -682,7 +682,7 @@ export default function LandingPage() {
         <section
           id="pricing"
           ref={pricing.ref}
-          className={`scroll-mt-24 py-16 md:py-20 px-6 transition-all duration-700 ${
+          className={`scroll-mt-24 py-16 md:py-20 px-4 sm:px-6 transition-all duration-700 ${
             pricing.visible
               ? "opacity-100 translate-y-0"
               : "opacity-0 translate-y-8"
@@ -760,7 +760,7 @@ export default function LandingPage() {
         {/* ── FINAL CTA ────────────────────────────────────────────── */}
         <section
           ref={cta.ref}
-          className={`py-16 md:py-20 px-6 bg-slate-900/30 transition-all duration-700 ${
+          className={`py-16 md:py-20 px-4 sm:px-6 bg-slate-900/30 transition-all duration-700 ${
             cta.visible
               ? "opacity-100 translate-y-0"
               : "opacity-0 translate-y-8"
@@ -796,7 +796,7 @@ export default function LandingPage() {
         <section
           id="faq"
           ref={faq.ref}
-          className={`scroll-mt-24 py-16 md:py-20 px-6 transition-all duration-700 ${
+          className={`scroll-mt-24 py-16 md:py-20 px-4 sm:px-6 transition-all duration-700 ${
             faq.visible
               ? "opacity-100 translate-y-0"
               : "opacity-0 translate-y-8"
@@ -839,7 +839,7 @@ export default function LandingPage() {
 
       {/* ── FOOTER ───────────────────────────────────────────────── */}
       <footer
-        className="py-10 px-6 border-t border-slate-800"
+        className="py-10 px-4 sm:px-6 border-t border-slate-800"
         aria-label="Footer"
       >
         <div className="max-w-7xl mx-auto">
