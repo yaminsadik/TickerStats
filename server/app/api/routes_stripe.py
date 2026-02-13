@@ -14,6 +14,7 @@ from app.deck.services.stripe_service import StripeService
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/stripe", tags=["stripe"])
+webhook_router = APIRouter(prefix="/api/v1/webhooks", tags=["stripe"])
 
 
 class CreateCheckoutSessionRequest(BaseModel):
@@ -53,13 +54,14 @@ async def create_checkout_session(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"Error creating checkout session: {e}")
+        logger.exception(f"Error creating checkout session: {e}")
         raise HTTPException(status_code=500, detail="Failed to create checkout session")
 
 
 @router.post("/create-portal-session", response_model=CreatePortalSessionResponse)
 async def create_portal_session(
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Create a Stripe Customer Portal session for managing subscription.
@@ -67,16 +69,17 @@ async def create_portal_session(
     Returns a URL to redirect the user to the Stripe Customer Portal.
     """
     try:
-        result = await StripeService.create_portal_session(current_user)
+        result = await StripeService.create_portal_session(current_user, db)
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"Error creating portal session: {e}")
+        logger.exception(f"Error creating portal session: {e}")
         raise HTTPException(status_code=500, detail="Failed to create portal session")
 
 
 @router.post("/webhook")
+@webhook_router.post("/stripe")
 async def stripe_webhook(
     request: Request,
     stripe_signature: str = Header(None, alias="stripe-signature"),
@@ -102,5 +105,5 @@ async def stripe_webhook(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"Error processing webhook: {e}")
+        logger.exception(f"Error processing webhook: {e}")
         raise HTTPException(status_code=500, detail="Webhook processing failed")

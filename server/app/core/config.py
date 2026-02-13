@@ -3,9 +3,12 @@ Centralized configuration constants for the TickerStats API.
 """
 import json
 import os
+from pathlib import Path
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings
 from pydantic_settings import SettingsConfigDict
+
+ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
 
 class Settings(BaseSettings):
@@ -50,8 +53,30 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("ENVIRONMENT"),
     )
 
+    # Stripe
+    STRIPE_SECRET_KEY: str = Field(
+        default="",
+        validation_alias=AliasChoices("STRIPE_SECRET_KEY"),
+    )
+    STRIPE_WEBHOOK_SECRET: str = Field(
+        default="",
+        validation_alias=AliasChoices("STRIPE_WEBHOOK_SECRET"),
+    )
+    STRIPE_PRICE_ID_PRO: str = Field(
+        default="",
+        validation_alias=AliasChoices("STRIPE_PRICE_ID_PRO"),
+    )
+    STRIPE_PRICE_ID_ENTERPRISE: str = Field(
+        default="",
+        validation_alias=AliasChoices("STRIPE_PRICE_ID_ENTERPRISE"),
+    )
+    FRONTEND_URL: str = Field(
+        default="http://localhost:3000",
+        validation_alias=AliasChoices("FRONTEND_URL"),
+    )
+
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(ENV_FILE),
         case_sensitive=True,
         extra="ignore",
     )

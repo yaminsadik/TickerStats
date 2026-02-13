@@ -28,6 +28,7 @@ import PricingCalculator from "./PricingCalculator";
 import HeroPipeline from "../../components/hero/HeroPipeline";
 import { TIERS, MODELS } from "./landingData";
 import { useProfileQuery } from "../../queries/useProfileQuery";
+import { useSubscriptionMutations } from "../../queries/useSubscriptionMutations";
 
 // ─── Scroll-reveal hook ─────────────────────────────────────────────────────
 
@@ -78,6 +79,7 @@ export default function LandingPage() {
   const navigate = useNavigate();
   const { isAuthenticated, loginWithRedirect } = useAuth0();
   const { profile, loading: profileLoading } = useProfileQuery();
+  const { createCheckout, isCreatingCheckout } = useSubscriptionMutations();
   const prefersReduced = useReducedMotion() ?? false;
 
   // ── Scroll spy ──
@@ -137,21 +139,20 @@ export default function LandingPage() {
   }, [isAuthenticated, navigate, loginWithRedirect]);
 
   const primaryCTALabel = isAuthenticated ? "Go to app" : "Sign up free";
-  const stripeCheckoutUrl = (
-    import.meta.env.VITE_STRIPE_CHECKOUT_URL || ""
-  ).trim();
   const hasProAccess =
     profile?.subscription_tier === "pro" ||
     profile?.subscription_tier === "enterprise";
   const isResolvingTier = isAuthenticated && profileLoading;
-  const proCTALabel = !isAuthenticated
-    ? "Start Pro"
-    : hasProAccess
-      ? "Go to app"
-      : "Get Pro";
+  const proCTALabel = isCreatingCheckout
+    ? "Redirecting..."
+    : !isAuthenticated
+      ? "Start Pro"
+      : hasProAccess
+        ? "Go to app"
+        : "Get Pro";
 
   const handleProCTA = useCallback(() => {
-    if (isResolvingTier) return;
+    if (isResolvingTier || isCreatingCheckout) return;
 
     if (!isAuthenticated) {
       loginWithRedirect({
@@ -166,19 +167,15 @@ export default function LandingPage() {
       return;
     }
 
-    if (stripeCheckoutUrl) {
-      window.location.assign(stripeCheckoutUrl);
-      return;
-    }
-
-    navigate("/profile");
+    createCheckout("pro");
   }, [
+    createCheckout,
     hasProAccess,
     isAuthenticated,
+    isCreatingCheckout,
     isResolvingTier,
     loginWithRedirect,
     navigate,
-    stripeCheckoutUrl,
   ]);
 
   // ── Scroll reveal refs ──
@@ -714,7 +711,7 @@ export default function LandingPage() {
                 features={TIERS.pro.features}
                 cta={isResolvingTier ? "Checking plan..." : proCTALabel}
                 onClick={handleProCTA}
-                disabled={isResolvingTier}
+                disabled={isResolvingTier || isCreatingCheckout}
                 highlighted
               />
 

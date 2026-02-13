@@ -23,8 +23,14 @@ export default function ProfilePage() {
   const navigate = useNavigate();
   const { user: auth0User } = useAuth0();
   const { profile, loading, error } = useProfileQuery();
-  const { createCheckout, isCreatingCheckout, createPortal, isCreatingPortal } =
-    useSubscriptionMutations();
+  const {
+    createCheckout,
+    isCreatingCheckout,
+    checkoutError,
+    createPortal,
+    isCreatingPortal,
+    portalError,
+  } = useSubscriptionMutations();
 
   const [avatarFailed, setAvatarFailed] = useState(false);
 
@@ -190,28 +196,40 @@ export default function ProfilePage() {
                 </>
               )}
             </Button>
+            {checkoutError && (
+              <Alert variant="error" className="mt-3">
+                {checkoutError}
+              </Alert>
+            )}
           </div>
         )}
         {profile.subscription_tier !== "free" && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => createPortal()}
-            disabled={isCreatingPortal}
-            className="w-full"
-          >
-            {isCreatingPortal ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                Loading...
-              </>
-            ) : (
-              <>
-                <ExternalLink className="w-4 h-4 mr-1" />
-                Manage Subscription
-              </>
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => createPortal()}
+              disabled={isCreatingPortal}
+              className="w-full"
+            >
+              {isCreatingPortal ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                  Loading...
+                </>
+              ) : (
+                <>
+                  <ExternalLink className="w-4 h-4 mr-1" />
+                  Manage Subscription
+                </>
+              )}
+            </Button>
+            {portalError && (
+              <Alert variant="error">
+                {portalError}
+              </Alert>
             )}
-          </Button>
+          </>
         )}
       </Card>
 

@@ -10,7 +10,9 @@ export function useSubscriptionMutations() {
       subscriptionApi.createCheckoutSession(authenticatedFetch, tier),
     onSuccess: (data) => {
       // Redirect to Stripe Checkout
-      window.location.href = data.url;
+      if (data.url) {
+        window.location.href = data.url;
+      }
     },
   });
 
@@ -25,7 +27,19 @@ export function useSubscriptionMutations() {
   return {
     createCheckout: checkoutMutation.mutate,
     isCreatingCheckout: checkoutMutation.isPending,
+    checkoutError:
+      checkoutMutation.error instanceof Error
+        ? checkoutMutation.error.message
+        : checkoutMutation.error
+          ? String(checkoutMutation.error)
+          : null,
     createPortal: portalMutation.mutate,
     isCreatingPortal: portalMutation.isPending,
+    portalError:
+      portalMutation.error instanceof Error
+        ? portalMutation.error.message
+        : portalMutation.error
+          ? String(portalMutation.error)
+          : null,
   };
 }
