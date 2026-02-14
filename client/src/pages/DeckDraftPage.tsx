@@ -41,6 +41,7 @@ import {
   mergeSectionIntoDraft,
   type DeckDraft,
 } from "../stores/deckDraft";
+import { resolveModelForRequest } from "../config/modelConfig";
 import {
   regenerateSection,
   type GeneratedSection,
@@ -149,6 +150,11 @@ export default function DeckDraftPage() {
   const regenerateMutation = useMutation({
     mutationFn: (sectionId: string) => {
       if (!draft) throw new Error("No draft loaded");
+      const resolvedModel = resolveModelForRequest(
+        draft.config.provider,
+        draft.config.model,
+        draft.config.quality,
+      );
       return regenerateSection({
         ticker: draft.basics.ticker,
         company_name:
@@ -163,6 +169,9 @@ export default function DeckDraftPage() {
         },
         section_id: sectionId,
         provider: draft.config.provider,
+        ...(resolvedModel && { model: resolvedModel }),
+        model_mode: resolvedModel ? "specific" : "auto",
+        analysis_depth: draft.config.quality,
         reasoning_level: draft.config.quality,
         include_comps: true,
       });
@@ -456,11 +465,11 @@ export default function DeckDraftPage() {
             onToggle={() => toggleSection(section.section_id)}
             regenerating={regeneratingSection === section.section_id}
             onRegenerate={() => regenerateMutation.mutate(section.section_id)}
-                computedInputs={
-                  computed_inputs || draft?.generatedContent?.computed_inputs
-                }
-              />
-            ))}
+            computedInputs={
+              computed_inputs || draft?.generatedContent?.computed_inputs
+            }
+          />
+        ))}
       </div>
 
       {/* JSON Viewer Modal */}

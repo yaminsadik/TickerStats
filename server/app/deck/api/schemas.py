@@ -3,7 +3,7 @@ JSON Schemas and Pydantic models for deck generation API.
 Defines request/response structures and validation rules.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
 
@@ -18,6 +18,9 @@ class Provider(str, Enum):
     """Supported LLM providers."""
     OPENAI = "openai"
     GEMINI = "gemini"
+    DEEPSEEK = "deepseek"
+    ZAI = "zai"
+    ANTHROPIC = "anthropic"
 
 
 class PlanTier(str, Enum):
@@ -433,7 +436,7 @@ class DeckGenerateResponse(BaseModel):
     analysis_depth: Optional[AnalysisDepth] = None
     provider_used: ProviderInfo
     generated_at: str = Field(
-        default_factory=lambda: datetime.utcnow().isoformat() + "Z",
+        default_factory=lambda: datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     )
     computed_inputs: ComputedInputs = Field(default_factory=ComputedInputs)
     results: list[SectionResult] = Field(default_factory=list)

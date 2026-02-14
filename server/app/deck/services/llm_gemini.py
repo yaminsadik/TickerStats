@@ -1,6 +1,9 @@
 """
 Google Gemini LLM provider implementation.
 Supports Gemini 3 Flash Preview with Structured Outputs for guaranteed schema-conformant JSON.
+
+NOTE: This currently uses the deprecated `google.generativeai` SDK. Plan migration
+to `google.genai` when provider feature parity is confirmed in this code path.
 """
 
 import json
@@ -130,9 +133,17 @@ class GeminiProvider(LLMProvider):
                 }
                 if "required" in prop:
                     result["required"] = prop["required"]
+                else:
+                    # Gemini SDK may reject schemas without required; add all keys
+                    result["required"] = list(prop["properties"].keys())
             
             if "enum" in prop:
                 result["enum"] = prop["enum"]
+            
+            # Strip unsupported keywords that Gemini SDK rejects
+            for unsupported_key in ("default", "const", "examples", "$schema",
+                                     "$id", "$ref", "title", "additionalProperties"):
+                result.pop(unsupported_key, None)
             
             return result
         
@@ -153,7 +164,6 @@ class GeminiProvider(LLMProvider):
         
         try:
             import google.generativeai as genai
-            from google.generativeai.types import GenerationConfig
         except ImportError:
             raise LLMError("google-generativeai package not installed")
         
@@ -168,6 +178,7 @@ class GeminiProvider(LLMProvider):
             model_name = level_config.get("model", self.get_default_model())
         
         max_tokens = options.max_tokens or level_config.get("max_output_tokens", 8192)
+        thinking_level = options.extra.get("thinking_level")
         
         # Convert JSON schema to Gemini format
         gemini_schema = self._convert_to_gemini_schema(json_schema)
@@ -177,28 +188,70 @@ class GeminiProvider(LLMProvider):
         
         try:
             start_time = time.time()
+
+            generation_config: dict[str, Any] = {
+                "temperature": 1.0,  # Structured Outputs work best with temp=1
+                "max_output_tokens": max_tokens,
+                "response_mime_type": "application/json",
+                "response_schema": gemini_schema,  # Native Structured Outputs
+            }
+            if thinking_level:
+                # Gemini thinking config values vary by model family.
+                generation_config["thinking_config"] = {
+                    "thinking_level": str(thinking_level).lower()
+                }
             
-            # Create model instance with Structured Outputs
-            model = genai.GenerativeModel(
-                model_name=model_name,
-                generation_config=GenerationConfig(
-                    temperature=1.0,  # Structured Outputs work best with temp=1
-                    max_output_tokens=max_tokens,
-                    response_mime_type="application/json",
-                    response_schema=gemini_schema,  # Native Structured Outputs
-                ),
-            )
+            # Create model instance with Structured Outputs.
+            # Some google-generativeai versions may not accept thinking_config yet.
+            try:
+                model = genai.GenerativeModel(
+                    model_name=model_name,
+                    generation_config=generation_config,
+                )
+            except (TypeError, ValueError) as cfg_err:
+                if "thinking_config" in generation_config and "thinking" in str(cfg_err).lower():
+                    logger.warning(
+                        "Gemini SDK does not support thinking_config in this environment; "
+                        "retrying without thinking_config."
+                    )
+                    generation_config.pop("thinking_config", None)
+                    model = genai.GenerativeModel(
+                        model_name=model_name,
+                        generation_config=generation_config,
+                    )
+                else:
+                    raise
             
             logger.info(f"Calling Gemini API with Structured Outputs", extra={
                 "model": model_name,
                 "max_tokens": max_tokens,
+                "thinking_level": thinking_level,
             })
             
-            # Generate response
-            response = model.generate_content(
-                full_prompt,
-                request_options={"timeout": options.timeout},
-            )
+            # Generate response — handle thinking_config not being supported
+            # by the deprecated google-generativeai SDK at generate_content() time.
+            try:
+                response = model.generate_content(
+                    full_prompt,
+                    request_options={"timeout": options.timeout},
+                )
+            except (TypeError, ValueError) as gen_err:
+                if "thinking" in str(gen_err).lower():
+                    logger.warning(
+                        "Gemini SDK rejected thinking_config during generate_content; "
+                        "retrying without thinking_config."
+                    )
+                    generation_config.pop("thinking_config", None)
+                    model = genai.GenerativeModel(
+                        model_name=model_name,
+                        generation_config=generation_config,
+                    )
+                    response = model.generate_content(
+                        full_prompt,
+                        request_options={"timeout": options.timeout},
+                    )
+                else:
+                    raise
             
             latency_ms = (time.time() - start_time) * 1000
             

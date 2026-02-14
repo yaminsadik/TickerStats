@@ -1,7 +1,7 @@
 """Database models for user data and saved analyses."""
 from datetime import datetime
 from sqlalchemy import (
-    Column, String, DateTime, ForeignKey, JSON, Text, Integer, Boolean,
+    Column, String, DateTime, ForeignKey, JSON, Text, Integer, Boolean, Float,
     Index, UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -131,6 +131,35 @@ class Deck(Base):
 
     def __repr__(self):
         return f"<Deck(id={self.id}, ticker={self.ticker}, title={self.title})>"
+
+
+class LLMUsageLog(Base):
+    """Per-call LLM usage ledger for cost tracking and budget-aware routing."""
+    __tablename__ = "llm_usage_log"
+
+    __table_args__ = (
+        Index("ix_llm_usage_user_created", "user_id", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(
+        String(255),
+        ForeignKey("users.auth0_user_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    deck_id = Column(Integer, ForeignKey("decks.id", ondelete="SET NULL"), nullable=True)
+    provider = Column(String(20), nullable=False)
+    model = Column(String(50), nullable=False)
+    thinking_enabled = Column(Boolean, nullable=False, default=False)
+    input_tokens = Column(Integer, nullable=False, default=0)
+    output_tokens = Column(Integer, nullable=False, default=0)
+    reasoning_tokens = Column(Integer, nullable=False, default=0)
+    estimated_cost_usd = Column(Float, nullable=False, default=0.0)
+    latency_ms = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    def __repr__(self):
+        return f"<LLMUsageLog(id={self.id}, model={self.model}, cost=${self.estimated_cost_usd:.4f})>"
 
 
 class AdminAuditLog(Base):

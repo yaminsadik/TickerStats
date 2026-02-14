@@ -208,8 +208,19 @@ class LLMProvider(ABC):
                     extra={"errors": validation.errors[:3]},
                 )
                 
-            except (RateLimitError, TimeoutError) as e:
-                # Don't retry on rate limits or timeouts
+            except RateLimitError as e:
+                # Retry once on rate limits with backoff
+                if attempt < max_retries:
+                    wait = float(e.retry_after) if e.retry_after else 3.0
+                    logger.info(
+                        f"Rate limit hit on attempt {attempt + 1}, "
+                        f"backing off {wait}s before retry"
+                    )
+                    time.sleep(wait)
+                    continue
+                raise
+            except TimeoutError as e:
+                # Don't retry on timeouts
                 raise
             except LLMError as e:
                 last_error = [str(e)]
@@ -233,7 +244,7 @@ def get_provider(
     Factory function to get an LLM provider instance.
     
     Args:
-        provider_name: "openai" or "gemini"
+        provider_name: "openai", "gemini", "deepseek", "zai", or "anthropic"
         api_key: API key for the provider
         model: Optional specific model
         
@@ -242,10 +253,16 @@ def get_provider(
     """
     from app.deck.services.llm_openai import OpenAIProvider
     from app.deck.services.llm_gemini import GeminiProvider
+    from app.deck.services.llm_deepseek import DeepSeekProvider
+    from app.deck.services.llm_glm import GLMProvider
+    from app.deck.services.llm_anthropic import AnthropicProvider
     
     providers = {
         "openai": OpenAIProvider,
         "gemini": GeminiProvider,
+        "deepseek": DeepSeekProvider,
+        "zai": GLMProvider,
+        "anthropic": AnthropicProvider,
     }
     
     provider_class = providers.get(provider_name.lower())

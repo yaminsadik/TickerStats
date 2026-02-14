@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import Breadcrumbs, { BreadcrumbItem } from "../components/Breadcrumbs";
@@ -11,6 +11,14 @@ import {
   RefreshCw,
   Users,
 } from "lucide-react";
+import ModelReasoningBar from "../components/ModelReasoningBar";
+import {
+  FREE_MODEL_OPTIONS,
+  PRO_MODEL_OPTIONS,
+  PROVIDER_LABELS,
+  getQualityOptions,
+  resolveModelForRequest,
+} from "../config/modelConfig";
 import {
   Button,
   Card,
@@ -53,22 +61,17 @@ import {
   type FundConstraints,
 } from "../stores/deckDraft";
 
-type WizardStep =
-  | "basics"
-  | "comparables"
-  | "sections"
-  | "provider"
-  | "generate"
-  | "save";
+type WizardStep = "basics" | "comparables" | "sections" | "generate" | "save";
 
 const STEPS: { id: WizardStep; label: string }[] = [
   { id: "basics", label: "Basics" },
   { id: "comparables", label: "Comparables" },
   { id: "sections", label: "Sections" },
-  { id: "provider", label: "Provider" },
   { id: "generate", label: "Generate" },
   { id: "save", label: "Save" },
 ];
+
+// Model types/constants/helpers are imported from config/modelConfig
 
 export default function DeckWizardPage() {
   const navigate = useNavigate();
@@ -112,6 +115,7 @@ export default function DeckWizardPage() {
   const [config, setConfig] = useState<DeckDraftConfig>({
     sections: [],
     provider: "openai",
+    model: "gpt-5-mini",
     quality: "medium",
   });
 
@@ -156,6 +160,59 @@ export default function DeckWizardPage() {
       setConfig((prev) => ({ ...prev, sections: defaultSections }));
     }
   }, [availableSections, config.sections.length]);
+
+  // Derived model info for the generate summary (model selection is in ModelReasoningBar)
+  const modelOptions = useMemo(() => {
+    if (tier === "pro" || tier === "enterprise") {
+      return [...PRO_MODEL_OPTIONS, ...FREE_MODEL_OPTIONS];
+    }
+    return FREE_MODEL_OPTIONS;
+  }, [tier]);
+
+  const selectedModel = useMemo(
+    () => modelOptions.find((m) => m.value === config.model),
+    [modelOptions, config.model],
+  );
+
+  const qualityOptions = useMemo(
+    () => getQualityOptions(config.provider, config.model || ""),
+    [config.provider, config.model],
+  );
+
+  const qualityLabel = useMemo(() => {
+    const match = qualityOptions.find((o) => o.value === config.quality);
+    return match?.label ?? config.quality;
+  }, [qualityOptions, config.quality]);
+
+  // Keep selected model/provider valid for current tier.
+  useEffect(() => {
+    const current = modelOptions.find(
+      (option) => option.value === config.model,
+    );
+    if (!current) {
+      if (
+        config.provider === "deepseek" &&
+        config.model === "deepseek-reasoner"
+      ) {
+        setConfig((prev) => ({
+          ...prev,
+          model: "deepseek-chat",
+          provider: "deepseek",
+        }));
+        return;
+      }
+      const fallback = modelOptions[0];
+      setConfig((prev) => ({
+        ...prev,
+        model: fallback.value,
+        provider: fallback.provider,
+      }));
+      return;
+    }
+    if (config.provider !== current.provider) {
+      setConfig((prev) => ({ ...prev, provider: current.provider }));
+    }
+  }, [modelOptions, config.model, config.provider]);
 
   // Save deck to DB mutation
   const saveDeckMutation = useSaveDeck();
@@ -229,8 +286,6 @@ export default function DeckWizardPage() {
         return true;
       case "sections":
         return config.sections.length > 0;
-      case "provider":
-        return true;
       case "generate":
         return generatedDeck !== null;
       case "save":
@@ -283,15 +338,23 @@ export default function DeckWizardPage() {
       updateDraftConfig(draft.id, config);
     }
 
+    const providerToUse = selectedModel?.provider || config.provider;
+    const modelToUse = resolveModelForRequest(
+      providerToUse,
+      config.model,
+      config.quality,
+    );
+
     generateMutation.mutate({
       ticker: basics.ticker,
       ...(basics.companyName.trim() && { company_name: basics.companyName }),
       ...(basics.sector.trim() && { sector: basics.sector }),
       fund_constraints: fundConstraints,
       sections: config.sections.length > 0 ? config.sections : undefined,
-      provider: config.provider,
+      provider: providerToUse,
+      model: modelToUse,
       plan_tier: tier,
-      model_mode: "auto",
+      model_mode: "specific",
       analysis_depth: config.quality,
       reasoning_level: config.quality,
       include_comps: true,
@@ -756,60 +819,22 @@ export default function DeckWizardPage() {
                 Clear All
               </Button>
             </div>
-          </div>
-        )}
 
-        {/* Step 4: Provider */}
-        {currentStep === "provider" && (
-          <div className="space-y-6">
-            <div>
-              <h2 className="text-xl font-semibold text-white mb-2">
-                AI Provider & Quality
-              </h2>
-              <p className="text-slate-400">
-                Select the AI provider and output quality level.
+            {/* AI Model & Reasoning — compact toolbar */}
+            <div className="pt-2">
+              <p className="text-xs text-slate-400 mb-1.5">
+                AI Model & Reasoning
               </p>
+              <ModelReasoningBar
+                config={config}
+                setConfig={setConfig}
+                tier={tier}
+              />
             </div>
-
-            <Select
-              label="AI Provider"
-              value={config.provider}
-              onChange={(e) =>
-                setConfig((prev) => ({
-                  ...prev,
-                  provider: e.target.value as "openai" | "gemini",
-                }))
-              }
-              options={[
-                { value: "openai", label: "OpenAI (GPT-5)" },
-                { value: "gemini", label: "Google Gemini 3 Flash" },
-              ]}
-            />
-
-            <Select
-              label="Quality Level"
-              value={config.quality}
-              onChange={(e) =>
-                setConfig((prev) => ({
-                  ...prev,
-                  quality: e.target.value as "low" | "medium" | "high",
-                }))
-              }
-              options={[
-                { value: "low", label: "Low (Fastest, budget-friendly)" },
-                { value: "medium", label: "Medium (Balanced)" },
-                { value: "high", label: "High (Best quality, slower)" },
-              ]}
-            />
-
-            <Alert variant="info" title="Pricing Note">
-              Higher quality settings use more advanced models and may take
-              longer to generate.
-            </Alert>
           </div>
         )}
 
-        {/* Step 5: Generate */}
+        {/* Step 4: Generate */}
         {currentStep === "generate" && (
           <div className="space-y-6">
             <div>
@@ -834,9 +859,15 @@ export default function DeckWizardPage() {
                 </span>
               </div>
               <div className="flex justify-between">
+                <span className="text-slate-400">Model:</span>
+                <span className="text-white">
+                  {selectedModel?.label || config.model || "Unknown"}
+                </span>
+              </div>
+              <div className="flex justify-between">
                 <span className="text-slate-400">Provider:</span>
                 <span className="text-white">
-                  {config.provider === "openai" ? "OpenAI" : "Gemini"}
+                  {PROVIDER_LABELS[config.provider]}
                 </span>
               </div>
               <div className="flex justify-between">
@@ -850,7 +881,7 @@ export default function DeckWizardPage() {
                         : "warning"
                   }
                 >
-                  {config.quality}
+                  {qualityLabel}
                 </Badge>
               </div>
             </div>
@@ -1028,8 +1059,7 @@ export default function DeckWizardPage() {
         {/* Save Draft button - only show during active editing steps */}
         {(currentStep === "basics" ||
           currentStep === "comparables" ||
-          currentStep === "sections" ||
-          currentStep === "provider") &&
+          currentStep === "sections") &&
           draft && (
             <Button
               variant="ghost"
@@ -1050,9 +1080,7 @@ export default function DeckWizardPage() {
           </Button>
         )}
 
-        {(currentStep === "comparables" ||
-          currentStep === "sections" ||
-          currentStep === "provider") && (
+        {(currentStep === "comparables" || currentStep === "sections") && (
           <Button onClick={handleConfigNext} disabled={!isStepValid()}>
             Next
             <ChevronRight className="w-4 h-4 ml-2" />

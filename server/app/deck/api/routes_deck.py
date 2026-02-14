@@ -4,7 +4,7 @@ Provides endpoints for generating investment pitch deck sections.
 """
 
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import wraps
 from typing import Any
 
@@ -45,6 +45,11 @@ logger = get_logger(__name__)
 
 # Create Blueprint
 deck_bp = Blueprint("deck", __name__, url_prefix="/api/v1")
+
+
+def _utcnow_naive() -> datetime:
+    """Return current UTC time as a naive datetime (UTC semantics)."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 # =============================================================================
@@ -138,21 +143,27 @@ def get_deck_generator() -> DeckGenerator:
             max_retries=int(os.getenv("DECK_MAX_RETRIES", "2")),
             timeout=int(os.getenv("DECK_TIMEOUT", "60")),
             use_cache=os.getenv("DECK_USE_CACHE", "true").lower() == "true",
+            parallel_sections=os.getenv("DECK_PARALLEL_SECTIONS", "false").lower() == "true",
+            max_parallel_workers=int(os.getenv("DECK_MAX_PARALLEL_WORKERS", "5")),
+            section_delay_seconds=float(os.getenv("DECK_SECTION_DELAY", "0.5")),
         )
         g.deck_generator = DeckGenerator(config)
     return g.deck_generator
 
 
-def get_api_keys() -> tuple[str | None, str | None]:
-    """Get API keys from headers or environment."""
-    # Check headers first (for per-request keys)
-    openai_key = request.headers.get("X-OpenAI-API-Key") or os.getenv("OPENAI_API_KEY")
-    gemini_key = (
-        request.headers.get("X-Gemini-API-Key") or
-        os.getenv("GEMINI_API_KEY") or
-        os.getenv("GOOGLE_API_KEY")
-    )
-    return openai_key, gemini_key
+def get_api_keys() -> dict[str, str | None]:
+    """Get API keys from headers or environment for all providers."""
+    return {
+        "openai": request.headers.get("X-OpenAI-API-Key") or os.getenv("OPENAI_API_KEY"),
+        "gemini": (
+            request.headers.get("X-Gemini-API-Key")
+            or os.getenv("GEMINI_API_KEY")
+            or os.getenv("GOOGLE_API_KEY")
+        ),
+        "deepseek": request.headers.get("X-DeepSeek-API-Key") or os.getenv("DEEPSEEK_API_KEY"),
+        "zai": request.headers.get("X-ZAI-API-Key") or os.getenv("ZAI_API_KEY"),
+        "anthropic": request.headers.get("X-Anthropic-API-Key") or os.getenv("ANTHROPIC_API_KEY"),
+    }
 
 
 def _get_bearer_token() -> str | None:
@@ -210,7 +221,7 @@ def _upsert_user_sync(session, user_id: str, payload: dict) -> User:
             user.picture = picture
             changed = True
         if changed:
-            user.updated_at = datetime.utcnow()
+            user.updated_at = _utcnow_naive()
             session.flush()
         return user
 
@@ -228,11 +239,16 @@ def _upsert_user_sync(session, user_id: str, payload: dict) -> User:
 
 def _resolve_plan_and_models(
     deck_request: DeckGenerateRequest,
-    openai_key: str | None,
-    gemini_key: str | None,
+    api_keys: dict[str, str | None],
     plan_tier: str,
 ) -> tuple[str, str | None, AnalysisDepth, ModelMode]:
-    """Apply plan-tier model rules and return provider, model, depth, mode."""
+    """Apply plan-tier model rules and return provider, model, depth, mode.
+
+    Delegates to the model_policy module when the model_mode is AUTO.
+    When model_mode is SPECIFIC, the user's explicit choice is honoured.
+    """
+    from app.deck.services.model_policy import resolve_model
+
     model_mode = deck_request.model_mode or ModelMode.AUTO
     analysis_depth = deck_request.analysis_depth or AnalysisDepth(deck_request.reasoning_level.value)
 
@@ -240,26 +256,18 @@ def _resolve_plan_and_models(
     if plan_tier == "free" and analysis_depth == AnalysisDepth.HIGH:
         analysis_depth = AnalysisDepth.MEDIUM
 
-    provider = deck_request.provider.value
-    model = deck_request.model
+    thinking_requested = deck_request.reasoning_level == ReasoningLevel.HIGH
 
-    if model_mode == ModelMode.AUTO:
-        if plan_tier in {"pro", "enterprise"}:
-            if openai_key:
-                provider, model = "openai", "gpt-5.2"
-            elif gemini_key:
-                provider, model = "gemini", "gemini-3-pro"
-            else:
-                provider, model = provider, model
-        else:
-            if openai_key:
-                provider, model = "openai", "gpt-5-mini"
-            elif gemini_key:
-                provider, model = "gemini", "gemini-3-flash-preview"
-            else:
-                provider, model = provider, model
+    decision = resolve_model(
+        plan_tier=plan_tier,
+        analysis_depth=analysis_depth.value,
+        model_mode=model_mode.value,
+        requested_model_id=deck_request.model,
+        thinking_requested=thinking_requested,
+        available_keys=api_keys,
+    )
 
-    return provider, model, analysis_depth, model_mode
+    return decision.provider, decision.model, analysis_depth, model_mode
 
 
 # =============================================================================
@@ -381,7 +389,7 @@ def generate_deck():
     try:
         user = _upsert_user_sync(session, user_id, payload)
         plan_tier = get_plan_tier(user)
-        allowed, limit = check_deck_limit_sync(user, datetime.utcnow())
+        allowed, limit = check_deck_limit_sync(user, _utcnow_naive())
         session.commit()
     except Exception as e:
         session.rollback()
@@ -421,13 +429,12 @@ def generate_deck():
         }), 400
     
     # Get API keys
-    openai_key, gemini_key = get_api_keys()
+    api_keys = get_api_keys()
 
     # Apply plan-tier model routing
     provider_name, model_name, analysis_depth, model_mode = _resolve_plan_and_models(
         deck_request,
-        openai_key,
-        gemini_key,
+        api_keys,
         plan_tier,
     )
     deck_request.plan_tier = PlanTier(plan_tier)
@@ -436,17 +443,20 @@ def generate_deck():
     deck_request.reasoning_level = ReasoningLevel(analysis_depth.value)
     deck_request.provider = Provider(provider_name)
     deck_request.model = model_name
-    
-    # Validate we have the required key
-    if deck_request.provider.value == "openai" and not openai_key:
+
+    # Validate we have the required key for the chosen provider
+    chosen_provider = deck_request.provider.value
+    if not api_keys.get(chosen_provider):
+        provider_labels = {
+            "openai": "OPENAI_API_KEY",
+            "gemini": "GEMINI_API_KEY",
+            "deepseek": "DEEPSEEK_API_KEY",
+            "zai": "ZAI_API_KEY",
+            "anthropic": "ANTHROPIC_API_KEY",
+        }
+        env_hint = provider_labels.get(chosen_provider, chosen_provider.upper() + "_API_KEY")
         return jsonify({
-            "error": "OpenAI API key required. Set OPENAI_API_KEY env var or X-OpenAI-API-Key header.",
-            "request_id": g.request_id,
-        }), 400
-    
-    if deck_request.provider.value == "gemini" and not gemini_key:
-        return jsonify({
-            "error": "Gemini API key required. Set GEMINI_API_KEY env var or X-Gemini-API-Key header.",
+            "error": f"{chosen_provider} API key required. Set {env_hint} env var.",
             "request_id": g.request_id,
         }), 400
     
@@ -454,8 +464,7 @@ def generate_deck():
     generator = get_deck_generator()
     response = generator.generate_deck(
         request=deck_request,
-        openai_api_key=openai_key,
-        gemini_api_key=gemini_key,
+        api_keys=api_keys,
     )
     
     # Increment deck usage on success
@@ -464,7 +473,7 @@ def generate_deck():
         allowed_after_generate, locked_limit = enforce_deck_limit_and_increment_sync(
             session,
             user_id,
-            datetime.utcnow(),
+            _utcnow_naive(),
         )
         if not allowed_after_generate:
             session.rollback()
@@ -520,17 +529,46 @@ def plan_deck():
     plan_request = DeckPlanRequest(**data)
     
     # Get API keys
-    openai_key, gemini_key = get_api_keys()
+    api_keys = get_api_keys()
     
     # Generate plan
     generator = get_deck_generator()
     response = generator.plan_deck(
         request=plan_request,
-        openai_api_key=openai_key,
-        gemini_api_key=gemini_key,
+        api_keys=api_keys,
     )
     
     return jsonify(response.model_dump())
+
+
+@deck_bp.route("/deck/models", methods=["GET"])
+@request_context()
+@handle_errors()
+def get_available_models():
+    """
+    Return the list of models available for the caller's tier.
+    Requires authentication so the tier can be determined.
+    """
+    from app.deck.services.model_catalog import get_catalog_for_api
+
+    token = _get_bearer_token()
+    tier = "free"  # default for unauthenticated
+    if token:
+        try:
+            payload = verifier.verify_token(token)
+            user_id = payload.get("sub")
+            if user_id:
+                session = SessionLocal()
+                try:
+                    user = _upsert_user_sync(session, user_id, payload)
+                    tier = get_plan_tier(user)
+                    session.commit()
+                finally:
+                    session.close()
+        except Exception:
+            pass  # Fall back to free tier
+
+    return jsonify({"tier": tier, "models": get_catalog_for_api(tier)})
 
 
 @deck_bp.route("/health", methods=["GET"])

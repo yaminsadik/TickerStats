@@ -95,7 +95,8 @@ export interface GenerateDeckRequest {
     style?: string;
   };
   sections?: string[];
-  provider?: 'openai' | 'gemini';
+  provider?: 'openai' | 'gemini' | 'deepseek' | 'zai' | 'anthropic';
+  model?: string;
   plan_tier?: 'free' | 'pro' | 'enterprise';
   model_mode?: 'auto' | 'specific';
   analysis_depth?: 'low' | 'medium' | 'high';

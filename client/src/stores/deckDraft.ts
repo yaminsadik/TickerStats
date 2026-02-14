@@ -15,7 +15,8 @@ export interface FundConstraints {
 
 export interface DeckDraftConfig {
   sections: string[];
-  provider: 'openai' | 'gemini';
+  provider: 'openai' | 'gemini' | 'deepseek' | 'zai' | 'anthropic';
+  model?: string;
   quality: 'low' | 'medium' | 'high';
 }
 
@@ -29,6 +30,44 @@ export interface DeckDraft {
   generatedContent?: import('../api/deckApi').GenerateDeckResponse;
   status: 'draft' | 'generating' | 'complete' | 'error';
   error?: string;
+}
+
+const DEFAULT_MODEL_BY_PROVIDER: Record<DeckDraftConfig['provider'], string> = {
+  openai: 'gpt-5-mini',
+  gemini: 'gemini-3-flash-preview',
+  deepseek: 'deepseek-chat',
+  zai: 'glm-4.7-flash',
+  anthropic: 'claude-sonnet-4-5',
+};
+
+function normalizeProvider(value: unknown): DeckDraftConfig['provider'] {
+  if (
+    value === 'openai' ||
+    value === 'gemini' ||
+    value === 'deepseek' ||
+    value === 'zai' ||
+    value === 'anthropic'
+  ) {
+    return value;
+  }
+  return 'openai';
+}
+
+function normalizeQuality(value: unknown): DeckDraftConfig['quality'] {
+  if (value === 'low' || value === 'medium' || value === 'high') {
+    return value;
+  }
+  return 'medium';
+}
+
+function normalizeDraftConfig(raw?: Partial<DeckDraftConfig>): DeckDraftConfig {
+  const provider = normalizeProvider(raw?.provider);
+  return {
+    sections: Array.isArray(raw?.sections) ? raw.sections : [],
+    provider,
+    model: raw?.model || DEFAULT_MODEL_BY_PROVIDER[provider],
+    quality: normalizeQuality(raw?.quality),
+  };
 }
 
 /**
@@ -67,14 +106,20 @@ export function getDrafts(): DeckDraft[] {
  * Migrate old draft format to new schema
  */
 function migrateDraft(draft: any): DeckDraft {
+  const config = normalizeDraftConfig(draft?.config);
+
   // If draft already has new fields, return as is
   if (draft.basics?.companyName && draft.basics?.sector) {
-    return draft as DeckDraft;
+    return {
+      ...draft,
+      config,
+    } as DeckDraft;
   }
   
   // Migrate old draft format
   return {
     ...draft,
+    config,
     basics: {
       ticker: draft.basics?.ticker || '',
       companyName: draft.generatedContent?.metadata?.company_name || draft.basics?.ticker || '',
@@ -113,11 +158,7 @@ export function createDraft(
     createdAt: now,
     updatedAt: now,
     basics,
-    config: {
-      sections: config?.sections || [],
-      provider: config?.provider || 'openai',
-      quality: config?.quality || 'medium',
-    },
+    config: normalizeDraftConfig(config),
     status: 'draft',
   };
 

@@ -33,7 +33,7 @@ class TestEnums:
         assert ReasoningLevel.HIGH.value == "high"
     
     def test_section_ids(self):
-        expected = {"overview", "history", "swot", "porters_five", "rebuttals", "layout"}
+        expected = {"overview", "history", "swot", "porters_five", "bull_case", "bear_case", "valuation", "relative_heatmap", "rebuttals", "layout"}
         actual = {s.value for s in SectionId}
         assert actual == expected
 

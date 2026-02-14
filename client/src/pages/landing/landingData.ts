@@ -694,7 +694,12 @@ export const TIERS = {
 } as const;
 
 export const MODELS = [
+  "GPT-5 Mini",
   "GPT-5.2",
   "Claude Sonnet 4.5",
+  "Gemini 3 Flash",
   "Gemini 3 Pro",
+  "DeepSeek V3.2",
+  "GLM-4.7 Flash",
+  "GLM-5",
 ] as const;

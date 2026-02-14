@@ -54,7 +54,9 @@ export default function InteractiveHero({
   const spotBackground = useMotionTemplate`radial-gradient(780px circle at ${smoothMouseX}px ${smoothMouseY}px, var(--spot-color, rgba(125,211,252,0.10)), transparent 62%)`;
 
   useEffect(() => {
-    const pointerQuery = window.matchMedia("(hover: hover) and (pointer: fine)");
+    const pointerQuery = window.matchMedia(
+      "(hover: hover) and (pointer: fine)",
+    );
     const setTracking = (pointerMatch: boolean) => {
       setCanTrackPointer(pointerMatch && window.innerWidth >= 768);
     };

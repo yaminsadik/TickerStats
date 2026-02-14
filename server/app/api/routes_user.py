@@ -19,6 +19,9 @@ from app.services.usage_limits import (
     get_plan_tier,
     get_compare_limit,
     get_deck_limit,
+    get_daily_thinking_limit,
+    get_daily_thinking_uses_async,
+    get_monthly_model_cost_async,
     reset_monthly_usage,
 )
 
@@ -136,6 +139,10 @@ class ProfileResponse(BaseModel):
     deck_count_month: int = 0
     deck_limit: Optional[int] = None
     can_export: bool = False
+    # LLM usage quotas
+    daily_thinking_uses: int = 0
+    daily_thinking_limit: Optional[int] = None
+    monthly_model_cost_usd: float = 0.0
 
     class Config:
         from_attributes = True
@@ -580,6 +587,9 @@ async def get_profile(
     plan_tier = get_plan_tier(current_user)
     compare_limit = get_compare_limit(plan_tier)
     deck_limit = get_deck_limit(plan_tier)
+    thinking_uses = await get_daily_thinking_uses_async(db, current_user.auth0_user_id)
+    thinking_limit = get_daily_thinking_limit(plan_tier)
+    model_cost = await get_monthly_model_cost_async(db, current_user.auth0_user_id)
     return ProfileResponse(
         auth0_user_id=current_user.auth0_user_id,
         email=current_user.email,
@@ -602,6 +612,9 @@ async def get_profile(
         deck_count_month=current_user.deck_count_month or 0,
         deck_limit=deck_limit,
         can_export=is_paid or current_user.is_admin,
+        daily_thinking_uses=thinking_uses,
+        daily_thinking_limit=thinking_limit,
+        monthly_model_cost_usd=model_cost,
     )
 
 
@@ -640,6 +653,9 @@ async def update_profile(
     plan_tier = get_plan_tier(current_user)
     compare_limit = get_compare_limit(plan_tier)
     deck_limit = get_deck_limit(plan_tier)
+    thinking_uses = await get_daily_thinking_uses_async(db, current_user.auth0_user_id)
+    thinking_limit = get_daily_thinking_limit(plan_tier)
+    model_cost = await get_monthly_model_cost_async(db, current_user.auth0_user_id)
 
     return ProfileResponse(
         auth0_user_id=current_user.auth0_user_id,
@@ -663,6 +679,9 @@ async def update_profile(
         deck_count_month=current_user.deck_count_month or 0,
         deck_limit=deck_limit,
         can_export=is_paid or current_user.is_admin,
+        daily_thinking_uses=thinking_uses,
+        daily_thinking_limit=thinking_limit,
+        monthly_model_cost_usd=model_cost,
     )
 
 

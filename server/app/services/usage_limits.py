@@ -6,11 +6,11 @@ import hashlib
 import json
 from typing import Optional, Tuple
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
-from app.models import User
+from app.models import LLMUsageLog, User
 
 # Limits
 FREE_COMPARE_LIMIT = 5
@@ -180,3 +180,68 @@ def enforce_deck_limit_and_increment_sync(
     increment_deck_usage_sync(user, now)
     session.flush()
     return True, limit
+
+
+# =========================================================================
+# LLM usage / cost helpers (for budget-aware routing & profile display)
+# =========================================================================
+
+# Thinking quota: max thinking-mode calls per day for pro users
+PRO_DAILY_THINKING_LIMIT = 20
+
+
+def get_daily_thinking_uses(session: Session, user_id: str) -> int:
+    """Count today's thinking=True LLM calls for *user_id*."""
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    result = session.query(func.count(LLMUsageLog.id)).filter(
+        LLMUsageLog.user_id == user_id,
+        LLMUsageLog.thinking_enabled.is_(True),
+        LLMUsageLog.created_at >= today_start,
+    ).scalar()
+    return result or 0
+
+
+def get_monthly_model_cost(session: Session, user_id: str) -> float:
+    """Sum estimated_cost_usd for the current calendar month."""
+    now = datetime.utcnow()
+    m_start = month_start(now)
+    result = session.query(func.coalesce(func.sum(LLMUsageLog.estimated_cost_usd), 0.0)).filter(
+        LLMUsageLog.user_id == user_id,
+        LLMUsageLog.created_at >= m_start,
+    ).scalar()
+    return float(result)
+
+
+async def get_daily_thinking_uses_async(db: AsyncSession, user_id: str) -> int:
+    """Async variant of get_daily_thinking_uses."""
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    result = await db.execute(
+        select(func.count(LLMUsageLog.id)).where(
+            LLMUsageLog.user_id == user_id,
+            LLMUsageLog.thinking_enabled.is_(True),
+            LLMUsageLog.created_at >= today_start,
+        )
+    )
+    return result.scalar() or 0
+
+
+async def get_monthly_model_cost_async(db: AsyncSession, user_id: str) -> float:
+    """Async variant of get_monthly_model_cost."""
+    now = datetime.utcnow()
+    m_start = month_start(now)
+    result = await db.execute(
+        select(func.coalesce(func.sum(LLMUsageLog.estimated_cost_usd), 0.0)).where(
+            LLMUsageLog.user_id == user_id,
+            LLMUsageLog.created_at >= m_start,
+        )
+    )
+    return float(result.scalar())
+
+
+def get_daily_thinking_limit(plan_tier: str) -> Optional[int]:
+    """Return the daily thinking-call cap for a tier, or None if unlimited."""
+    if plan_tier == "free":
+        return PRO_DAILY_THINKING_LIMIT  # same cap, revisit later
+    if plan_tier == "pro":
+        return PRO_DAILY_THINKING_LIMIT
+    return None  # enterprise = unlimited
