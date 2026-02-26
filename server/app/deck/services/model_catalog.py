@@ -158,7 +158,7 @@ GPT_52 = ModelDef(
 
 GEMINI_3_PRO = ModelDef(
     provider="gemini",
-    model_id="gemini-3-pro",
+    model_id="gemini-3-pro-preview",
     display_name="Gemini 3 Pro",
     tiers=("pro",),
     thinking_supported=True,

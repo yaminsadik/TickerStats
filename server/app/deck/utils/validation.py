@@ -187,9 +187,6 @@ def validate_section_output(section_data: dict, section_id: str) -> ValidationRe
         if not section_data.get("verification_notes"):
             errors.append("History section must include verification_notes")
     
-    if section_id == "rebuttals" and len(slides) > 2:
-        errors.append(f"Rebuttals section has {len(slides)} slides, maximum is 2")
-    
     # Validate each slide
     for i, slide in enumerate(slides):
         slide_result = validate_slide_content(slide)

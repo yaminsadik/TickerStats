@@ -83,26 +83,56 @@ class AnthropicProvider(LLMProvider):
         """Convert a JSON schema to an Anthropic tool input_schema.
 
         Anthropic's tool_use expects a standard JSON Schema in ``input_schema``.
-        We add ``additionalProperties: false`` and fill in ``required`` fields so
-        the response is as strict as possible.
+        We add ``additionalProperties: false`` at ALL levels including $defs.
         """
         import copy
 
         schema = copy.deepcopy(json_schema)
-        if schema.get("type") == "object":
-            schema["additionalProperties"] = False
-            if "properties" in schema:
-                schema["required"] = list(schema["properties"].keys())
-        if "properties" in schema:
-            for key, prop in schema["properties"].items():
-                if isinstance(prop, dict):
-                    if prop.get("type") == "object":
-                        schema["properties"][key] = self._convert_to_tool_schema(prop)
-                    elif prop.get("type") == "array" and "items" in prop:
-                        items = prop["items"]
-                        if isinstance(items, dict) and items.get("type") == "object":
-                            schema["properties"][key]["items"] = self._convert_to_tool_schema(items)
-        return schema
+        
+        # Process $defs first (Pydantic puts reusable schemas here)
+        if "$defs" in schema:
+            for def_name, def_schema in schema["$defs"].items():
+                if isinstance(def_schema, dict):
+                    schema["$defs"][def_name] = self._process_schema_node(def_schema)
+        
+        # Process the root schema
+        return self._process_schema_node(schema)
+    
+    def _process_schema_node(self, node: dict) -> dict:
+        """
+        Recursively process a schema node to add additionalProperties: false
+        at every object level.
+        """
+        import copy
+        processed = copy.deepcopy(node)
+        
+        # Add additionalProperties: false to all objects
+        if processed.get("type") == "object":
+            processed["additionalProperties"] = False
+            # Make all properties required for strict mode
+            if "properties" in processed:
+                processed["required"] = list(processed["properties"].keys())
+        
+        # Recursively process nested structures
+        if "properties" in processed:
+            for key, prop in processed["properties"].items():
+                if isinstance(prop, dict) and "$ref" not in prop:
+                    processed["properties"][key] = self._process_schema_node(prop)
+        
+        # Process array items
+        if "items" in processed and isinstance(processed["items"], dict):
+            if "$ref" not in processed["items"]:
+                processed["items"] = self._process_schema_node(processed["items"])
+        
+        # Process anyOf, allOf, oneOf constructs
+        for key in ["anyOf", "allOf", "oneOf"]:
+            if key in processed and isinstance(processed[key], list):
+                processed[key] = [
+                    self._process_schema_node(item) if isinstance(item, dict) and "$ref" not in item else item
+                    for item in processed[key]
+                ]
+        
+        return processed
 
     def validate_api_key(self) -> bool:
         try:

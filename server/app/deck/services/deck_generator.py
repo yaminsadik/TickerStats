@@ -10,7 +10,6 @@ from datetime import datetime
 from typing import Any, Optional
 
 from app.deck.api.schemas import (
-    SECTION_METADATA,
     BulletPoint,
     ComputedInputs,
     DeckGenerateRequest,
@@ -25,7 +24,7 @@ from app.deck.api.schemas import (
     Slide,
     SlideFlags,
     SuggestedSection,
-    get_section_schema,
+    get_section_metadata,
 )
 from app.deck.services.comps_service import comps_service
 from app.deck.services.llm_base import (
@@ -38,8 +37,8 @@ from app.deck.services.llm_base import (
 from app.deck.services.prompts import (
     SYSTEM_PROMPT,
     get_fix_prompt,
-    get_section_prompt,
 )
+from app.deck.services.sections import ALL_SECTIONS, get_section
 from app.deck.utils.cache import get_cache
 from app.deck.utils.logging import get_logger, log_operation, set_request_context
 from app.deck.utils.validation import (
@@ -153,34 +152,42 @@ class DeckGenerator:
             request.model,
         )
         
-        # Get comps data if requested
+        # Resolve data trust mode
+        data_trust_mode = "user_auto_fetch"
+        if getattr(request, "data_trust_mode", None):
+            data_trust_mode = request.data_trust_mode.value
+
+        # Map peer_tickers from valuation_input into comp_tickers for backward compat
+        comp_tickers = getattr(request, "comp_tickers", None)
+        if not comp_tickers and getattr(request, "valuation_input", None):
+            peer = request.valuation_input.peer_tickers
+            if peer:
+                comp_tickers = peer
+
+        # Get comps data if requested (skip for user_only / narrative_only)
         comps_data = None
         comps_summary = None
-        comps_concise = None
-        if request.include_comps:
+        if request.include_comps and data_trust_mode not in ("user_only", "narrative_only"):
             try:
                 comps_data = comps_service.get_comps_table(
                     ticker=request.ticker,
                     sector=request.sector,
-                    comp_tickers=getattr(request, 'comp_tickers', None),
+                    comp_tickers=comp_tickers,
                 )
                 comps_summary = comps_service.format_for_prompt(comps_data)
-                comps_concise = comps_service.format_for_prompt_concise(comps_data)
             except Exception as e:
                 logger.warning(f"Failed to fetch comps: {e}")
-        
-        # Get DCF valuation if requested (default True)
+
+        # Get DCF valuation if requested (skip for user_only / narrative_only)
         dcf_data = None
         dcf_summary = None
-        dcf_detailed = None
-        if getattr(request, 'include_dcf', True):
+        if getattr(request, 'include_dcf', True) and data_trust_mode not in ("user_only", "narrative_only"):
             try:
                 from app.deck.services.dcf_calculator import calculate_dcf
                 dcf_result = calculate_dcf(ticker=request.ticker)
                 if not dcf_result.get("error"):
                     dcf_data = dcf_result
                     dcf_summary = self._format_dcf_for_prompt(dcf_result)
-                    dcf_detailed = self._format_dcf_detailed(dcf_result)
                 else:
                     logger.warning(f"DCF calculation error: {dcf_result.get('error')}")
             except Exception as e:
@@ -205,8 +212,18 @@ class DeckGenerator:
         # Prepare generation tasks
         def generate_section_task(section_id: str):
             """Task wrapper for parallel execution with fallback."""
-            dcf_for_section = dcf_detailed if section_id == "valuation" else dcf_summary
-            comps_for_section = comps_concise if section_id in ["bull_case", "bear_case"] else comps_summary
+            dcf_for_section = dcf_summary
+            comps_for_section = comps_summary
+            section_inputs = self._assemble_section_inputs(
+                ticker=request.ticker,
+                company_name=request.company_name,
+                sector=request.sector,
+                fund_constraints=request.fund_constraints.model_dump(),
+                comps_summary=comps_for_section,
+                dcf_summary=dcf_for_section,
+                requested_sections=request.sections,
+                request=request,
+            )
 
             # Build list of (provider_instance, model_name) to try
             primary_extra = self._build_provider_options_extra(
@@ -247,6 +264,7 @@ class DeckGenerator:
                         model=cur_model,
                         options_extra=cur_extra,
                         computed_inputs=comps_data,
+                        section_inputs=section_inputs,
                     )
                     if attempt_idx > 0:
                         logger.info(
@@ -414,7 +432,7 @@ class DeckGenerator:
         # - Gemini 3 Pro: supports low/high.
         # - Gemini 3 Flash: supports low/medium/high (plus minimal, not exposed here).
         if provider == "gemini":
-            if "gemini-3-pro" in model_lc:
+            if "gemini-3-pro-preview" in model_lc:
                 thinking_level = "high" if level in {"medium", "high"} else "low"
             else:
                 thinking_level = "high" if level == "high" else ("low" if level == "low" else "medium")
@@ -448,6 +466,115 @@ class DeckGenerator:
             return {"model": model, "thinking_enabled": False}
 
         return {"model": model}
+
+    def _assemble_section_inputs(
+        self,
+        ticker: str,
+        company_name: str,
+        sector: str,
+        fund_constraints: dict[str, Any],
+        comps_summary: Optional[str],
+        dcf_summary: Optional[str],
+        requested_sections: list[str],
+        request: Optional[Any] = None,
+    ) -> dict[str, Any]:
+        """Assemble all inputs used by section prompt builders."""
+        inputs = {
+            "ticker": ticker,
+            "company_name": company_name,
+            "sector": sector,
+            "fund_constraints": fund_constraints,
+            "comps_summary": comps_summary,
+            "dcf_summary": dcf_summary,
+            "requested_sections": requested_sections,
+        }
+        # Intake redesign fields
+        if request is not None:
+            inputs["data_trust_mode"] = (
+                request.data_trust_mode.value
+                if getattr(request, "data_trust_mode", None)
+                else "user_auto_fetch"
+            )
+            inputs["position"] = (
+                request.position.value
+                if getattr(request, "position", None)
+                else None
+            )
+            inputs["deck_length"] = (
+                request.deck_length.value
+                if getattr(request, "deck_length", None)
+                else "standard"
+            )
+            inputs["thesis"] = (
+                request.thesis.model_dump()
+                if getattr(request, "thesis", None)
+                else None
+            )
+            inputs["catalysts"] = (
+                [c.model_dump() for c in request.catalysts]
+                if getattr(request, "catalysts", None)
+                else []
+            )
+            inputs["valuation"] = (
+                request.valuation_input.model_dump()
+                if getattr(request, "valuation_input", None)
+                else None
+            )
+            inputs["risks"] = (
+                [r.model_dump() for r in request.risks]
+                if getattr(request, "risks", None)
+                else []
+            )
+            inputs["data_blocks"] = (
+                request.data_blocks.model_dump()
+                if getattr(request, "data_blocks", None)
+                else None
+            )
+            inputs["user_constraints"] = (
+                request.user_constraints.model_dump()
+                if getattr(request, "user_constraints", None)
+                else None
+            )
+        return inputs
+
+    def _missing_required_context(
+        self,
+        inputs: dict[str, Any],
+        required_context: set[str],
+    ) -> list[str]:
+        """Return required context keys that are absent or blank."""
+        missing: list[str] = []
+        for key in required_context:
+            value = inputs.get(key)
+            if value is None:
+                missing.append(key)
+                continue
+            if isinstance(value, str) and not value.strip():
+                missing.append(key)
+        return missing
+
+    def _build_prompt_and_schema(
+        self,
+        section_id: str,
+        inputs: dict[str, Any],
+    ) -> tuple[str, dict[str, Any], bool]:
+        """
+        Build prompt/schema for a section.
+
+        Returns:
+            tuple of (prompt, schema, used_registry)
+        """
+        if section_id not in ALL_SECTIONS:
+            raise ValueError(f"Unknown section ID: {section_id}")
+
+        spec = get_section(section_id)
+        missing = self._missing_required_context(inputs, spec.required_context)
+        if missing:
+            missing_text = ", ".join(sorted(missing))
+            raise ValueError(
+                f"Missing required context for section '{section_id}': {missing_text}"
+            )
+        return spec.build_prompt(inputs), spec.schema, True
     
     @log_operation("generate_section")
     def _generate_section(
@@ -466,6 +593,7 @@ class DeckGenerator:
         model: str,
         options_extra: Optional[dict[str, Any]] = None,
         computed_inputs: Optional[dict] = None,
+        section_inputs: Optional[dict[str, Any]] = None,
     ) -> SectionResult:
         """
         Generate a single deck section.
@@ -484,6 +612,7 @@ class DeckGenerator:
             constraints_hash: Hash for caching
             model: Model name
             computed_inputs: Optional dict of computed data for numbers gate
+            section_inputs: Optional pre-assembled prompt inputs
             
         Returns:
             SectionResult with generated slides
@@ -496,10 +625,8 @@ class DeckGenerator:
             if cached:
                 logger.info(f"Cache hit for section {section_id}")
                 return SectionResult(**cached)
-        
-        # Build prompt
-        prompt = get_section_prompt(
-            section_id=section_id,
+
+        inputs = section_inputs or self._assemble_section_inputs(
             ticker=ticker,
             company_name=company_name,
             sector=sector,
@@ -509,8 +636,8 @@ class DeckGenerator:
             requested_sections=requested_sections,
         )
         
-        # Get schema for section
-        schema = get_section_schema(section_id)
+        # Build prompt + schema from the modular section registry.
+        prompt, schema, used_registry = self._build_prompt_and_schema(section_id, inputs)
         
         # Build options
         options = LLMOptions(
@@ -528,10 +655,16 @@ class DeckGenerator:
             max_retries=self.config.max_retries,
             fix_prompt_builder=get_fix_prompt,
         )
+
+        content = response.content
+        if used_registry:
+            spec = get_section(section_id)
+            if spec.postprocess is not None:
+                content = spec.postprocess(content, inputs)
         
         # Validate and transform response with numbers gate
         result = self._transform_section_response(
-            response.content,
+            content,
             section_id,
             computed_inputs=computed_inputs,
         )
@@ -593,10 +726,10 @@ class DeckGenerator:
             # Apply strict numbers gate - flags bullets with unverified numbers
             checked_bullets = flag_numeric_content(normalized_bullets, computed_inputs)
             
-            # Convert to BulletPoint objects
+            # Convert to BulletPoint objects (truncate to max_length to avoid crash)
             bullets = [
                 BulletPoint(
-                    text=b.get("text", ""),
+                    text=b.get("text", "")[:500],
                     source_needed=b.get("source_needed", False),
                 )
                 for b in checked_bullets
@@ -639,7 +772,7 @@ class DeckGenerator:
             ))
         
         # Get section name from metadata
-        section_metadata = SECTION_METADATA.get(section_id, {})
+        section_metadata = get_section_metadata(section_id)
         section_name = section_metadata.get("label", section_id)
         
         return SectionResult(
@@ -674,26 +807,25 @@ class DeckGenerator:
         
         logger.info("Generating deck plan")
         
-        # For planning, we use a simplified approach based on section metadata
-        # In a production system, this could use LLM to analyze the company
-        
         suggested = []
-        
-        # Standard ordering based on presentation flow
+
+        # Standard ordering for the modern modular section set.
         standard_order = [
+            SectionId.COMPANY_SNAPSHOT,
             SectionId.OVERVIEW,
             SectionId.HISTORY,
+            SectionId.BUSINESS_MODEL_SEGMENTS,
+            SectionId.INDUSTRY_COMPETITIVE_LANDSCAPE,
+            SectionId.HISTORICAL_PERFORMANCE_CURRENT_SETUP,
+            SectionId.MANAGEMENT_OWNERSHIP_GOVERNANCE,
+            SectionId.CAPITAL_STRUCTURE_FINANCIAL_HEALTH,
             SectionId.SWOT,
-            SectionId.PORTERS_FIVE,
-            SectionId.BULL_CASE,
-            SectionId.BEAR_CASE,
-            SectionId.VALUATION,
-            SectionId.REBUTTALS,
-            SectionId.LAYOUT,
+            SectionId.KEY_DRIVERS_KPIS,
+            SectionId.SECTOR_INVARIANTS,
         ]
         
         for i, section_id in enumerate(standard_order):
-            meta = SECTION_METADATA.get(section_id, {})
+            meta = get_section_metadata(section_id.value)
             
             # Generate rationale based on section type and fund constraints
             rationale = self._generate_plan_rationale(
@@ -727,19 +859,23 @@ class DeckGenerator:
     ) -> str:
         """Generate rationale for including a section."""
         rationales = {
+            "company_snapshot": "Establishes company identity, positioning, and business context in one institutional opening slide.",
             "overview": f"Essential for introducing the {sector} investment thesis",
             "history": "Provides context on company evolution and key milestones",
-            "swot": "Critical framework for evaluating investment merit and risks",
-            "porters_five": f"Important for understanding {sector} competitive dynamics",
-            "valuation": "Quantitative DCF analysis with transparent methodology and assumptions",
-            "rebuttals": "Prepares the team for tough questions during Q&A",
-            "layout": "Provides presentation guidance and structure recommendations",
+            "business_model_segments": "Clarifies revenue engine, customer segments, and unit economics.",
+            "industry_competitive_landscape": f"Frames {sector} structure, competition, and moat durability.",
+            "historical_performance_current_setup": "Connects multi-year operating trends with the current market setup.",
+            "management_ownership_governance": "Assesses management track record, incentive alignment, ownership structure, and governance flags.",
+            "capital_structure_financial_health": "Evaluates leverage, refinancing profile, liquidity runway, and dilution/capital-allocation risk.",
+            "swot": "Stress-tests thesis quality through internal and external factors.",
+            "key_drivers_kpis": "Identifies and defines the value-driving metrics that determine company performance and valuation.",
+            "sector_invariants": f"Highlights sector-specific dynamics and dependencies critical to {sector} investment decisions.",
         }
         
         base = rationales.get(section_id, "Standard pitch deck component")
         
         # Customize based on constraints
-        if fund_constraints.get("risk_profile") == "conservative" and section_id in ["swot", "rebuttals"]:
+        if fund_constraints.get("risk_profile") == "conservative" and section_id in ["swot", "historical_performance_current_setup"]:
             base += ". Especially important given conservative risk profile."
         
         return base
@@ -761,66 +897,6 @@ class DeckGenerator:
         if target and upside is not None:
             return f"DCF Target: ${target:.2f} ({upside:+.1f}% vs market)"
         return ""
-    
-    def _format_dcf_detailed(self, dcf_data: dict) -> str:
-        """
-        Format DCF data with full details for valuation section.
-        
-        Args:
-            dcf_data: DCF data dictionary
-            
-        Returns:
-            Detailed formatted string with all DCF components
-        """
-        if not dcf_data:
-            return ""
-        
-        inputs = dcf_data.get("inputs", {})
-        val = dcf_data.get("valuation", {})
-        breakdown = dcf_data.get("breakdown", {})
-        sources = dcf_data.get("sources", {})
-        
-        lines = ["DCF CALCULATION BREAKDOWN:"]
-        
-        # Inputs
-        lines.append("\nINPUTS (sourced from yfinance):")
-        if "freeCashFlow" in inputs:
-            lines.append(f"  - Free Cash Flow: ${inputs['freeCashFlow']/1e9:.2f}B")
-        if "growthRate" in inputs:
-            lines.append(f"  - Growth Rate: {inputs['growthRate']*100:.1f}%")
-        if "discountRate" in inputs:
-            lines.append(f"  - Discount Rate (WACC): {inputs['discountRate']*100:.1f}%")
-        if "terminalGrowthRate" in inputs:
-            lines.append(f"  - Terminal Growth Rate: {inputs['terminalGrowthRate']*100:.1f}%")
-        
-        # Calculation steps
-        if breakdown:
-            lines.append("\nCALCULATION STEPS:")
-            if "forecastPeriodPV" in breakdown:
-                lines.append(f"  - Forecast Period PV: ${breakdown['forecastPeriodPV']/1e9:.2f}B")
-            if "terminalValue" in breakdown:
-                lines.append(f"  - Terminal Value: ${breakdown['terminalValue']/1e9:.2f}B")
-            if "enterpriseValue" in breakdown:
-                lines.append(f"  - Enterprise Value: ${breakdown['enterpriseValue']/1e9:.2f}B")
-            if "equityValue" in breakdown:
-                lines.append(f"  - Equity Value: ${breakdown['equityValue']/1e9:.2f}B")
-        
-        # Target price
-        lines.append("\nTARGET PRICE:")
-        if "currentPrice" in val:
-            lines.append(f"  - Current Price: ${val['currentPrice']:.2f}")
-        if "targetPrice" in val:
-            lines.append(f"  - DCF Target Price: ${val['targetPrice']:.2f}")
-        if "upsidePct" in val:
-            lines.append(f"  - Implied Upside: {val['upsidePct']:+.1f}%")
-        
-        # Sources
-        if sources:
-            lines.append("\nDATA SOURCES:")
-            for key, source in sources.items():
-                lines.append(f"  - {key}: {source}")
-        
-        return "\n".join(lines)
     
 
 

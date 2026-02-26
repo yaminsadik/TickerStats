@@ -33,7 +33,25 @@ class TestEnums:
         assert ReasoningLevel.HIGH.value == "high"
     
     def test_section_ids(self):
-        expected = {"overview", "history", "swot", "porters_five", "bull_case", "bear_case", "valuation", "relative_heatmap", "rebuttals", "layout"}
+        expected = {
+            "company_snapshot",
+            "overview",
+            "history",
+            "business_model_segments",
+            "industry_competitive_landscape",
+            "historical_performance_current_setup",
+            "management_ownership_governance",
+            "capital_structure_financial_health",
+            "swot",
+            "key_drivers_kpis",
+            "sector_invariants",
+            "investment_thesis",
+            "investment_thesis_variant_view",
+            "catalysts_timeline",
+            "valuation",
+            "valuation_summary",
+            "risks_underwriting",
+        }
         actual = {s.value for s in SectionId}
         assert actual == expected
 
@@ -277,6 +295,6 @@ class TestGetSectionSchema:
         assert "needs_verification" in schema["required"]
         assert "verification_notes" in schema["required"]
     
-    def test_rebuttals_slide_limit(self):
-        schema = get_section_schema("rebuttals")
+    def test_company_snapshot_slide_limit(self):
+        schema = get_section_schema("company_snapshot")
         assert schema["properties"]["slides"]["maxItems"] == 2

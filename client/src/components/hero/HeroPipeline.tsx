@@ -32,11 +32,20 @@ export default function HeroPipeline() {
 
   return (
     // Fills its local slot. Keep at z-0 so nearby copy/CTAs can sit on z-10.
-    <div className="pointer-events-none absolute inset-0 z-0" aria-hidden="true">
+    <div
+      className="pointer-events-none absolute inset-0 z-0"
+      aria-hidden="true"
+    >
       <div className="mx-auto h-full w-full">
         <svg viewBox="0 0 1200 360" className="h-full w-full">
           <defs>
-            <linearGradient id="pipeline-line" x1="0%" y1="0%" x2="100%" y2="0%">
+            <linearGradient
+              id="pipeline-line"
+              x1="0%"
+              y1="0%"
+              x2="100%"
+              y2="0%"
+            >
               <stop offset="0%" stopColor="rgba(125,211,252,0.14)" />
               <stop offset="50%" stopColor="rgba(34,211,238,0.30)" />
               <stop offset="100%" stopColor="rgba(56,189,248,0.16)" />
@@ -111,13 +120,14 @@ export default function HeroPipeline() {
                   <motion.circle
                     cx={node.x}
                     cy={node.y}
-                    r="12"
+                    r={12}
                     fill="none"
                     stroke="rgba(45,212,191,0.50)"
                     strokeWidth="1.8"
+                    initial={{ opacity: 0, r: 12 }}
                     animate={{
                       opacity: [0, 0, 0.75, 0],
-                      scale: [1, 1, 1.9, 1],
+                      r: [12, 12, 22.8, 12],
                     }}
                     transition={{
                       duration: CYCLE_SECONDS,
@@ -125,7 +135,6 @@ export default function HeroPipeline() {
                       repeat: Infinity,
                       times,
                     }}
-                    style={{ transformOrigin: `${node.x}px ${node.y}px` }}
                   />
                 )}
                 <text
@@ -149,6 +158,11 @@ export default function HeroPipeline() {
               fill="rgba(45,212,191,0.95)"
               stroke="rgba(125,211,252,0.72)"
               strokeWidth="1.1"
+              initial={{
+                cx: tickerNode.x,
+                cy: tickerNode.y,
+                opacity: 0,
+              }}
               animate={{
                 cx: [
                   tickerNode.x,

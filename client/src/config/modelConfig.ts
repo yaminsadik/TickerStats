@@ -31,7 +31,7 @@ export const FREE_MODEL_OPTIONS: ModelOption[] = [
 
 export const PRO_MODEL_OPTIONS: ModelOption[] = [
   { value: "gpt-5.2", provider: "openai", label: "GPT-5.2 (OpenAI)", short: "GPT-5.2" },
-  { value: "gemini-3-pro", provider: "gemini", label: "Gemini 3 Pro (Google)", short: "Gemini 3 Pro" },
+  { value: "gemini-3-pro-preview", provider: "gemini", label: "Gemini 3 Pro (Google)", short: "Gemini 3 Pro" },
   { value: "claude-sonnet-4-5", provider: "anthropic", label: "Claude Sonnet 4.5 (Anthropic)", short: "Sonnet 4.5" },
   { value: "glm-5", provider: "zai", label: "GLM-5 (Z.AI)", short: "GLM-5" },
 ];
@@ -96,7 +96,7 @@ const MODEL_BADGES: Record<string, BadgeSet> = {
   "glm-4.7-flash":          { free: ["Fast", "Free"],             pro: ["Fast", "Free"] },
   "glm-4.7-flashx":         { free: ["Balanced", "Long context"], pro: ["Balanced", "Long context"] },
   "gpt-5.2":                { free: ["Best quality"],             pro: ["Best quality"] },
-  "gemini-3-pro":           { free: ["Best quality", "Long context"], pro: ["Best quality", "Long context"] },
+  "gemini-3-pro-preview":           { free: ["Best quality", "Long context"], pro: ["Best quality", "Long context"] },
   "claude-sonnet-4-5":      { free: ["Best quality"],             pro: ["Best quality"] },
   "glm-5":                  { free: ["Best quality", "Long context"], pro: ["Best quality", "Long context"] },
 };
@@ -137,7 +137,7 @@ export function getQualityOptions(provider: Provider, modelId: string) {
   if (provider === "openai") return QUALITY_OPTIONS_OPENAI;
   if (provider === "deepseek") return QUALITY_OPTIONS_DEEPSEEK;
   if (provider === "gemini") {
-    return modelId === "gemini-3-pro" ? QUALITY_OPTIONS_GEMINI_PRO : QUALITY_OPTIONS_GEMINI_FLASH;
+    return modelId === "gemini-3-pro-preview" ? QUALITY_OPTIONS_GEMINI_PRO : QUALITY_OPTIONS_GEMINI_FLASH;
   }
   if (provider === "anthropic") return QUALITY_OPTIONS_ANTHROPIC;
   if (provider === "zai") return QUALITY_OPTIONS_ZAI;

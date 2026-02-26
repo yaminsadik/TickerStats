@@ -89,28 +89,82 @@ class OpenAIProvider(LLMProvider):
     def _convert_to_strict_schema(self, schema: dict) -> dict:
         """
         Convert a JSON schema to OpenAI's strict schema format.
-        Ensures additionalProperties: false and all properties required.
+        Ensures additionalProperties: false at ALL levels including $defs.
         """
         import copy
         strict_schema = copy.deepcopy(schema)
+        strict_schema = self._resolve_root_ref_schema(strict_schema)
+        return self._process_schema_node(strict_schema)
+
+    def _resolve_root_ref_schema(self, schema: dict) -> dict:
+        """
+        Resolve top-level ``$ref`` schemas to a concrete root object when possible.
+
+        OpenAI strict validation expects root object constraints to be explicit
+        (including ``additionalProperties: false``). Some schema generators can
+        emit ``{"$ref": "#/$defs/..."}`` at the root, which prevents that.
+        """
+        import copy
+
+        root_ref = schema.get("$ref")
+        if not isinstance(root_ref, str) or not root_ref.startswith("#/$defs/"):
+            return schema
+
+        defs = schema.get("$defs")
+        if not isinstance(defs, dict):
+            return schema
+
+        def_name = root_ref.split("/")[-1]
+        target = defs.get(def_name)
+        if not isinstance(target, dict):
+            return schema
+
+        resolved = copy.deepcopy(target)
+        resolved["$defs"] = copy.deepcopy(defs)
+
+        # Preserve root-level metadata (e.g., title/description) if present.
+        for key, value in schema.items():
+            if key not in {"$ref", "$defs"}:
+                resolved.setdefault(key, copy.deepcopy(value))
+        return resolved
+    
+    def _process_schema_node(self, node: dict) -> dict:
+        """
+        Recursively process a schema node to add additionalProperties: false
+        at every object level.
+        """
+        import copy
+        processed = copy.deepcopy(node)
         
-        if strict_schema.get("type") == "object":
-            strict_schema["additionalProperties"] = False
-            # Make all properties required for strict mode
-            if "properties" in strict_schema:
-                strict_schema["required"] = list(strict_schema["properties"].keys())
-        
-        # Recursively handle nested structures
-        if "properties" in strict_schema:
-            for key, prop in strict_schema["properties"].items():
-                if isinstance(prop, dict):
-                    if prop.get("type") == "object":
-                        strict_schema["properties"][key] = self._convert_to_strict_schema(prop)
-                    elif prop.get("type") == "array" and "items" in prop:
-                        if isinstance(prop["items"], dict) and prop["items"].get("type") == "object":
-                            strict_schema["properties"][key]["items"] = self._convert_to_strict_schema(prop["items"])
-        
-        return strict_schema
+        # Structured Outputs: 'default' is not supported
+        if "default" in processed:
+            del processed["default"]
+
+        # Recurse through every nested dict/list first so uncommon schema
+        # containers (e.g. $defs, nested allOf branches) are also normalized.
+        for key, value in processed.items():
+            if isinstance(value, dict):
+                # Recurse unless it's a pure ref
+                if "$ref" not in value:
+                    processed[key] = self._process_schema_node(value)
+            elif isinstance(value, list):
+                processed[key] = [
+                    self._process_schema_node(item) if isinstance(item, dict) and "$ref" not in item else item
+                    for item in value
+                ]
+
+        node_type = processed.get("type")
+        is_object_type = node_type == "object" or (
+            isinstance(node_type, list) and "object" in node_type
+        )
+        has_object_shape = isinstance(processed.get("properties"), dict)
+
+        if is_object_type or has_object_shape:
+            processed["additionalProperties"] = False
+            if has_object_shape:
+                processed["required"] = list(processed["properties"].keys())
+
+        return processed
 
     
     def validate_api_key(self) -> bool:
@@ -164,10 +218,13 @@ class OpenAIProvider(LLMProvider):
         try:
             start_time = time.time()
             
+            # Log schema keys for debugging schema errors
             logger.info(f"Calling OpenAI API with Structured Outputs", extra={
                 "model": model,
                 "max_tokens": max_tokens,
                 "reasoning_effort": reasoning_effort,
+                "schema_root_keys": list(strict_schema.keys()),
+                "schema_add_props": strict_schema.get("additionalProperties"),
             })
             
             # Use Structured Outputs with json_schema response format
@@ -175,7 +232,7 @@ class OpenAIProvider(LLMProvider):
                 model=model,
                 messages=messages,
                 max_completion_tokens=max_tokens,
-                reasoning_effort=reasoning_effort,
+                reasoning={"effort": reasoning_effort},
                 response_format={
                     "type": "json_schema",
                     "json_schema": {

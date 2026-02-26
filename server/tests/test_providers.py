@@ -150,6 +150,76 @@ class TestOpenAIProvider:
         # Should add required
         assert "required" in strict
         assert "name" in strict["required"]
+        # Should add additionalProperties to nested objects
+        assert strict["properties"]["items"]["items"].get("additionalProperties") is False
+    
+    def test_strict_schema_handles_defs(self):
+        """Test that _convert_to_strict_schema handles $defs section."""
+        from app.deck.services.llm_openai import OpenAIProvider
+        
+        provider = OpenAIProvider("test-key")
+        
+        # Schema with $defs like Pydantic generates
+        schema = {
+            "type": "object",
+            "properties": {
+                "user": {"$ref": "#/$defs/User"}
+            },
+            "$defs": {
+                "User": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "address": {"$ref": "#/$defs/Address"}
+                    }
+                },
+                "Address": {
+                    "type": "object",
+                    "properties": {
+                        "street": {"type": "string"},
+                        "city": {"type": "string"}
+                    }
+                }
+            }
+        }
+        
+        strict = provider._convert_to_strict_schema(schema)
+        
+        # Root should have additionalProperties: false
+        assert strict.get("additionalProperties") is False
+        # All objects in $defs should have additionalProperties: false
+        assert strict["$defs"]["User"].get("additionalProperties") is False
+        assert strict["$defs"]["Address"].get("additionalProperties") is False
+        # All should have required fields
+        assert "name" in strict["$defs"]["User"]["required"]
+        assert "street" in strict["$defs"]["Address"]["required"]
+
+    def test_strict_schema_handles_root_ref(self):
+        """Test root $ref schemas are resolved into strict object roots."""
+        from app.deck.services.llm_openai import OpenAIProvider
+
+        provider = OpenAIProvider("test-key")
+
+        schema = {
+            "$ref": "#/$defs/DeckSection",
+            "$defs": {
+                "DeckSection": {
+                    "type": "object",
+                    "properties": {
+                        "section_id": {"type": "string"},
+                        "slides": {"type": "array", "items": {"type": "string"}},
+                    },
+                }
+            },
+        }
+
+        strict = provider._convert_to_strict_schema(schema)
+
+        # Root should become an explicit object schema for OpenAI strict mode.
+        assert strict.get("type") == "object"
+        assert strict.get("additionalProperties") is False
+        assert "section_id" in strict.get("required", [])
+        assert "slides" in strict.get("required", [])
     
     @patch("app.deck.services.llm_openai.OpenAIProvider._get_client")
     def test_generate_json_with_structured_outputs(self, mock_get_client):
@@ -184,7 +254,7 @@ class TestOpenAIProvider:
         assert call_kwargs["response_format"]["json_schema"]["strict"] is True
         
         # Verify reasoning effort was passed
-        assert call_kwargs["reasoning_effort"] == "medium"
+        assert call_kwargs["reasoning"]["effort"] == "medium"
         
         assert response.content == {"section_id": "overview", "slides": []}
         assert response.provider == "openai"
@@ -260,6 +330,43 @@ class TestGeminiProvider:
         assert gemini_schema["type"] == "OBJECT"
         assert gemini_schema["properties"]["name"]["type"] == "STRING"
         assert gemini_schema["properties"]["count"]["type"] == "INTEGER"
+
+    def test_schema_conversion_resolves_defs_refs(self):
+        """Test Gemini schema conversion resolves $defs/$ref and nullable unions."""
+        from app.deck.services.llm_gemini import GeminiProvider
+
+        provider = GeminiProvider("test-key")
+        provider._configured = True
+
+        schema = {
+            "type": "object",
+            "properties": {
+                "module": {"$ref": "#/$defs/Module"},
+            },
+            "$defs": {
+                "Module": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "notes": {
+                            "anyOf": [
+                                {"type": "string"},
+                                {"type": "null"},
+                            ]
+                        },
+                    },
+                    "required": ["name"],
+                }
+            },
+        }
+
+        gemini_schema = provider._convert_to_gemini_schema(schema)
+        module_schema = gemini_schema["properties"]["module"]
+
+        assert module_schema["type"] == "OBJECT"
+        assert module_schema["properties"]["name"]["type"] == "STRING"
+        assert module_schema["properties"]["notes"]["type"] == "STRING"
+        assert "name" in module_schema["required"]
     
     @patch("google.generativeai.GenerativeModel")
     @patch("google.generativeai.configure")
@@ -272,7 +379,9 @@ class TestGeminiProvider:
         mock_model_class.return_value = mock_model
         
         mock_response = MagicMock()
-        mock_response.candidates = [MagicMock()]
+        candidate = MagicMock()
+        candidate.finish_reason = 1
+        mock_response.candidates = [candidate]
         mock_response.text = '{"section_id": "overview", "slides": []}'
         mock_response.usage_metadata = MagicMock()
         mock_response.usage_metadata.prompt_token_count = 100
@@ -291,6 +400,7 @@ class TestGeminiProvider:
         # Verify GenerationConfig was called with response_schema
         call_kwargs = mock_model_class.call_args.kwargs
         assert "generation_config" in call_kwargs
+        assert call_kwargs["generation_config"]["max_output_tokens"] == 16384
         
         assert response.content == {"section_id": "overview", "slides": []}
         assert response.provider == "gemini"
@@ -304,7 +414,9 @@ class TestGeminiProvider:
         mock_model_class.return_value = mock_model
 
         mock_response = MagicMock()
-        mock_response.candidates = [MagicMock()]
+        candidate = MagicMock()
+        candidate.finish_reason = 1
+        mock_response.candidates = [candidate]
         mock_response.text = '{"section_id": "overview", "slides": []}'
         mock_response.usage_metadata = MagicMock()
         mock_response.usage_metadata.prompt_token_count = 10
@@ -324,6 +436,52 @@ class TestGeminiProvider:
         assert "generation_config" in call_kwargs
         generation_config = call_kwargs["generation_config"]
         assert generation_config["thinking_config"]["thinking_level"] == "high"
+
+    @patch("google.generativeai.GenerativeModel")
+    @patch("google.generativeai.configure")
+    def test_generate_json_retries_on_max_tokens(self, mock_configure, mock_model_class):
+        """Gemini should retry once with a larger token budget after MAX_TOKENS."""
+        from app.deck.services.llm_gemini import GeminiProvider
+
+        first_model = MagicMock()
+        second_model = MagicMock()
+        mock_model_class.side_effect = [first_model, second_model]
+
+        first_candidate = MagicMock()
+        first_candidate.finish_reason = 2  # MAX_TOKENS
+        first_response = MagicMock()
+        first_response.candidates = [first_candidate]
+        first_response.text = '{"section_id": "overview"'
+        first_response.usage_metadata = MagicMock()
+        first_response.usage_metadata.prompt_token_count = 10
+        first_response.usage_metadata.candidates_token_count = 10
+        first_response.usage_metadata.total_token_count = 20
+        first_model.generate_content.return_value = first_response
+
+        second_candidate = MagicMock()
+        second_candidate.finish_reason = 1
+        second_response = MagicMock()
+        second_response.candidates = [second_candidate]
+        second_response.text = '{"section_id": "overview", "slides": []}'
+        second_response.usage_metadata = MagicMock()
+        second_response.usage_metadata.prompt_token_count = 10
+        second_response.usage_metadata.candidates_token_count = 5
+        second_response.usage_metadata.total_token_count = 15
+        second_model.generate_content.return_value = second_response
+
+        provider = GeminiProvider("test-key")
+        response = provider.generate_json(
+            system_prompt="You are an assistant",
+            user_prompt="Generate content",
+            json_schema={"type": "object", "properties": {"section_id": {"type": "string"}, "slides": {"type": "array"}}},
+            options=LLMOptions(reasoning_level="medium"),
+        )
+
+        assert response.content == {"section_id": "overview", "slides": []}
+        assert mock_model_class.call_count == 2
+        first_cfg = mock_model_class.call_args_list[0].kwargs["generation_config"]
+        second_cfg = mock_model_class.call_args_list[1].kwargs["generation_config"]
+        assert second_cfg["max_output_tokens"] > first_cfg["max_output_tokens"]
 
 
 class TestNumbersGate:

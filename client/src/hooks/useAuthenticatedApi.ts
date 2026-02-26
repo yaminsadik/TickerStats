@@ -138,10 +138,20 @@ export function useAuthenticatedFetch() {
     }
 
     // Make the request
-    const response = await fetch(fullUrl, {
-      ...fetchOptions,
-      headers,
-    });
+    let response: Response;
+    try {
+      response = await fetch(fullUrl, {
+        ...fetchOptions,
+        headers,
+      });
+    } catch (error) {
+      console.error("Network request failed:", { url: fullUrl, error });
+      throw new Error(
+        `Network error contacting API at ${fullUrl}. ` +
+          "Check VITE_API_BASE/VITE_API_BASE_URL, backend reachability, HTTPS, and ALLOWED_ORIGINS. " +
+          `Original error: ${getErrorMessage(error)}.`,
+      );
+    }
 
     // Handle 401 Unauthorized
     if (response.status === 401 && requireAuth) {

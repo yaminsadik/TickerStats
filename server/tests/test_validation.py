@@ -191,20 +191,6 @@ class TestValidateSectionOutput:
         result = validate_section_output(section, "history")
         assert result.valid
     
-    def test_rebuttals_max_slides(self):
-        section = {
-            "section_id": "rebuttals",
-            "slides": [
-                {"title": "Q&A 1", "bullets": [{"text": "Q1"}]},
-                {"title": "Q&A 2", "bullets": [{"text": "Q2"}]},
-                {"title": "Q&A 3", "bullets": [{"text": "Q3"}]},  # Exceeds max of 2
-            ],
-        }
-        
-        result = validate_section_output(section, "rebuttals")
-        assert not result.valid
-
-
 class TestSanitizeLlmOutput:
     """Tests for LLM output sanitization."""
     

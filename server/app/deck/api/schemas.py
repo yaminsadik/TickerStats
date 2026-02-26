@@ -50,18 +50,45 @@ class ReasoningLevel(str, Enum):
     HIGH = "high"
 
 
+class DataTrustMode(str, Enum):
+    """Controls which sections can introduce numbers."""
+    USER_ONLY = "user_only"            # Model cannot introduce numbers
+    USER_AUTO_FETCH = "user_auto_fetch" # Numbers from user or auto-fetched sources
+    NARRATIVE_ONLY = "narrative_only"   # No numbers except identity facts
+
+
+class Position(str, Enum):
+    """Investment position direction."""
+    LONG = "long"
+    SHORT = "short"
+
+
+class DeckLength(str, Enum):
+    """Target deck length / slide count."""
+    SHORT = "short"        # 6-8 slides
+    STANDARD = "standard"  # 10-14 slides
+    DEEP = "deep"          # 15-20 slides
+
+
 class SectionId(str, Enum):
     """Valid deck section identifiers."""
+    COMPANY_SNAPSHOT = "company_snapshot"
     OVERVIEW = "overview"
     HISTORY = "history"
+    BUSINESS_MODEL_SEGMENTS = "business_model_segments"
+    INDUSTRY_COMPETITIVE_LANDSCAPE = "industry_competitive_landscape"
+    HISTORICAL_PERFORMANCE_CURRENT_SETUP = "historical_performance_current_setup"
+    MANAGEMENT_OWNERSHIP_GOVERNANCE = "management_ownership_governance"
+    CAPITAL_STRUCTURE_FINANCIAL_HEALTH = "capital_structure_financial_health"
     SWOT = "swot"
-    PORTERS_FIVE = "porters_five"
-    BULL_CASE = "bull_case"
-    BEAR_CASE = "bear_case"
-    RELATIVE_HEATMAP = "relative_heatmap"
+    KEY_DRIVERS_KPIS = "key_drivers_kpis"
+    SECTOR_INVARIANTS = "sector_invariants"
+    INVESTMENT_THESIS = "investment_thesis"
+    INVESTMENT_THESIS_VARIANT_VIEW = "investment_thesis_variant_view"
+    CATALYSTS_TIMELINE = "catalysts_timeline"
     VALUATION = "valuation"
-    REBUTTALS = "rebuttals"
-    LAYOUT = "layout"
+    VALUATION_SUMMARY = "valuation_summary"
+    RISKS_UNDERWRITING = "risks_underwriting"
 
 
 # =============================================================================
@@ -69,78 +96,131 @@ class SectionId(str, Enum):
 # =============================================================================
 
 SECTION_METADATA = {
+    SectionId.COMPANY_SNAPSHOT: {
+        "id": "company_snapshot",
+        "label": "Company Snapshot",
+        "description": "Institutional-quality identity slide with positioning, segments, money model, customers, footprint, and proof points",
+        "min_slides": 1,
+        "max_slides": 2,
+    },
     SectionId.OVERVIEW: {
         "id": "overview",
-        "label": "Company Overview + Catalysts",
-        "description": "What the business does, segments, 'why now', and catalysts",
+        "label": "Company Overview",
+        "description": "Core business, why now thesis, and near/medium-term catalysts",
         "min_slides": 1,
         "max_slides": 3,
     },
     SectionId.HISTORY: {
         "id": "history",
-        "label": "History Timeline (Draft)",
-        "description": "Key milestones, founding, IPO, major acquisitions (requires verification)",
+        "label": "Company History (Draft)",
+        "description": "Key company milestones and timeline context (requires verification)",
         "min_slides": 1,
         "max_slides": 2,
         "requires_verification": True,
     },
-    SectionId.SWOT: {
-        "id": "swot",
-        "label": "SWOT",
-        "description": "Strengths, Weaknesses, Opportunities, Threats with bullet justification",
-        "min_slides": 1,
-        "max_slides": 3,
-    },
-    SectionId.PORTERS_FIVE: {
-        "id": "porters_five",
-        "label": "Porter's Five Forces",
-        "description": "Category-level competitive analysis and rationale",
+    SectionId.BUSINESS_MODEL_SEGMENTS: {
+        "id": "business_model_segments",
+        "label": "Business Model & Segments",
+        "description": "What they sell, who they sell to, revenue flow, segment breakdown with mix, and unit economics where disclosed",
         "min_slides": 1,
         "max_slides": 2,
     },
-    SectionId.BULL_CASE: {
-        "id": "bull_case",
-        "label": "Bull Case",
-        "description": "Upside scenario with growth catalysts, multiple expansion, and price target",
-        "min_slides": 2,
-        "max_slides": 3,
-    },
-    SectionId.BEAR_CASE: {
-        "id": "bear_case",
-        "label": "Bear Case",
-        "description": "Downside risks, margin compression scenarios, and bear price target",
-        "min_slides": 2,
-        "max_slides": 3,
-    },
-    SectionId.RELATIVE_HEATMAP: {
-        "id": "relative_heatmap",
-        "label": "Relative Valuation",
-        "description": "Comparative metrics table showing target vs peers across key fundamentals",
+    SectionId.INDUSTRY_COMPETITIVE_LANDSCAPE: {
+        "id": "industry_competitive_landscape",
+        "label": "Industry & Competitive Landscape",
+        "description": "Market definition, sizing, growth drivers, competitive set, positioning, moat drivers, and Porter's Five Forces",
         "min_slides": 1,
-        "max_slides": 1,
-        "requires_comps": True,
+        "max_slides": 2,
+    },
+    SectionId.HISTORICAL_PERFORMANCE_CURRENT_SETUP: {
+        "id": "historical_performance_current_setup",
+        "label": "Historical Performance & Current Setup",
+        "description": "3-5 year revenue, profitability, and cash flow trends plus current stock vs benchmark and/or valuation rerating context with recent event timeline",
+        "min_slides": 1,
+        "max_slides": 2,
+    },
+    SectionId.MANAGEMENT_OWNERSHIP_GOVERNANCE: {
+        "id": "management_ownership_governance",
+        "label": "Management & Ownership",
+        "description": "Management track record and incentives, ownership overview, and governance flags",
+        "min_slides": 1,
+        "max_slides": 2,
+    },
+    SectionId.CAPITAL_STRUCTURE_FINANCIAL_HEALTH: {
+        "id": "capital_structure_financial_health",
+        "label": "Capital Structure & Financial Health",
+        "description": "Leverage, maturities, liquidity, and share-count/dilution dynamics with risk takeaways",
+        "min_slides": 1,
+        "max_slides": 2,
+    },
+    SectionId.SWOT: {
+        "id": "swot",
+        "label": "SWOT Analysis",
+        "description": "Internal strengths/weaknesses and external opportunities/threats with investor relevance",
+        "min_slides": 1,
+        "max_slides": 3,
+    },
+    SectionId.KEY_DRIVERS_KPIS: {
+        "id": "key_drivers_kpis",
+        "label": "Key Drivers & KPIs",
+        "description": "Value-driving metrics, definitions, and where they are disclosed",
+        "min_slides": 1,
+        "max_slides": 2,
+    },
+    SectionId.SECTOR_INVARIANTS: {
+        "id": "sector_invariants",
+        "label": "Sector Invariants",
+        "description": "Sector-specific value drivers, dependencies, and failure modes",
+        "min_slides": 1,
+        "max_slides": 2,
+    },
+    SectionId.INVESTMENT_THESIS: {
+        "id": "investment_thesis",
+        "label": "Investment Thesis & Variant View",
+        "description": "User-defined thesis, market consensus vs variant view, and thesis pillars",
+        "min_slides": 1,
+        "max_slides": 2,
+        "requires_user_input": True,
+    },
+    SectionId.CATALYSTS_TIMELINE: {
+        "id": "catalysts_timeline",
+        "label": "Catalysts & Timeline",
+        "description": "Specific catalysts with timing windows, mechanisms, and evidence",
+        "min_slides": 1,
+        "max_slides": 2,
+        "requires_user_input": True,
     },
     SectionId.VALUATION: {
         "id": "valuation",
-        "label": "DCF Valuation",
-        "description": "Deterministic DCF target price calculation with full breakdown",
+        "label": "Valuation",
+        "description": "Valuation framework with user-selected methods, comparables, and price target",
         "min_slides": 1,
         "max_slides": 2,
-        "requires_dcf": True,
+        "requires_user_input": True,
     },
-    SectionId.REBUTTALS: {
-        "id": "rebuttals",
-        "label": "Rebuttals / Q&A",
-        "description": "Common objections and responses for Q&A preparation",
+    SectionId.INVESTMENT_THESIS_VARIANT_VIEW: {
+        "id": "investment_thesis_variant_view",
+        "label": "Investment Thesis",
+        "description": "User-locked thesis, variant view, and disconfirming conditions",
         "min_slides": 1,
         "max_slides": 2,
+        "requires_user_input": True,
     },
-    SectionId.LAYOUT: {
-        "id": "layout",
-        "label": "Layout Decisions",
-        "description": "Slide layout guidance, structure, bullet limits, presenter notes",
+    SectionId.RISKS_UNDERWRITING: {
+        "id": "risks_underwriting",
+        "label": "Risks & Underwriting",
+        "description": "Ranked risks with leading indicators and mitigants",
         "min_slides": 1,
-        "max_slides": 1,
+        "max_slides": 2,
+        "requires_user_input": True,
+    },
+    SectionId.VALUATION_SUMMARY: {
+        "id": "valuation_summary",
+        "label": "Valuation Summary",
+        "description": "Valuation methods selected, key inputs, and deterministic DCF output when available",
+        "min_slides": 1,
+        "max_slides": 2,
+        "requires_user_input": True,
     },
 }
 
@@ -172,6 +252,146 @@ class FundConstraints(BaseModel):
         default="student investment fund pitch deck",
         description="Presentation style/audience",
         max_length=200,
+    )
+
+
+class ThesisInput(BaseModel):
+    """User-provided investment thesis for the pitch."""
+    thesis_sentence: Optional[str] = Field(
+        None,
+        description="Structured thesis: 'Market is wrong because ___; it reprices when ___.'",
+        max_length=500,
+    )
+    market_believes: Optional[str] = Field(
+        None,
+        description="What consensus / the market currently believes",
+        max_length=1000,
+    )
+    we_believe: Optional[str] = Field(
+        None,
+        description="User's variant view — what they believe instead",
+        max_length=1000,
+    )
+    pillars: list[str] = Field(
+        default_factory=list,
+        description="2-5 thesis pillars supporting the view",
+        max_length=5,
+    )
+    what_changes_mind: list[str] = Field(
+        default_factory=list,
+        description="1-2 conditions that would invalidate the thesis",
+        max_length=2,
+    )
+
+
+class CatalystInput(BaseModel):
+    """A single catalyst event with timing."""
+    name: str = Field(..., description="Catalyst name", max_length=200)
+    timing_window: Optional[str] = Field(
+        None,
+        description="Expected timing (e.g., 'Q2 2025', 'H1 2025')",
+        max_length=50,
+    )
+    mechanism: Optional[str] = Field(
+        None,
+        description="What changes and why the market reacts",
+        max_length=500,
+    )
+    evidence: Optional[str] = Field(
+        None,
+        description="Supporting evidence or data paste",
+        max_length=2000,
+    )
+
+
+class ValuationInput(BaseModel):
+    """User-provided valuation approach and assumptions."""
+    methods: list[str] = Field(
+        default_factory=list,
+        description="Selected valuation methods (relative, dcf, sotp, nav, unit_econ, yield)",
+        max_length=6,
+    )
+    peer_tickers: list[str] = Field(
+        default_factory=list,
+        description="Comparable company tickers for relative valuation",
+        max_length=20,
+    )
+    target_multiple_range: Optional[str] = Field(
+        None,
+        description="Target multiple range (e.g., '15-18x EV/EBITDA')",
+        max_length=200,
+    )
+    dcf_assumptions: Optional[str] = Field(
+        None,
+        description="DCF assumptions: WACC, terminal growth, margin path",
+        max_length=2000,
+    )
+    price_target: Optional[str] = Field(
+        None,
+        description="User's price target or range",
+        max_length=100,
+    )
+
+
+class RiskInput(BaseModel):
+    """A single risk factor with monitoring details."""
+    risk: str = Field(..., description="Risk description", max_length=300)
+    impact: Optional[str] = Field(
+        None,
+        description="Impact severity: high, medium, or low",
+        max_length=20,
+    )
+    probability: Optional[str] = Field(
+        None,
+        description="Probability: high, medium, or low",
+        max_length=20,
+    )
+    leading_indicator: Optional[str] = Field(
+        None,
+        description="How to monitor this risk",
+        max_length=300,
+    )
+    mitigant: Optional[str] = Field(
+        None,
+        description="Mitigant or hedge approach",
+        max_length=500,
+    )
+
+
+class DataBlocks(BaseModel):
+    """User-pasted data blocks for accuracy."""
+    kpi_table: Optional[str] = Field(
+        None, description="KPI table (ARR/NRR/churn/backlog/etc.)", max_length=5000,
+    )
+    segment_mix: Optional[str] = Field(
+        None, description="Segment revenue mix table", max_length=5000,
+    )
+    debt_maturities: Optional[str] = Field(
+        None, description="Debt maturity schedule", max_length=5000,
+    )
+    ownership_notes: Optional[str] = Field(
+        None, description="Ownership/governance notes", max_length=5000,
+    )
+    filing_excerpts: Optional[str] = Field(
+        None, description="Filing excerpts or other source data", max_length=10000,
+    )
+
+
+class UserConstraints(BaseModel):
+    """Portfolio-level constraints that gate content."""
+    liquidity_floor: Optional[str] = Field(
+        None, description="Minimum liquidity requirement", max_length=200,
+    )
+    leverage_ceiling: Optional[str] = Field(
+        None, description="Maximum leverage tolerance", max_length=200,
+    )
+    esg_constraints: Optional[str] = Field(
+        None, description="ESG screen or exclusion criteria", max_length=500,
+    )
+    exclude_peers: list[str] = Field(
+        default_factory=list,
+        description="Peer groups or industries to exclude",
+        max_length=20,
     )
 
 
@@ -239,6 +459,43 @@ class DeckGenerateRequest(BaseModel):
     include_dcf: bool = Field(
         default=True,
         description="Include DCF target price calculation (deterministic)",
+    )
+    # --- Intake redesign fields (all optional for backward compatibility) ---
+    position: Optional[Position] = Field(
+        None,
+        description="Investment position direction (long/short)",
+    )
+    deck_length: Optional[DeckLength] = Field(
+        DeckLength.STANDARD,
+        description="Target deck length (short/standard/deep)",
+    )
+    data_trust_mode: Optional[DataTrustMode] = Field(
+        DataTrustMode.USER_AUTO_FETCH,
+        description="Controls whether the model may introduce numbers",
+    )
+    thesis: Optional[ThesisInput] = Field(
+        None,
+        description="User-provided investment thesis and variant view",
+    )
+    catalysts: list[CatalystInput] = Field(
+        default_factory=list,
+        description="User-provided catalyst events with timing",
+    )
+    valuation_input: Optional[ValuationInput] = Field(
+        None,
+        description="User-provided valuation approach and assumptions",
+    )
+    risks: list[RiskInput] = Field(
+        default_factory=list,
+        description="User-provided risk factors",
+    )
+    data_blocks: Optional[DataBlocks] = Field(
+        None,
+        description="User-pasted data blocks (KPIs, segments, debt, etc.)",
+    )
+    user_constraints: Optional[UserConstraints] = Field(
+        None,
+        description="Portfolio-level constraints",
     )
 
     @field_validator("ticker", mode="before")
@@ -364,7 +621,7 @@ class Slide(BaseModel):
     speaker_notes: str = Field(
         default="",
         description="Presenter notes for this slide",
-        max_length=2000,
+        max_length=5000,
     )
     layout_hints: LayoutHints = Field(default_factory=LayoutHints)
     flags: SlideFlags = Field(default_factory=SlideFlags)
@@ -453,6 +710,11 @@ class SectionInfo(BaseModel):
     id: str
     label: str
     description: Optional[str] = None
+    default: bool = Field(default=True, description="Whether this section is selected by default")
+    requires_user_input: bool = Field(
+        default=False,
+        description="Whether this section needs user-provided data to generate",
+    )
 
 
 class SectionsResponse(BaseModel):
@@ -562,11 +824,41 @@ def get_section_schema(section_id: str) -> dict:
     if section_id == SectionId.HISTORY.value:
         schema["required"] = ["section_id", "slides", "needs_verification", "verification_notes"]
         schema["properties"]["needs_verification"] = {"type": "boolean", "const": True}
-    elif section_id == SectionId.REBUTTALS.value:
+    elif section_id == SectionId.COMPANY_SNAPSHOT.value:
         schema["properties"]["slides"]["maxItems"] = 2
-    elif section_id == SectionId.BULL_CASE.value:
-        schema["properties"]["slides"]["maxItems"] = 3
-    elif section_id == SectionId.BEAR_CASE.value:
-        schema["properties"]["slides"]["maxItems"] = 3
-    
+    elif section_id == SectionId.BUSINESS_MODEL_SEGMENTS.value:
+        schema["properties"]["slides"]["maxItems"] = 2
+    elif section_id == SectionId.INDUSTRY_COMPETITIVE_LANDSCAPE.value:
+        schema["properties"]["slides"]["maxItems"] = 2
+    elif section_id == SectionId.HISTORICAL_PERFORMANCE_CURRENT_SETUP.value:
+        schema["properties"]["slides"]["maxItems"] = 2
+    elif section_id == SectionId.MANAGEMENT_OWNERSHIP_GOVERNANCE.value:
+        schema["properties"]["slides"]["maxItems"] = 2
+    elif section_id == SectionId.CAPITAL_STRUCTURE_FINANCIAL_HEALTH.value:
+        schema["properties"]["slides"]["maxItems"] = 2
+    elif section_id == SectionId.KEY_DRIVERS_KPIS.value:
+        schema["properties"]["slides"]["maxItems"] = 2
+    elif section_id == SectionId.SECTOR_INVARIANTS.value:
+        schema["properties"]["slides"]["maxItems"] = 2
+    elif section_id == SectionId.INVESTMENT_THESIS.value:
+        schema["properties"]["slides"]["maxItems"] = 2
+    elif section_id == SectionId.CATALYSTS_TIMELINE.value:
+        schema["properties"]["slides"]["maxItems"] = 2
+    elif section_id == SectionId.VALUATION.value:
+        schema["properties"]["slides"]["maxItems"] = 2
+    elif section_id == SectionId.INVESTMENT_THESIS_VARIANT_VIEW.value:
+        schema["properties"]["slides"]["maxItems"] = 2
+    elif section_id == SectionId.RISKS_UNDERWRITING.value:
+        schema["properties"]["slides"]["maxItems"] = 2
+    elif section_id == SectionId.VALUATION_SUMMARY.value:
+        schema["properties"]["slides"]["maxItems"] = 2
+
     return schema
+
+
+def get_section_metadata(section_id: str) -> dict[str, Any]:
+    """Get section metadata by string ID."""
+    try:
+        return SECTION_METADATA[SectionId(section_id)]
+    except ValueError:
+        return {}

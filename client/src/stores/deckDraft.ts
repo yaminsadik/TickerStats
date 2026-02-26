@@ -1,9 +1,25 @@
+import type {
+  Position,
+  DeckLength,
+  DataTrustMode,
+  ThesisInput,
+  CatalystInput,
+  ValuationMethodInput,
+  RiskInput,
+  DataBlocks,
+  UserConstraints,
+} from '../api/deckApi';
+
 export interface DeckDraftBasics {
   ticker: string;
   companyName: string;
   sector: string;
   companyContext?: string;
   investmentThesis?: string;
+  // Intake redesign Phase 1 fields
+  position?: Position;
+  deckLength?: DeckLength;
+  dataTrustMode?: DataTrustMode;
 }
 
 export interface FundConstraints {
@@ -11,6 +27,15 @@ export interface FundConstraints {
   risk_profile: string;
   portfolio_context?: string;
   style?: string;
+}
+
+export interface DeckDraftIntake {
+  thesis?: ThesisInput;
+  catalysts: CatalystInput[];
+  valuationInput?: ValuationMethodInput;
+  risks: RiskInput[];
+  dataBlocks?: DataBlocks;
+  userConstraints?: UserConstraints;
 }
 
 export interface DeckDraftConfig {
@@ -26,6 +51,7 @@ export interface DeckDraft {
   updatedAt: string;
   basics: DeckDraftBasics;
   config: DeckDraftConfig;
+  intake: DeckDraftIntake;
   // Generated content stored after generation
   generatedContent?: import('../api/deckApi').GenerateDeckResponse;
   status: 'draft' | 'generating' | 'complete' | 'error';
@@ -70,6 +96,11 @@ function normalizeDraftConfig(raw?: Partial<DeckDraftConfig>): DeckDraftConfig {
   };
 }
 
+const DEFAULT_INTAKE: DeckDraftIntake = {
+  catalysts: [],
+  risks: [],
+};
+
 /**
  * Clear all drafts from localStorage
  */
@@ -107,19 +138,22 @@ export function getDrafts(): DeckDraft[] {
  */
 function migrateDraft(draft: any): DeckDraft {
   const config = normalizeDraftConfig(draft?.config);
+  const intake = draft?.intake ?? { ...DEFAULT_INTAKE };
 
   // If draft already has new fields, return as is
   if (draft.basics?.companyName && draft.basics?.sector) {
     return {
       ...draft,
       config,
+      intake,
     } as DeckDraft;
   }
-  
+
   // Migrate old draft format
   return {
     ...draft,
     config,
+    intake,
     basics: {
       ticker: draft.basics?.ticker || '',
       companyName: draft.generatedContent?.metadata?.company_name || draft.basics?.ticker || '',
@@ -150,7 +184,8 @@ function saveDrafts(drafts: DeckDraft[]): void {
  */
 export function createDraft(
   basics: DeckDraftBasics,
-  config?: Partial<DeckDraftConfig>
+  config?: Partial<DeckDraftConfig>,
+  intake?: Partial<DeckDraftIntake>,
 ): DeckDraft {
   const now = new Date().toISOString();
   const draft: DeckDraft = {
@@ -159,6 +194,7 @@ export function createDraft(
     updatedAt: now,
     basics,
     config: normalizeDraftConfig(config),
+    intake: { ...DEFAULT_INTAKE, ...intake },
     status: 'draft',
   };
 
@@ -209,6 +245,18 @@ export function updateDraftConfig(id: string, config: Partial<DeckDraftConfig>):
 
   return updateDraft(id, {
     config: { ...draft.config, ...config },
+  });
+}
+
+/**
+ * Update draft intake (thesis, catalysts, valuation, risks, etc.)
+ */
+export function updateDraftIntake(id: string, intake: Partial<DeckDraftIntake>): DeckDraft | null {
+  const draft = getDraft(id);
+  if (!draft) return null;
+
+  return updateDraft(id, {
+    intake: { ...draft.intake, ...intake },
   });
 }
 

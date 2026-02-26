@@ -21,7 +21,7 @@ class TestProviderReasoningMapping:
     def test_gemini_pro_maps_medium_to_high(self):
         extra = self.generator._build_provider_options_extra(
             provider_name="gemini",
-            model="gemini-3-pro",
+            model="gemini-3-pro-preview",
             reasoning_level="medium",
         )
         assert extra["thinking_level"] == "high"

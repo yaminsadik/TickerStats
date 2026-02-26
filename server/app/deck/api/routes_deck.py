@@ -301,6 +301,19 @@ def get_sections():
                       label: {type: string}
                       description: {type: string}
     """
+    # Define default sections (core 9, not advanced or user-dependent)
+    DEFAULT_SECTION_IDS = {
+        "company_snapshot",
+        "overview",
+        "history",
+        "business_model_segments",
+        "industry_competitive_landscape",
+        "historical_performance_current_setup",
+        "management_ownership_governance",
+        "capital_structure_financial_health",
+        "swot",
+    }
+
     sections = []
     for section_id in SectionId:
         meta = SECTION_METADATA.get(section_id, {})
@@ -308,6 +321,8 @@ def get_sections():
             id=section_id.value,
             label=meta.get("label", section_id.value),
             description=meta.get("description"),
+            default=section_id.value in DEFAULT_SECTION_IDS,
+            requires_user_input=meta.get("requires_user_input", False),
         ))
     
     response = SectionsResponse(sections=sections)

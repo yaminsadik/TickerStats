@@ -192,6 +192,11 @@ class LLMProvider(ABC):
                 response.latency_ms = (time.time() - start_time) * 1000
                 response.retries = attempt
                 
+                # Try to coerce common LLM mistakes before validation
+                response.content = _coerce_response(
+                    response.content, json_schema
+                )
+
                 # Validate response against schema
                 clamped_content = clamp_to_schema_limits(response.content, json_schema)
                 if clamped_content is not response.content:
@@ -270,3 +275,142 @@ def get_provider(
         raise ValueError(f"Unknown provider: {provider_name}. Supported: {list(providers.keys())}")
     
     return provider_class(api_key, model)
+
+
+def _coerce_response(content: dict, schema: dict) -> dict:
+    """
+    Attempt to fix common LLM response mistakes before schema validation.
+
+    The most frequent failure mode with Gemini is returning a flat string
+    (bullet-point text) where the schema expects a nested object.  When we
+    detect that pattern we wrap the string in a minimal object scaffold so
+    the downstream Pydantic postprocessor has something to work with.
+    """
+    if not isinstance(content, dict) or not isinstance(schema, dict):
+        return content
+
+    import copy
+
+    defs = schema.get("$defs", {})
+
+    def _resolve(node: dict) -> dict:
+        """Resolve a single $ref pointer."""
+        ref = node.get("$ref", "")
+        if isinstance(ref, str) and ref.startswith("#/$defs/"):
+            name = ref.split("/")[-1]
+            resolved = defs.get(name)
+            if isinstance(resolved, dict):
+                return resolved
+        # Collapse anyOf/oneOf with one non-null branch
+        for key in ("anyOf", "oneOf"):
+            choices = node.get(key)
+            if isinstance(choices, list):
+                non_null = [
+                    c for c in choices
+                    if isinstance(c, dict) and c.get("type") != "null"
+                ]
+                if len(non_null) == 1:
+                    return _resolve(non_null[0])
+        return node
+
+    def _expected_type(prop_schema: dict) -> str:
+        resolved = _resolve(prop_schema)
+        t = resolved.get("type", "")
+        if isinstance(t, list):
+            return next((x for x in t if x != "null"), "string")
+        if isinstance(resolved.get("properties"), dict):
+            return "object"
+        return t or "string"
+
+    properties = schema.get("properties", {})
+    if not properties:
+        return content
+
+    patched = copy.copy(content)
+    changed = False
+
+    for key, prop_schema in properties.items():
+        val = patched.get(key)
+        if val is None:
+            continue
+
+        expected = _expected_type(prop_schema)
+
+        # String where object expected → wrap in a notes-only scaffold
+        if expected == "object" and isinstance(val, str):
+            resolved = _resolve(prop_schema)
+            scaffold = _build_scaffold(resolved, defs, val)
+            patched[key] = scaffold
+            changed = True
+            logger.info(
+                "Coerced string → object for field '%s'",
+                key,
+            )
+
+        # String where array expected → wrap in single-element list
+        elif expected == "array" and isinstance(val, str):
+            patched[key] = [val]
+            changed = True
+            logger.info(
+                "Coerced string → array for field '%s'",
+                key,
+            )
+
+    if changed:
+        logger.info("Response coercion applied to %d field(s)", sum(1 for _ in [changed]))
+
+    return patched
+
+
+def _build_scaffold(obj_schema: dict, defs: dict, fallback_text: str) -> dict:
+    """
+    Build a minimal valid object from a schema, inserting *fallback_text*
+    into the first string field (or a ``notes`` field if one exists).
+    """
+    props = obj_schema.get("properties", {})
+    if not props:
+        return {"notes": fallback_text}
+
+    result: dict = {}
+    text_placed = False
+
+    def _resolve_inner(node: dict) -> dict:
+        ref = node.get("$ref", "")
+        if isinstance(ref, str) and ref.startswith("#/$defs/"):
+            name = ref.split("/")[-1]
+            return defs.get(name, node)
+        for key in ("anyOf", "oneOf"):
+            choices = node.get(key)
+            if isinstance(choices, list):
+                non_null = [c for c in choices if isinstance(c, dict) and c.get("type") != "null"]
+                if len(non_null) == 1:
+                    return _resolve_inner(non_null[0])
+        return node
+
+    for field_name, field_schema in props.items():
+        resolved = _resolve_inner(field_schema)
+        ftype = resolved.get("type", "string")
+        if isinstance(ftype, list):
+            ftype = next((t for t in ftype if t != "null"), "string")
+
+        if ftype == "string":
+            if field_name == "notes" or (not text_placed and "confidence" not in field_name):
+                result[field_name] = fallback_text
+                text_placed = True
+            elif "confidence" in field_name:
+                enum_vals = resolved.get("enum", ["low"])
+                result[field_name] = enum_vals[-1] if enum_vals else "low"
+            else:
+                result[field_name] = ""
+        elif ftype == "boolean":
+            result[field_name] = True if "low_confidence" in field_name else False
+        elif ftype == "array":
+            result[field_name] = []
+        elif ftype == "object":
+            result[field_name] = {}
+        elif ftype in ("number", "integer"):
+            result[field_name] = 0
+        else:
+            result[field_name] = None
+
+    return result

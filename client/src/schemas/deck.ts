@@ -79,7 +79,16 @@ export const generateDeckResponseSchema = z.object({
     })
     .optional(),
   results: z.array(generatedSectionSchema),
-  errors: z.array(z.string()).optional(),
+  errors: z
+    .array(
+      z.object({
+        section_id: z.string(),
+        error_type: z.string(),
+        message: z.string(),
+        retries_attempted: z.number().optional(),
+      }),
+    )
+    .optional(),
   request_id: z.string().optional(),
   // Legacy format support
   metadata: z

@@ -89,22 +89,58 @@ class DeepSeekProvider(LLMProvider):
     # ------------------------------------------------------------------
 
     def _convert_to_strict_schema(self, schema: dict) -> dict:
+        """
+        Convert schema to strict format with additionalProperties: false
+        at ALL levels including $defs.
+        """
         import copy
 
         strict_schema = copy.deepcopy(schema)
-        if strict_schema.get("type") == "object":
-            strict_schema["additionalProperties"] = False
-            if "properties" in strict_schema:
-                strict_schema["required"] = list(strict_schema["properties"].keys())
-        if "properties" in strict_schema:
-            for key, prop in strict_schema["properties"].items():
-                if isinstance(prop, dict):
-                    if prop.get("type") == "object":
-                        strict_schema["properties"][key] = self._convert_to_strict_schema(prop)
-                    elif prop.get("type") == "array" and "items" in prop:
-                        if isinstance(prop["items"], dict) and prop["items"].get("type") == "object":
-                            strict_schema["properties"][key]["items"] = self._convert_to_strict_schema(prop["items"])
-        return strict_schema
+        
+        # Process $defs first (Pydantic puts reusable schemas here)
+        if "$defs" in strict_schema:
+            for def_name, def_schema in strict_schema["$defs"].items():
+                if isinstance(def_schema, dict):
+                    strict_schema["$defs"][def_name] = self._process_schema_node(def_schema)
+        
+        # Process the root schema
+        return self._process_schema_node(strict_schema)
+    
+    def _process_schema_node(self, node: dict) -> dict:
+        """
+        Recursively process a schema node to add additionalProperties: false
+        at every object level.
+        """
+        import copy
+        processed = copy.deepcopy(node)
+        
+        # Add additionalProperties: false to all objects
+        if processed.get("type") == "object":
+            processed["additionalProperties"] = False
+            # Make all properties required for strict mode
+            if "properties" in processed:
+                processed["required"] = list(processed["properties"].keys())
+        
+        # Recursively process nested structures
+        if "properties" in processed:
+            for key, prop in processed["properties"].items():
+                if isinstance(prop, dict) and "$ref" not in prop:
+                    processed["properties"][key] = self._process_schema_node(prop)
+        
+        # Process array items
+        if "items" in processed and isinstance(processed["items"], dict):
+            if "$ref" not in processed["items"]:
+                processed["items"] = self._process_schema_node(processed["items"])
+        
+        # Process anyOf, allOf, oneOf constructs
+        for key in ["anyOf", "allOf", "oneOf"]:
+            if key in processed and isinstance(processed[key], list):
+                processed[key] = [
+                    self._process_schema_node(item) if isinstance(item, dict) and "$ref" not in item else item
+                    for item in processed[key]
+                ]
+        
+        return processed
 
     def _build_response_format(self, schema: dict) -> dict:
         """DeepSeek currently supports ``json_object`` reliably.

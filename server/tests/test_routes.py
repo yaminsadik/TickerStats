@@ -17,10 +17,28 @@ class TestSectionsEndpoint:
         data = response.get_json()
         
         assert "sections" in data
-        assert len(data["sections"]) == 10
-        
+        assert len(data["sections"]) == 17
+
         section_ids = {s["id"] for s in data["sections"]}
-        expected_ids = {"overview", "history", "swot", "porters_five", "bull_case", "bear_case", "valuation", "relative_heatmap", "rebuttals", "layout"}
+        expected_ids = {
+            "company_snapshot",
+            "overview",
+            "history",
+            "business_model_segments",
+            "industry_competitive_landscape",
+            "historical_performance_current_setup",
+            "management_ownership_governance",
+            "capital_structure_financial_health",
+            "swot",
+            "key_drivers_kpis",
+            "sector_invariants",
+            "investment_thesis",
+            "investment_thesis_variant_view",
+            "catalysts_timeline",
+            "valuation",
+            "valuation_summary",
+            "risks_underwriting",
+        }
         assert section_ids == expected_ids
     
     def test_sections_have_labels(self, client):
@@ -222,7 +240,19 @@ class TestPlanEndpoint:
         data = response.get_json()
         section_ids = {s["id"] for s in data["suggested_sections"]}
         
-        expected = {"overview", "history", "swot", "porters_five", "bull_case", "bear_case", "valuation", "rebuttals", "layout"}
+        expected = {
+            "company_snapshot",
+            "overview",
+            "history",
+            "business_model_segments",
+            "industry_competitive_landscape",
+            "historical_performance_current_setup",
+            "management_ownership_governance",
+            "capital_structure_financial_health",
+            "swot",
+            "key_drivers_kpis",
+            "sector_invariants",
+        }
         assert section_ids == expected
     
     def test_plan_sections_have_priority(self, client, sample_plan_request):

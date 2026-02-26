@@ -6,10 +6,13 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Loader2,
   AlertTriangle,
   RefreshCw,
   Users,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import ModelReasoningBar from "../components/ModelReasoningBar";
 import {
@@ -40,8 +43,18 @@ import { useUserProfile } from "../hooks/useUserProfile";
 import {
   fetchSections,
   generateDeckAuthed,
+  normalizeAvailableSections,
   type Section,
   type GenerateDeckResponse,
+  type ThesisInput,
+  type CatalystInput,
+  type ValuationMethodInput,
+  type RiskInput,
+  type DataBlocks,
+  type UserConstraints,
+  type Position,
+  type DeckLength,
+  type DataTrustMode,
 } from "../api/deckApi";
 import { queryKeys } from "../lib/queryKeys";
 import { sectionSchema } from "../schemas/deck";
@@ -52,26 +65,98 @@ import {
   createDraft,
   updateDraftBasics,
   updateDraftConfig,
+  updateDraftIntake,
   saveDraftContent,
   markDraftGenerating,
   markDraftError,
   type DeckDraft,
   type DeckDraftBasics,
   type DeckDraftConfig,
+  type DeckDraftIntake,
   type FundConstraints,
 } from "../stores/deckDraft";
 
-type WizardStep = "basics" | "comparables" | "sections" | "generate" | "save";
+type WizardStep =
+  | "basics"
+  | "thesis"
+  | "comparables"
+  | "sections"
+  | "generate"
+  | "save";
 
 const STEPS: { id: WizardStep; label: string }[] = [
-  { id: "basics", label: "Basics" },
-  { id: "comparables", label: "Comparables" },
+  { id: "basics", label: "Shape" },
+  { id: "thesis", label: "Thesis" },
+  { id: "comparables", label: "Comps" },
   { id: "sections", label: "Sections" },
   { id: "generate", label: "Generate" },
   { id: "save", label: "Save" },
 ];
 
-// Model types/constants/helpers are imported from config/modelConfig
+const EXPECTED_SECTION_COUNT = 14;
+
+function hasMeaningfulGeneratedContent(data: GenerateDeckResponse): boolean {
+  const sections = data.results?.length ? data.results : (data.sections ?? []);
+  return sections.some((section) =>
+    (section.slides ?? []).some((slide) =>
+      (slide.bullets ?? []).some((bullet) => bullet.text.trim().length > 0),
+    ),
+  );
+}
+
+function formatGenerationErrors(data: GenerateDeckResponse): string {
+  const errors = data.errors ?? [];
+  if (errors.length === 0) return "";
+  return errors
+    .slice(0, 3)
+    .map((err) => `${err.section_id}: ${err.error_type} - ${err.message}`)
+    .join("; ");
+}
+
+// --- Collapsible section helper ---
+function CollapsibleSection({
+  title,
+  subtitle,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="border border-slate-700 rounded-lg">
+      <button
+        type="button"
+        className="w-full flex items-center justify-between p-4 text-left hover:bg-slate-800/50 transition-colors rounded-lg"
+        onClick={() => setOpen(!open)}
+      >
+        <div>
+          <span className="text-white font-medium">{title}</span>
+          {subtitle && (
+            <span className="text-slate-400 text-sm ml-2">{subtitle}</span>
+          )}
+        </div>
+        <ChevronDown
+          className={`w-5 h-5 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open && <div className="px-4 pb-4 space-y-4">{children}</div>}
+    </div>
+  );
+}
+
+// --- Valuation method options ---
+const VALUATION_METHODS = [
+  { value: "relative", label: "Relative Valuation" },
+  { value: "dcf", label: "DCF" },
+  { value: "sotp", label: "Sum-of-Parts" },
+  { value: "nav", label: "NAV" },
+  { value: "unit_econ", label: "Unit Economics" },
+  { value: "yield", label: "Yield Lens" },
+];
 
 export default function DeckWizardPage() {
   const navigate = useNavigate();
@@ -94,16 +179,18 @@ export default function DeckWizardPage() {
   // Draft state
   const [draft, setDraft] = useState<DeckDraft | null>(null);
 
-  // Form state for basics
+  // ===== Phase 1: Shape the pitch =====
   const [basics, setBasics] = useState<DeckDraftBasics>({
     ticker: initialTicker,
     companyName: "",
     sector: "",
     companyContext: "",
     investmentThesis: "",
+    position: undefined,
+    deckLength: "standard",
+    dataTrustMode: "user_auto_fetch",
   });
 
-  // Fund constraints state
   const [fundConstraints, setFundConstraints] = useState<FundConstraints>({
     time_horizon: "12-24 months",
     risk_profile: "moderate",
@@ -111,7 +198,41 @@ export default function DeckWizardPage() {
     style: "student investment fund pitch deck",
   });
 
-  // Config state
+  // ===== Phase 2: Thesis =====
+  const [thesis, setThesis] = useState<ThesisInput>({
+    thesis_sentence: "",
+    market_believes: "",
+    we_believe: "",
+    pillars: [],
+    what_changes_mind: [],
+  });
+  const [pillarDraft, setPillarDraft] = useState("");
+  const [wcmDraft, setWcmDraft] = useState("");
+
+  // ===== Phase 3: Catalysts =====
+  const [catalysts, setCatalysts] = useState<CatalystInput[]>([]);
+
+  // ===== Phase 4: Valuation =====
+  const [valuationInput, setValuationInput] = useState<ValuationMethodInput>({
+    methods: [],
+    peer_tickers: [],
+    target_multiple_range: "",
+    dcf_assumptions: "",
+    price_target: "",
+  });
+
+  // ===== Phase 5: Risks =====
+  const [risks, setRisks] = useState<RiskInput[]>([]);
+
+  // ===== Phase 6: Data Blocks =====
+  const [dataBlocks, setDataBlocks] = useState<DataBlocks>({});
+
+  // ===== Phase 7: Constraints =====
+  const [userConstraints, setUserConstraints] = useState<UserConstraints>({
+    exclude_peers: [],
+  });
+
+  // ===== Config state =====
   const [config, setConfig] = useState<DeckDraftConfig>({
     sections: [],
     provider: "openai",
@@ -125,7 +246,7 @@ export default function DeckWizardPage() {
   const [compsShowPerf, setCompsShowPerf] = useState(false);
   const [compsShowDcf, setCompsShowDcf] = useState(false);
 
-  // Preview query for comparables (only fetch when preview is requested)
+  // Preview query for comparables
   const [previewParams, setPreviewParams] =
     useState<FetchRelativeParams | null>(null);
   const { data: compsPreview, isLoading: compsLoading } =
@@ -143,25 +264,36 @@ export default function DeckWizardPage() {
     isLoading: sectionsLoading,
     error: sectionsError,
   } = useQuery({
-    queryKey: queryKeys.sections,
+    queryKey: [...queryKeys.sections, "canonical-v4"],
     queryFn: async () => {
       const raw = await fetchSections();
-      return parseOrThrow(z.array(sectionSchema), raw, "sections") as Section[];
+      const parsed = parseOrThrow(
+        z.array(sectionSchema),
+        raw,
+        "sections",
+      ) as Section[];
+      return normalizeAvailableSections(parsed);
     },
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: 5 * 60 * 1000,
   });
 
-  // Set default sections when loaded
-  useEffect(() => {
-    if (availableSections && config.sections.length === 0) {
-      const defaultSections = availableSections
-        .filter((s) => s.default)
-        .map((s) => s.id);
-      setConfig((prev) => ({ ...prev, sections: defaultSections }));
-    }
-  }, [availableSections, config.sections.length]);
+  const missingSectionCount = useMemo(() => {
+    if (!availableSections) return 0;
+    return Math.max(0, EXPECTED_SECTION_COUNT - availableSections.length);
+  }, [availableSections]);
 
-  // Derived model info for the generate summary (model selection is in ModelReasoningBar)
+  // Prune stale section IDs if backend-supported section list changes.
+  useEffect(() => {
+    if (!availableSections) return;
+    const validSectionIds = new Set(availableSections.map((s) => s.id));
+    setConfig((prev) => {
+      const filtered = prev.sections.filter((id) => validSectionIds.has(id));
+      if (filtered.length === prev.sections.length) return prev;
+      return { ...prev, sections: filtered };
+    });
+  }, [availableSections]);
+
+  // Derived model info
   const modelOptions = useMemo(() => {
     if (tier === "pro" || tier === "enterprise") {
       return [...PRO_MODEL_OPTIONS, ...FREE_MODEL_OPTIONS];
@@ -219,8 +351,22 @@ export default function DeckWizardPage() {
 
   // Generate deck mutation
   const generateMutation = useMutation({
-    mutationFn: (payload: import("../api/deckApi").GenerateDeckRequest) =>
-      generateDeckAuthed(authenticatedFetch, payload),
+    mutationFn: async (
+      payload: import("../api/deckApi").GenerateDeckRequest,
+    ) => {
+      const data = await generateDeckAuthed(authenticatedFetch, payload);
+      if (!hasMeaningfulGeneratedContent(data)) {
+        const details = formatGenerationErrors(data);
+        const requestId = data.request_id
+          ? ` (request_id: ${data.request_id})`
+          : "";
+        const suffix = details ? ` Details: ${details}` : "";
+        throw new Error(
+          `Generation returned empty section content${requestId}.${suffix}`,
+        );
+      }
+      return data;
+    },
     onMutate: () => {
       if (draft) {
         markDraftGenerating(draft.id);
@@ -232,7 +378,6 @@ export default function DeckWizardPage() {
         saveDraftContent(draft.id, data);
         setDraft({ ...draft, status: "complete", generatedContent: data });
 
-        // Persist to DB if authenticated, then navigate to DB-backed view
         try {
           const dbDeck = await saveDeckMutation.mutateAsync({
             ticker: basics.ticker,
@@ -244,7 +389,6 @@ export default function DeckWizardPage() {
           });
           navigate(`/deck/db/${dbDeck.id}`);
         } catch {
-          // Fallback to local draft view if DB save fails
           navigate(`/deck/${draft.id}`);
         }
       }
@@ -279,10 +423,10 @@ export default function DeckWizardPage() {
   const isStepValid = useCallback((): boolean => {
     switch (currentStep) {
       case "basics":
-        // Only ticker is required now - company name and sector auto-fetch from backend
         return basics.ticker.trim().length > 0;
+      case "thesis":
+        return true; // thesis is recommended but optional
       case "comparables":
-        // Comparables are optional - always valid
         return true;
       case "sections":
         return config.sections.length > 0;
@@ -293,21 +437,21 @@ export default function DeckWizardPage() {
       default:
         return false;
     }
-  }, [
-    currentStep,
-    basics.ticker,
-    basics.companyName,
-    basics.sector,
-    config.sections.length,
-    generatedDeck,
-  ]);
+  }, [currentStep, basics.ticker, config.sections.length, generatedDeck]);
 
-  // Create draft when moving past basics
+  // Create/update draft on step transitions
   const handleBasicsNext = () => {
     if (!isStepValid()) return;
-
     if (!draft) {
-      const newDraft = createDraft(basics, config);
+      const intakeData: DeckDraftIntake = {
+        thesis,
+        catalysts,
+        valuationInput,
+        risks,
+        dataBlocks,
+        userConstraints,
+      };
+      const newDraft = createDraft(basics, config, intakeData);
       setDraft(newDraft);
     } else {
       updateDraftBasics(draft.id, basics);
@@ -315,17 +459,29 @@ export default function DeckWizardPage() {
     goNext();
   };
 
-  // Save config when moving past config steps
+  const handleThesisNext = () => {
+    if (draft) {
+      updateDraftIntake(draft.id, {
+        thesis,
+        catalysts,
+        valuationInput,
+        risks,
+        dataBlocks,
+        userConstraints,
+      });
+    }
+    goNext();
+  };
+
   const handleConfigNext = () => {
     if (!isStepValid()) return;
-
     if (draft) {
       updateDraftConfig(draft.id, config);
     }
     goNext();
   };
 
-  // Generate deck
+  // Generate deck - wire up ALL intake fields
   const handleGenerate = () => {
     if (atDeckLimit) {
       setLimitError(
@@ -336,6 +492,14 @@ export default function DeckWizardPage() {
     setLimitError(null);
     if (draft) {
       updateDraftConfig(draft.id, config);
+      updateDraftIntake(draft.id, {
+        thesis,
+        catalysts,
+        valuationInput,
+        risks,
+        dataBlocks,
+        userConstraints,
+      });
     }
 
     const providerToUse = selectedModel?.provider || config.provider;
@@ -344,6 +508,33 @@ export default function DeckWizardPage() {
       config.model,
       config.quality,
     );
+
+    // Build thesis only if user provided any field
+    const hasThesis =
+      thesis.thesis_sentence?.trim() ||
+      thesis.market_believes?.trim() ||
+      thesis.we_believe?.trim() ||
+      (thesis.pillars && thesis.pillars.length > 0);
+
+    // Build valuation only if user selected methods
+    const hasValuation =
+      valuationInput.methods && valuationInput.methods.length > 0;
+
+    // Filter empty catalyst/risk entries
+    const validCatalysts = catalysts.filter((c) => c.name.trim());
+    const validRisks = risks.filter((r) => r.risk.trim());
+
+    // Build data_blocks only if any field is non-empty
+    const hasDataBlocks = Object.values(dataBlocks).some(
+      (v) => typeof v === "string" && v.trim(),
+    );
+
+    // Build user_constraints only if any field is non-empty
+    const hasConstraints =
+      userConstraints.liquidity_floor?.trim() ||
+      userConstraints.leverage_ceiling?.trim() ||
+      userConstraints.esg_constraints?.trim() ||
+      (userConstraints.exclude_peers && userConstraints.exclude_peers.length > 0);
 
     generateMutation.mutate({
       ticker: basics.ticker,
@@ -359,6 +550,16 @@ export default function DeckWizardPage() {
       reasoning_level: config.quality,
       include_comps: true,
       ...(compTickers.length > 0 && { comp_tickers: compTickers }),
+      // Intake redesign fields
+      ...(basics.position && { position: basics.position }),
+      ...(basics.deckLength && { deck_length: basics.deckLength }),
+      ...(basics.dataTrustMode && { data_trust_mode: basics.dataTrustMode }),
+      ...(hasThesis && { thesis }),
+      ...(validCatalysts.length > 0 && { catalysts: validCatalysts }),
+      ...(hasValuation && { valuation_input: valuationInput }),
+      ...(validRisks.length > 0 && { risks: validRisks }),
+      ...(hasDataBlocks && { data_blocks: dataBlocks }),
+      ...(hasConstraints && { user_constraints: userConstraints }),
     });
   };
 
@@ -376,6 +577,63 @@ export default function DeckWizardPage() {
       sections: prev.sections.includes(sectionId)
         ? prev.sections.filter((id) => id !== sectionId)
         : [...prev.sections, sectionId],
+    }));
+  };
+
+  // --- Catalyst helpers ---
+  const addCatalyst = () => {
+    if (catalysts.length >= 6) return;
+    setCatalysts((prev) => [...prev, { name: "", timing_window: "", mechanism: "" }]);
+  };
+  const removeCatalyst = (index: number) => {
+    setCatalysts((prev) => prev.filter((_, i) => i !== index));
+  };
+  const updateCatalyst = (index: number, field: keyof CatalystInput, value: string) => {
+    setCatalysts((prev) =>
+      prev.map((c, i) => (i === index ? { ...c, [field]: value } : c)),
+    );
+  };
+
+  // --- Risk helpers ---
+  const addRisk = () => {
+    if (risks.length >= 6) return;
+    setRisks((prev) => [...prev, { risk: "", leading_indicator: "", mitigant: "" }]);
+  };
+  const removeRisk = (index: number) => {
+    setRisks((prev) => prev.filter((_, i) => i !== index));
+  };
+  const updateRisk = (index: number, field: keyof RiskInput, value: string) => {
+    setRisks((prev) =>
+      prev.map((r, i) => (i === index ? { ...r, [field]: value } : r)),
+    );
+  };
+
+  // --- Pillar / WCM helpers ---
+  const addPillar = () => {
+    const trimmed = pillarDraft.trim();
+    if (!trimmed || (thesis.pillars?.length ?? 0) >= 5) return;
+    setThesis((prev) => ({ ...prev, pillars: [...(prev.pillars ?? []), trimmed] }));
+    setPillarDraft("");
+  };
+  const removePillar = (index: number) => {
+    setThesis((prev) => ({
+      ...prev,
+      pillars: (prev.pillars ?? []).filter((_, i) => i !== index),
+    }));
+  };
+  const addWcm = () => {
+    const trimmed = wcmDraft.trim();
+    if (!trimmed || (thesis.what_changes_mind?.length ?? 0) >= 2) return;
+    setThesis((prev) => ({
+      ...prev,
+      what_changes_mind: [...(prev.what_changes_mind ?? []), trimmed],
+    }));
+    setWcmDraft("");
+  };
+  const removeWcm = (index: number) => {
+    setThesis((prev) => ({
+      ...prev,
+      what_changes_mind: (prev.what_changes_mind ?? []).filter((_, i) => i !== index),
     }));
   };
 
@@ -445,7 +703,7 @@ export default function DeckWizardPage() {
                     {isCompleted ? <Check className="w-5 h-5" /> : index + 1}
                   </div>
                   <span
-                    className={`mt-2 text-sm font-medium ${
+                    className={`mt-2 text-xs font-medium ${
                       isActive ? "text-white" : "text-slate-500"
                     }`}
                   >
@@ -457,7 +715,7 @@ export default function DeckWizardPage() {
                     className={`w-full h-0.5 mx-2 ${
                       isCompleted ? "bg-blue-600" : "bg-slate-700"
                     }`}
-                    style={{ minWidth: "40px" }}
+                    style={{ minWidth: "24px" }}
                     aria-hidden="true"
                   />
                 )}
@@ -469,16 +727,18 @@ export default function DeckWizardPage() {
 
       {/* Step Content */}
       <Card className="mb-6">
-        {/* Step 1: Basics */}
+        {/* ================================================================ */}
+        {/* Step 1: Shape the Pitch (Phase 1) */}
+        {/* ================================================================ */}
         {currentStep === "basics" && (
           <div className="space-y-6">
             <div>
               <h2 className="text-xl font-semibold text-white mb-2">
-                Basic Information
+                Shape the Pitch
               </h2>
               <p className="text-slate-400">
-                Enter the ticker symbol. Company name and sector will be
-                auto-fetched if not provided.
+                Enter the ticker and key parameters. Company name and sector
+                auto-fetch if not provided.
               </p>
             </div>
 
@@ -498,110 +758,617 @@ export default function DeckWizardPage() {
                   ticker: e.target.value.toUpperCase(),
                 }))
               }
-              helperText="Enter the stock ticker symbol for the company"
+              helperText="Required"
             />
 
-            <Input
-              label="Company Name (Optional)"
-              placeholder="e.g., Apple Inc., Microsoft Corporation"
-              value={basics.companyName}
-              onChange={(e) =>
-                setBasics((prev) => ({
-                  ...prev,
-                  companyName: e.target.value,
-                }))
-              }
-              helperText="Leave blank to auto-fetch from ticker"
-            />
+            <div className="grid grid-cols-2 gap-4">
+              <Select
+                label="Position"
+                value={basics.position ?? ""}
+                onChange={(e) =>
+                  setBasics((prev) => ({
+                    ...prev,
+                    position: (e.target.value || undefined) as Position | undefined,
+                  }))
+                }
+                options={[
+                  { value: "", label: "Not specified" },
+                  { value: "long", label: "Long" },
+                  { value: "short", label: "Short" },
+                ]}
+              />
+              <Select
+                label="Deck Length"
+                value={basics.deckLength ?? "standard"}
+                onChange={(e) =>
+                  setBasics((prev) => ({
+                    ...prev,
+                    deckLength: e.target.value as DeckLength,
+                  }))
+                }
+                options={[
+                  { value: "short", label: "Short (6-8 slides)" },
+                  { value: "standard", label: "Standard (10-14 slides)" },
+                  { value: "deep", label: "Deep (15-20 slides)" },
+                ]}
+              />
+            </div>
 
-            <Input
-              label="Sector (Optional)"
-              placeholder="e.g., Technology, Healthcare, Finance"
-              value={basics.sector}
-              onChange={(e) =>
-                setBasics((prev) => ({
-                  ...prev,
-                  sector: e.target.value,
-                }))
-              }
-              helperText="Leave blank to auto-fetch from ticker"
-            />
+            <div className="grid grid-cols-2 gap-4">
+              <Select
+                label="Time Horizon"
+                value={fundConstraints.time_horizon}
+                onChange={(e) =>
+                  setFundConstraints((prev) => ({
+                    ...prev,
+                    time_horizon: e.target.value,
+                  }))
+                }
+                options={[
+                  { value: "6-12 months", label: "6-12 months" },
+                  { value: "12-24 months", label: "12-24 months" },
+                  { value: "24-36 months", label: "24-36 months" },
+                ]}
+              />
+              <Select
+                label="Risk Profile"
+                value={fundConstraints.risk_profile}
+                onChange={(e) =>
+                  setFundConstraints((prev) => ({
+                    ...prev,
+                    risk_profile: e.target.value,
+                  }))
+                }
+                options={[
+                  { value: "conservative", label: "Conservative" },
+                  { value: "moderate", label: "Moderate" },
+                  { value: "aggressive", label: "Aggressive" },
+                ]}
+              />
+            </div>
 
             <Select
-              label="Investment Time Horizon"
-              value={fundConstraints.time_horizon}
+              label="Data Trust Mode"
+              value={basics.dataTrustMode ?? "user_auto_fetch"}
               onChange={(e) =>
-                setFundConstraints((prev) => ({
+                setBasics((prev) => ({
                   ...prev,
-                  time_horizon: e.target.value,
+                  dataTrustMode: e.target.value as DataTrustMode,
                 }))
               }
               options={[
-                { value: "6-12 months", label: "6-12 months" },
-                { value: "12-24 months", label: "12-24 months (Recommended)" },
-                { value: "2-5 years", label: "2-5 years" },
-                { value: "5+ years", label: "5+ years" },
+                {
+                  value: "user_only",
+                  label: "User-Only Numbers",
+                },
+                {
+                  value: "user_auto_fetch",
+                  label: "User + Auto-Fetch (Recommended)",
+                },
+                {
+                  value: "narrative_only",
+                  label: "Narrative-Only (No Numbers)",
+                },
               ]}
             />
+            <p className="text-xs text-slate-500 -mt-4">
+              {basics.dataTrustMode === "user_only"
+                ? "Model will only use numbers you provide. Everything else is qualitative."
+                : basics.dataTrustMode === "narrative_only"
+                  ? "No financial numbers in the deck. Everything is qualitative narrative."
+                  : "Numbers from your data + auto-fetched sources. Unverified numbers are flagged."}
+            </p>
 
-            <Select
-              label="Risk Profile"
-              value={fundConstraints.risk_profile}
-              onChange={(e) =>
-                setFundConstraints((prev) => ({
-                  ...prev,
-                  risk_profile: e.target.value,
-                }))
-              }
-              options={[
-                { value: "conservative", label: "Conservative" },
-                { value: "moderate", label: "Moderate (Recommended)" },
-                { value: "aggressive", label: "Aggressive" },
-              ]}
-            />
-
-            <TextArea
-              label="Company Context (Optional)"
-              placeholder="Additional context about the company or industry..."
-              value={basics.companyContext || ""}
-              onChange={(e) =>
-                setBasics((prev) => ({
-                  ...prev,
-                  companyContext: e.target.value,
-                }))
-              }
-              helperText="Provide any specific context to tailor the analysis"
-            />
-
-            <TextArea
-              label="Investment Thesis (Optional)"
-              placeholder="Your investment thesis or key points to highlight..."
-              value={basics.investmentThesis || ""}
-              onChange={(e) =>
-                setBasics((prev) => ({
-                  ...prev,
-                  investmentThesis: e.target.value,
-                }))
-              }
-              helperText="Outline the main investment thesis you want to support"
-            />
-
-            <TextArea
-              label="Portfolio Context (Optional)"
-              placeholder="Context about your portfolio or fund strategy..."
-              value={fundConstraints.portfolio_context || ""}
-              onChange={(e) =>
-                setFundConstraints((prev) => ({
-                  ...prev,
-                  portfolio_context: e.target.value,
-                }))
-              }
-              helperText="Provide context about your fund or portfolio strategy"
-            />
+            <div className="grid grid-cols-2 gap-4">
+              <Input
+                label="Company Name (Optional)"
+                placeholder="e.g., Apple Inc."
+                value={basics.companyName}
+                onChange={(e) =>
+                  setBasics((prev) => ({
+                    ...prev,
+                    companyName: e.target.value,
+                  }))
+                }
+              />
+              <Input
+                label="Sector (Optional)"
+                placeholder="e.g., Technology"
+                value={basics.sector}
+                onChange={(e) =>
+                  setBasics((prev) => ({
+                    ...prev,
+                    sector: e.target.value,
+                  }))
+                }
+              />
+            </div>
           </div>
         )}
 
-        {/* Step 2: Comparables */}
+        {/* ================================================================ */}
+        {/* Step 2: Thesis + Catalysts + Valuation + Risks + Data + Constraints */}
+        {/* ================================================================ */}
+        {currentStep === "thesis" && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-xl font-semibold text-white mb-2">
+                Your Edge
+              </h2>
+              <p className="text-slate-400">
+                Lock in your thesis, catalysts, valuation, and risks. Expand
+                sections as needed. All optional.
+              </p>
+            </div>
+
+            {/* Phase 2: Thesis */}
+            <CollapsibleSection
+              title="Investment Thesis"
+              subtitle="Recommended"
+              defaultOpen={true}
+            >
+              <TextArea
+                label="Thesis Sentence"
+                placeholder="Market is wrong because ___; it reprices when ___."
+                value={thesis.thesis_sentence ?? ""}
+                onChange={(e) =>
+                  setThesis((prev) => ({
+                    ...prev,
+                    thesis_sentence: e.target.value,
+                  }))
+                }
+                rows={2}
+              />
+              <div className="grid grid-cols-2 gap-4">
+                <TextArea
+                  label="Market Believes"
+                  placeholder="What consensus currently thinks..."
+                  value={thesis.market_believes ?? ""}
+                  onChange={(e) =>
+                    setThesis((prev) => ({
+                      ...prev,
+                      market_believes: e.target.value,
+                    }))
+                  }
+                  rows={3}
+                />
+                <TextArea
+                  label="We Believe"
+                  placeholder="Our variant view..."
+                  value={thesis.we_believe ?? ""}
+                  onChange={(e) =>
+                    setThesis((prev) => ({
+                      ...prev,
+                      we_believe: e.target.value,
+                    }))
+                  }
+                  rows={3}
+                />
+              </div>
+
+              {/* Pillars */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  Thesis Pillars (2-5)
+                </label>
+                {(thesis.pillars ?? []).map((p, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center gap-2 mb-2"
+                  >
+                    <span className="text-slate-300 text-sm flex-1 bg-slate-800 rounded px-3 py-1.5">
+                      {p}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removePillar(i)}
+                      className="text-slate-500 hover:text-red-400 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+                {(thesis.pillars?.length ?? 0) < 5 && (
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Add a thesis pillar..."
+                      value={pillarDraft}
+                      onChange={(e) => setPillarDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          addPillar();
+                        }
+                      }}
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={addPillar}
+                      disabled={!pillarDraft.trim()}
+                    >
+                      <Plus className="w-4 h-4" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              {/* What Changes Mind */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  What Would Change My Mind (1-2)
+                </label>
+                {(thesis.what_changes_mind ?? []).map((w, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center gap-2 mb-2"
+                  >
+                    <span className="text-slate-300 text-sm flex-1 bg-slate-800 rounded px-3 py-1.5">
+                      {w}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeWcm(i)}
+                      className="text-slate-500 hover:text-red-400 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+                {(thesis.what_changes_mind?.length ?? 0) < 2 && (
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Condition that invalidates the thesis..."
+                      value={wcmDraft}
+                      onChange={(e) => setWcmDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          addWcm();
+                        }
+                      }}
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={addWcm}
+                      disabled={!wcmDraft.trim()}
+                    >
+                      <Plus className="w-4 h-4" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </CollapsibleSection>
+
+            {/* Phase 3: Catalysts */}
+            <CollapsibleSection title="Catalysts" subtitle="Optional">
+              <p className="text-xs text-slate-500">
+                Add 3-6 catalysts with timing and mechanism.
+              </p>
+              {catalysts.map((cat, i) => (
+                <div
+                  key={i}
+                  className="bg-slate-800/50 rounded-lg p-3 space-y-3"
+                >
+                  <div className="flex justify-between items-start">
+                    <span className="text-xs text-slate-400 font-medium">
+                      Catalyst {i + 1}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeCatalyst(i)}
+                      className="text-slate-500 hover:text-red-400 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Input
+                      placeholder="Catalyst name"
+                      value={cat.name}
+                      onChange={(e) =>
+                        updateCatalyst(i, "name", e.target.value)
+                      }
+                    />
+                    <Input
+                      placeholder="Timing (e.g., Q2 2025)"
+                      value={cat.timing_window ?? ""}
+                      onChange={(e) =>
+                        updateCatalyst(i, "timing_window", e.target.value)
+                      }
+                    />
+                  </div>
+                  <TextArea
+                    placeholder="Mechanism: what changes and why market reacts"
+                    value={cat.mechanism ?? ""}
+                    onChange={(e) =>
+                      updateCatalyst(i, "mechanism", e.target.value)
+                    }
+                    rows={2}
+                  />
+                </div>
+              ))}
+              {catalysts.length < 6 && (
+                <Button variant="outline" size="sm" onClick={addCatalyst}>
+                  <Plus className="w-4 h-4 mr-1" />
+                  Add Catalyst
+                </Button>
+              )}
+            </CollapsibleSection>
+
+            {/* Phase 4: Valuation */}
+            <CollapsibleSection title="Valuation Approach" subtitle="Optional">
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  Select Methods
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {VALUATION_METHODS.map((m) => {
+                    const selected = (valuationInput.methods ?? []).includes(
+                      m.value,
+                    );
+                    return (
+                      <button
+                        key={m.value}
+                        type="button"
+                        onClick={() =>
+                          setValuationInput((prev) => ({
+                            ...prev,
+                            methods: selected
+                              ? (prev.methods ?? []).filter(
+                                  (v) => v !== m.value,
+                                )
+                              : [...(prev.methods ?? []), m.value],
+                          }))
+                        }
+                        className={`px-3 py-1.5 rounded-full text-sm border transition-colors ${
+                          selected
+                            ? "bg-blue-900/30 border-blue-600 text-blue-400"
+                            : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
+                        }`}
+                      >
+                        {m.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {(valuationInput.methods ?? []).includes("relative") && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-2">
+                      Peer Tickers
+                    </label>
+                    <TickerInput
+                      tickers={valuationInput.peer_tickers ?? []}
+                      onTickersChange={(tickers) =>
+                        setValuationInput((prev) => ({
+                          ...prev,
+                          peer_tickers: tickers,
+                        }))
+                      }
+                      disabled={false}
+                    />
+                  </div>
+                  <Input
+                    label="Target Multiple Range"
+                    placeholder="e.g., 15-18x EV/EBITDA"
+                    value={valuationInput.target_multiple_range ?? ""}
+                    onChange={(e) =>
+                      setValuationInput((prev) => ({
+                        ...prev,
+                        target_multiple_range: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+              )}
+
+              {(valuationInput.methods ?? []).includes("dcf") && (
+                <TextArea
+                  label="DCF Assumptions"
+                  placeholder="WACC, terminal growth, margin path..."
+                  value={valuationInput.dcf_assumptions ?? ""}
+                  onChange={(e) =>
+                    setValuationInput((prev) => ({
+                      ...prev,
+                      dcf_assumptions: e.target.value,
+                    }))
+                  }
+                  rows={3}
+                />
+              )}
+
+              <Input
+                label="Price Target (Optional)"
+                placeholder="e.g., $150-170"
+                value={valuationInput.price_target ?? ""}
+                onChange={(e) =>
+                  setValuationInput((prev) => ({
+                    ...prev,
+                    price_target: e.target.value,
+                  }))
+                }
+              />
+            </CollapsibleSection>
+
+            {/* Phase 5: Risks */}
+            <CollapsibleSection title="Risks & Underwriting" subtitle="Optional">
+              {risks.map((r, i) => (
+                <div
+                  key={i}
+                  className="bg-slate-800/50 rounded-lg p-3 space-y-3"
+                >
+                  <div className="flex justify-between items-start">
+                    <span className="text-xs text-slate-400 font-medium">
+                      Risk {i + 1}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeRisk(i)}
+                      className="text-slate-500 hover:text-red-400 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <Input
+                    placeholder="Risk description"
+                    value={r.risk}
+                    onChange={(e) => updateRisk(i, "risk", e.target.value)}
+                  />
+                  <div className="grid grid-cols-2 gap-3">
+                    <Input
+                      placeholder="Leading indicator"
+                      value={r.leading_indicator ?? ""}
+                      onChange={(e) =>
+                        updateRisk(i, "leading_indicator", e.target.value)
+                      }
+                    />
+                    <Input
+                      placeholder="Mitigant / hedge"
+                      value={r.mitigant ?? ""}
+                      onChange={(e) =>
+                        updateRisk(i, "mitigant", e.target.value)
+                      }
+                    />
+                  </div>
+                </div>
+              ))}
+              {risks.length < 6 && (
+                <Button variant="outline" size="sm" onClick={addRisk}>
+                  <Plus className="w-4 h-4 mr-1" />
+                  Add Risk
+                </Button>
+              )}
+            </CollapsibleSection>
+
+            {/* Phase 6: Data Blocks */}
+            <CollapsibleSection title="Paste Data Blocks" subtitle="Optional">
+              <p className="text-xs text-slate-500">
+                Paste raw data to improve accuracy. The model will reference these
+                instead of guessing.
+              </p>
+              <TextArea
+                label="KPI Table"
+                placeholder="ARR, NRR, churn, backlog, etc."
+                value={dataBlocks.kpi_table ?? ""}
+                onChange={(e) =>
+                  setDataBlocks((prev) => ({
+                    ...prev,
+                    kpi_table: e.target.value,
+                  }))
+                }
+                rows={3}
+              />
+              <TextArea
+                label="Segment Mix"
+                placeholder="Revenue by segment..."
+                value={dataBlocks.segment_mix ?? ""}
+                onChange={(e) =>
+                  setDataBlocks((prev) => ({
+                    ...prev,
+                    segment_mix: e.target.value,
+                  }))
+                }
+                rows={3}
+              />
+              <TextArea
+                label="Debt Maturities"
+                placeholder="Maturity schedule..."
+                value={dataBlocks.debt_maturities ?? ""}
+                onChange={(e) =>
+                  setDataBlocks((prev) => ({
+                    ...prev,
+                    debt_maturities: e.target.value,
+                  }))
+                }
+                rows={3}
+              />
+              <TextArea
+                label="Ownership / Governance Notes"
+                placeholder="Major holders, insider activity..."
+                value={dataBlocks.ownership_notes ?? ""}
+                onChange={(e) =>
+                  setDataBlocks((prev) => ({
+                    ...prev,
+                    ownership_notes: e.target.value,
+                  }))
+                }
+                rows={3}
+              />
+              <TextArea
+                label="Filing Excerpts"
+                placeholder="10-K/10-Q excerpts, earnings call quotes..."
+                value={dataBlocks.filing_excerpts ?? ""}
+                onChange={(e) =>
+                  setDataBlocks((prev) => ({
+                    ...prev,
+                    filing_excerpts: e.target.value,
+                  }))
+                }
+                rows={3}
+              />
+            </CollapsibleSection>
+
+            {/* Phase 7: Constraints */}
+            <CollapsibleSection title="Fund Constraints" subtitle="Optional">
+              <div className="grid grid-cols-2 gap-4">
+                <Input
+                  label="Liquidity Floor"
+                  placeholder="e.g., $50M daily volume"
+                  value={userConstraints.liquidity_floor ?? ""}
+                  onChange={(e) =>
+                    setUserConstraints((prev) => ({
+                      ...prev,
+                      liquidity_floor: e.target.value,
+                    }))
+                  }
+                />
+                <Input
+                  label="Leverage Ceiling"
+                  placeholder="e.g., 4x Net Debt/EBITDA"
+                  value={userConstraints.leverage_ceiling ?? ""}
+                  onChange={(e) =>
+                    setUserConstraints((prev) => ({
+                      ...prev,
+                      leverage_ceiling: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <TextArea
+                label="ESG Constraints"
+                placeholder="ESG screens or exclusion criteria..."
+                value={userConstraints.esg_constraints ?? ""}
+                onChange={(e) =>
+                  setUserConstraints((prev) => ({
+                    ...prev,
+                    esg_constraints: e.target.value,
+                  }))
+                }
+                rows={2}
+              />
+              <TextArea
+                label="Portfolio Context"
+                placeholder="Fund strategy, sector allocation context..."
+                value={fundConstraints.portfolio_context ?? ""}
+                onChange={(e) =>
+                  setFundConstraints((prev) => ({
+                    ...prev,
+                    portfolio_context: e.target.value,
+                  }))
+                }
+                rows={2}
+              />
+            </CollapsibleSection>
+          </div>
+        )}
+
+        {/* ================================================================ */}
+        {/* Step 3: Comparables */}
+        {/* ================================================================ */}
         {currentStep === "comparables" && (
           <div className="space-y-6">
             <div>
@@ -615,7 +1382,6 @@ export default function DeckWizardPage() {
               </p>
             </div>
 
-            {/* Ticker Input */}
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-2">
                 Peer Company Tickers
@@ -627,11 +1393,10 @@ export default function DeckWizardPage() {
               />
               <p className="text-xs text-slate-500 mt-2">
                 Enter comparable company tickers (e.g., AAPL, MSFT, GOOGL, META,
-                NVDA). Add as many peers as needed for comprehensive analysis.
+                NVDA).
               </p>
             </div>
 
-            {/* Preview Options */}
             {compTickers.length > 0 && (
               <div className="space-y-3">
                 <div className="flex items-center gap-4">
@@ -684,7 +1449,6 @@ export default function DeckWizardPage() {
               </div>
             )}
 
-            {/* Preview Table */}
             {showCompsPreview && compsPreview && (
               <Card padding="none" className="overflow-hidden">
                 <div className="p-4 border-b border-slate-700">
@@ -708,7 +1472,6 @@ export default function DeckWizardPage() {
               </Card>
             )}
 
-            {/* Loading State */}
             {showCompsPreview && compsLoading && (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
@@ -716,7 +1479,6 @@ export default function DeckWizardPage() {
               </div>
             )}
 
-            {/* Info Alert */}
             <Alert variant="info" title="Auto-Selection">
               If you don't specify comparables, the system will automatically
               select peer companies based on the sector.
@@ -724,7 +1486,9 @@ export default function DeckWizardPage() {
           </div>
         )}
 
-        {/* Step 3: Sections */}
+        {/* ================================================================ */}
+        {/* Step 4: Sections */}
+        {/* ================================================================ */}
         {currentStep === "sections" && (
           <div className="space-y-6">
             <div>
@@ -744,7 +1508,7 @@ export default function DeckWizardPage() {
                   <p className="text-sm">
                     {sectionsError instanceof Error
                       ? sectionsError.message
-                      : "Unable to fetch available sections. This might be a temporary network issue."}
+                      : "Unable to fetch available sections."}
                   </p>
                   <div className="flex gap-2">
                     <Button
@@ -757,15 +1521,6 @@ export default function DeckWizardPage() {
                       Reload Page
                     </Button>
                   </div>
-                  <p className="text-xs text-slate-400">
-                    If the problem persists, please{" "}
-                    <a
-                      href="/contact"
-                      className="text-blue-400 hover:underline"
-                    >
-                      contact support
-                    </a>
-                  </p>
                 </div>
               </Alert>
             )}
@@ -781,6 +1536,15 @@ export default function DeckWizardPage() {
                   />
                 ))}
               </div>
+            )}
+
+            {availableSections && missingSectionCount > 0 && (
+              <Alert variant="warning" title="Backend Section Mismatch">
+                <p className="text-sm">
+                  Backend currently exposes {availableSections.length}/
+                  {EXPECTED_SECTION_COUNT} expected sections.
+                </p>
+              </Alert>
             )}
 
             <div className="flex gap-2">
@@ -802,10 +1566,15 @@ export default function DeckWizardPage() {
                 onClick={() =>
                   setConfig((prev) => ({
                     ...prev,
-                    sections:
-                      availableSections
-                        ?.filter((s) => s.default)
-                        .map((s) => s.id) || [],
+                    sections: (() => {
+                      const defaults =
+                        availableSections
+                          ?.filter((s) => s.default)
+                          .map((s) => s.id) || [];
+                      return defaults.length > 0
+                        ? defaults
+                        : availableSections?.map((s) => s.id) || [];
+                    })(),
                   }))
                 }
               >
@@ -820,7 +1589,7 @@ export default function DeckWizardPage() {
               </Button>
             </div>
 
-            {/* AI Model & Reasoning — compact toolbar */}
+            {/* AI Model & Reasoning */}
             <div className="pt-2">
               <p className="text-xs text-slate-400 mb-1.5">
                 AI Model & Reasoning
@@ -834,7 +1603,9 @@ export default function DeckWizardPage() {
           </div>
         )}
 
-        {/* Step 4: Generate */}
+        {/* ================================================================ */}
+        {/* Step 5: Generate */}
+        {/* ================================================================ */}
         {currentStep === "generate" && (
           <div className="space-y-6">
             <div>
@@ -851,6 +1622,28 @@ export default function DeckWizardPage() {
               <div className="flex justify-between">
                 <span className="text-slate-400">Ticker:</span>
                 <span className="text-white font-medium">{basics.ticker}</span>
+              </div>
+              {basics.position && (
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Position:</span>
+                  <Badge
+                    variant={
+                      basics.position === "long" ? "success" : "warning"
+                    }
+                  >
+                    {basics.position.toUpperCase()}
+                  </Badge>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-slate-400">Data Trust:</span>
+                <span className="text-white text-sm">
+                  {basics.dataTrustMode === "user_only"
+                    ? "User-Only"
+                    : basics.dataTrustMode === "narrative_only"
+                      ? "Narrative"
+                      : "User + Auto"}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Sections:</span>
@@ -884,6 +1677,30 @@ export default function DeckWizardPage() {
                   {qualityLabel}
                 </Badge>
               </div>
+              {thesis.thesis_sentence?.trim() && (
+                <div className="pt-2 border-t border-slate-700">
+                  <span className="text-slate-400 text-sm">Thesis:</span>
+                  <p className="text-white text-sm mt-1">
+                    {thesis.thesis_sentence}
+                  </p>
+                </div>
+              )}
+              {catalysts.filter((c) => c.name.trim()).length > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Catalysts:</span>
+                  <span className="text-white">
+                    {catalysts.filter((c) => c.name.trim()).length} defined
+                  </span>
+                </div>
+              )}
+              {risks.filter((r) => r.risk.trim()).length > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Risks:</span>
+                  <span className="text-white">
+                    {risks.filter((r) => r.risk.trim()).length} defined
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Generation Progress */}
@@ -923,23 +1740,19 @@ export default function DeckWizardPage() {
                       Go Back
                     </Button>
                   </div>
-                  <p className="text-xs text-slate-400">
-                    💡 <strong>Tip:</strong> Try reducing the number of sections
-                    or changing the AI provider
-                  </p>
                 </div>
               </Alert>
             )}
 
             {/* Success State */}
-            {generatedDeck && generatedDeck.metadata && (
+            {generatedDeck && (
               <Alert variant="success" title="Deck Generated Successfully!">
                 <p>
                   Generated{" "}
-                  {(generatedDeck.sections || generatedDeck.results)?.length ||
+                  {(generatedDeck.results || generatedDeck.sections)?.length ||
                     0}{" "}
-                  sections for {generatedDeck.metadata.company_name} (
-                  {generatedDeck.metadata.ticker})
+                  sections for {generatedDeck.company_name} (
+                  {generatedDeck.ticker})
                 </p>
                 {generatedDeck.warnings &&
                   generatedDeck.warnings.length > 0 && (
@@ -967,64 +1780,62 @@ export default function DeckWizardPage() {
           </div>
         )}
 
+        {/* ================================================================ */}
         {/* Step 6: Save */}
-        {currentStep === "save" && generatedDeck && generatedDeck.metadata && (
+        {/* ================================================================ */}
+        {currentStep === "save" && generatedDeck && (
           <div className="space-y-6">
             <div>
               <h2 className="text-xl font-semibold text-white mb-2">
                 Deck Ready!
               </h2>
               <p className="text-slate-400">
-                Your pitch deck has been generated and saved as a draft.
+                Your pitch deck has been generated and saved.
               </p>
             </div>
 
-            {/* Preview Summary */}
             <div className="bg-slate-800 rounded-lg p-4 space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-medium text-white">
-                  {generatedDeck.metadata.company_name}
+                  {generatedDeck.company_name}
                 </h3>
-                <Badge>{generatedDeck.metadata.ticker}</Badge>
+                <Badge>{generatedDeck.ticker}</Badge>
               </div>
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
                   <span className="text-slate-400">Sections:</span>
                   <span className="ml-2 text-white">
-                    {(generatedDeck.sections || generatedDeck.results)
+                    {(generatedDeck.results || generatedDeck.sections)
                       ?.length || 0}
                   </span>
                 </div>
                 <div>
                   <span className="text-slate-400">Provider:</span>
                   <span className="ml-2 text-white">
-                    {generatedDeck.metadata.provider}
+                    {generatedDeck.provider_used?.provider}
                   </span>
                 </div>
                 <div>
                   <span className="text-slate-400">Model:</span>
                   <span className="ml-2 text-white">
-                    {generatedDeck.metadata.model}
+                    {generatedDeck.provider_used?.model}
                   </span>
                 </div>
                 <div>
                   <span className="text-slate-400">Generated:</span>
                   <span className="ml-2 text-white">
-                    {new Date(
-                      generatedDeck.metadata.generated_at,
-                    ).toLocaleString()}
+                    {new Date(generatedDeck.generated_at).toLocaleString()}
                   </span>
                 </div>
               </div>
             </div>
 
-            {/* Section List */}
             <div className="space-y-2">
               <h4 className="text-sm font-medium text-slate-300">
                 Generated Sections:
               </h4>
               <div className="grid gap-2">
-                {(generatedDeck.sections || generatedDeck.results || []).map(
+                {(generatedDeck.results || generatedDeck.sections || []).map(
                   (section) => (
                     <div
                       key={section.section_id}
@@ -1056,8 +1867,9 @@ export default function DeckWizardPage() {
           Back
         </Button>
 
-        {/* Save Draft button - only show during active editing steps */}
+        {/* Save Draft button */}
         {(currentStep === "basics" ||
+          currentStep === "thesis" ||
           currentStep === "comparables" ||
           currentStep === "sections") &&
           draft && (
@@ -1065,7 +1877,6 @@ export default function DeckWizardPage() {
               variant="ghost"
               size="sm"
               onClick={() => {
-                // Save current progress to localStorage (already handled by draft store)
                 alert("Draft saved! You can return to this draft later.");
               }}
             >
@@ -1075,6 +1886,13 @@ export default function DeckWizardPage() {
 
         {currentStep === "basics" && (
           <Button onClick={handleBasicsNext} disabled={!isStepValid()}>
+            Next
+            <ChevronRight className="w-4 h-4 ml-2" />
+          </Button>
+        )}
+
+        {currentStep === "thesis" && (
+          <Button onClick={handleThesisNext}>
             Next
             <ChevronRight className="w-4 h-4 ml-2" />
           </Button>
