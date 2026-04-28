@@ -12,11 +12,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from app.deck.services.model_catalog import (
-    THINKING_BUDGET_TOKENS,
     THINKING_LEVEL,
-    THINKING_MODEL_SWITCH,
-    THINKING_REASONING_EFFORT,
-    THINKING_TYPE,
     ModelDef,
     get_default_model,
     get_model_by_id,
@@ -41,7 +37,7 @@ class ModelDecision:
 
 
 # ---------------------------------------------------------------------------
-# Thinking-config builders (one per thinking_config_type)
+# Thinking-config builder
 # ---------------------------------------------------------------------------
 
 def _build_thinking_config(model_def: ModelDef, thinking_requested: bool) -> tuple[bool, Optional[dict]]:
@@ -51,22 +47,8 @@ def _build_thinking_config(model_def: ModelDef, thinking_requested: bool) -> tup
 
     cfg_type = model_def.thinking_config_type
 
-    if cfg_type == THINKING_REASONING_EFFORT:
-        return True, {"effort": "high"}
-
     if cfg_type == THINKING_LEVEL:
         return True, {"thinking_level": "HIGH"}
-
-    if cfg_type == THINKING_MODEL_SWITCH:
-        # For DeepSeek the thinking is implicit in model selection; no extra
-        # config is needed — the caller already picks deepseek-reasoner.
-        return True, None
-
-    if cfg_type == THINKING_TYPE:
-        return True, {"type": "enabled"}
-
-    if cfg_type == THINKING_BUDGET_TOKENS:
-        return True, {"type": "enabled", "budget_tokens": 10_000}
 
     return False, None
 

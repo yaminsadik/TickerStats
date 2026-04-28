@@ -15,12 +15,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 # =============================================================================
 
 class Provider(str, Enum):
-    """Supported LLM providers."""
-    OPENAI = "openai"
+    """Active LLM provider."""
     GEMINI = "gemini"
-    DEEPSEEK = "deepseek"
-    ZAI = "zai"
-    ANTHROPIC = "anthropic"
 
 
 class PlanTier(str, Enum):
@@ -546,7 +542,7 @@ class DeckPlanRequest(BaseModel):
     )
     fund_constraints: FundConstraints
     provider: Provider = Field(
-        default=Provider.OPENAI,
+        default=Provider.GEMINI,
         description="LLM provider to use for planning",
     )
 

@@ -1,4 +1,4 @@
-# TicketStats API
+# TickerStats API
 
 A production-lean FastAPI backend that powers a "relative table" for student investment clubs using yfinance.
 
@@ -62,22 +62,22 @@ server/
 ### Running the Server
 
 ```bash
-uvicorn app.main:app --reload
+python run_unified.py
 ```
 
-The server will start at `http://localhost:8000`.
+The unified FastAPI + Flask server will start at `http://localhost:5000`.
 
 ### API Documentation
 
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
+- Swagger UI: http://localhost:5000/docs
+- ReDoc: http://localhost:5000/redoc
 
 ## API Endpoints
 
 ### 1. Health Check
 
 ```bash
-curl http://localhost:8000/health
+curl http://localhost:5000/health
 ```
 
 Response:
@@ -91,13 +91,13 @@ Response:
 Fetch snapshot metrics for multiple symbols:
 
 ```bash
-curl "http://localhost:8000/api/relative?symbols=AAPL,MSFT,NVDA"
+curl "http://localhost:5000/api/relative?symbols=AAPL,MSFT,NVDA"
 ```
 
 With specific fields:
 
 ```bash
-curl "http://localhost:8000/api/relative?symbols=AAPL,MSFT&fields=sharePrice,marketCap,forwardPE,beta"
+curl "http://localhost:5000/api/relative?symbols=AAPL,MSFT&fields=sharePrice,marketCap,forwardPE,beta"
 ```
 
 ### 3. Relative Table (With Performance)
@@ -105,7 +105,7 @@ curl "http://localhost:8000/api/relative?symbols=AAPL,MSFT&fields=sharePrice,mar
 Fetch snapshot and performance metrics:
 
 ```bash
-curl "http://localhost:8000/api/relative?symbols=AAPL,MSFT,NVDA&perf=return,volatility,maxDrawdown&perfPeriod=3mo"
+curl "http://localhost:5000/api/relative?symbols=AAPL,MSFT,NVDA&perf=return,volatility,maxDrawdown&perfPeriod=3mo"
 ```
 
 ### 4. CSV Export
@@ -113,13 +113,13 @@ curl "http://localhost:8000/api/relative?symbols=AAPL,MSFT,NVDA&perf=return,vola
 Export data as CSV:
 
 ```bash
-curl "http://localhost:8000/api/relative/export?symbols=AAPL,MSFT,NVDA&format=csv" -o relative_table.csv
+curl "http://localhost:5000/api/relative/export?symbols=AAPL,MSFT,NVDA&format=csv" -o relative_table.csv
 ```
 
 With performance metrics:
 
 ```bash
-curl "http://localhost:8000/api/relative/export?symbols=AAPL,MSFT&perf=return,volatility&perfPeriod=1y&format=csv" -o relative_table.csv
+curl "http://localhost:5000/api/relative/export?symbols=AAPL,MSFT&perf=return,volatility&perfPeriod=1y&format=csv" -o relative_table.csv
 ```
 
 ## Response Schema

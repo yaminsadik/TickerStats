@@ -3,7 +3,7 @@
  * an AI model and reasoning effort.  Two small popover-trigger buttons
  * sit in a horizontal row:
  *
- *   [ 🟢 OA  GPT-5 Mini ▾ ]   [ 🧠 Balanced ▾ ]
+ *   [ 🟢 GM  Gemini 3 Flash ▾ ]   [ 🧠 Balanced ▾ ]
  *
  * Clicking either opens a dropdown popover with the full list.
  */

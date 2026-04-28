@@ -551,7 +551,7 @@ export const deckSections: DeckSection[] = [
         bullets: [
           "DOJ antitrust ruling forces App Store fee reduction from 30% to 15%, cutting Services revenue by $8-12B annually.",
           "China revenue (18% of total) at risk from nationalism trends and Huawei's AI-powered smartphone resurgence.",
-          "AI strategy lags: Apple Intelligence perceived as inferior to Google/OpenAI, eroding premium positioning.",
+          "AI strategy lags: Apple Intelligence perceived as inferior to rival assistants, eroding premium positioning.",
           "Consumer spending slowdown: iPhone ASPs at $950+ are vulnerable to trade-down in a recession.",
         ],
         speakerNotes:
@@ -687,19 +687,13 @@ export const TIERS = {
       { text: "Unlimited compares", included: true },
       { text: "100 decks / month", included: true },
       { text: "DCF valuation", included: true },
-      { text: "All models: GPT-5.2, Claude Sonnet 4.5, Gemini 3 Pro", included: true },
+      { text: "Premium Gemini model: Gemini 3 Pro", included: true },
       { text: "All exports: CSV, XLSX, PDF, PPTX", included: true },
     ],
   },
 } as const;
 
 export const MODELS = [
-  "GPT-5 Mini",
-  "GPT-5.2",
-  "Claude Sonnet 4.5",
   "Gemini 3 Flash",
   "Gemini 3 Pro",
-  "DeepSeek V3.2",
-  "GLM-4.7 Flash",
-  "GLM-5",
 ] as const;

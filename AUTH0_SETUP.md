@@ -111,14 +111,14 @@ Make sure these are also set correctly:
 ### Backend (`server/.env`)
 ```bash
 AUTH0_DOMAIN=your-tenant.us.auth0.com
-AUTH0_API_AUDIENCE=https://api.ticketstats.com  # Your API identifier from Auth0
+AUTH0_API_AUDIENCE=https://api.tickerstats.com  # Your API identifier from Auth0
 ```
 
 ### Frontend (`client/.env`)
 ```bash
 VITE_AUTH0_DOMAIN=your-tenant.us.auth0.com
 VITE_AUTH0_CLIENT_ID=your-client-id  # From Auth0 Application settings
-VITE_AUTH0_AUDIENCE=https://api.ticketstats.com  # Same as backend
+VITE_AUTH0_AUDIENCE=https://api.tickerstats.com  # Same as backend
 ```
 
 ## Testing Without Auth0

@@ -14,7 +14,7 @@ const gatedFeatures: FeatureRow[] = [
   { label: "AI pitch deck generation", free: true, pro: true },
   { label: "DCF valuation", free: true, pro: true },
   { label: "Export (CSV, XLSX, PDF, PPTX)", free: false, pro: true },
-  { label: "Premium models (GPT-5.2, Gemini 3 Pro)", free: false, pro: true },
+  { label: "Premium Gemini model", free: false, pro: true },
   { label: "Unlimited compares", free: false, pro: true },
 ];
 

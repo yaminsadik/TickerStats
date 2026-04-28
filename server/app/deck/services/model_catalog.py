@@ -1,10 +1,10 @@
 """
-Config-driven model catalog — single source of truth for all LLM model
-definitions, pricing, thinking configs, and tier assignments.
+Config-driven model catalog for the currently active Gemini-only model
+surface.
 
 To add / remove / rename a model, edit THIS FILE ONLY.
-Provider implementations, the policy module, and the client API all read
-from the helpers exported here.
+Provider implementations remain available, but policy and API helpers only
+expose models listed in ``MODEL_CATALOG``.
 """
 
 from __future__ import annotations
@@ -14,14 +14,10 @@ from typing import Optional
 
 
 # ---------------------------------------------------------------------------
-# Thinking-config type constants (used by provider implementations)
+# Thinking-config type constants (used by active model policy)
 # ---------------------------------------------------------------------------
 
-THINKING_REASONING_EFFORT = "reasoning_effort"  # OpenAI: reasoning={"effort": …}
-THINKING_LEVEL = "thinking_level"               # Gemini: thinking_level="HIGH"|"LOW"
-THINKING_MODEL_SWITCH = "model_switch"           # DeepSeek: pick deepseek-reasoner
-THINKING_TYPE = "thinking_type"                  # Z.AI: thinking={"type": "enabled"|"disabled"}
-THINKING_BUDGET_TOKENS = "budget_tokens"         # Anthropic: thinking={"type":"enabled","budget_tokens":N}
+THINKING_LEVEL = "thinking_level"  # Gemini: thinking_level="HIGH"|"LOW"
 
 
 # ---------------------------------------------------------------------------
@@ -30,9 +26,9 @@ THINKING_BUDGET_TOKENS = "budget_tokens"         # Anthropic: thinking={"type":"
 
 @dataclass(frozen=True)
 class ModelDef:
-    provider: str                       # "openai" | "gemini" | "deepseek" | "zai" | "anthropic"
-    model_id: str                       # API model name, e.g. "gpt-5-mini"
-    display_name: str                   # UI label, e.g. "GPT-5 Mini"
+    provider: str                       # active provider is "gemini"
+    model_id: str                       # API model name, e.g. "gemini-3-flash-preview"
+    display_name: str                   # UI label, e.g. "Gemini 3 Flash"
     tiers: tuple[str, ...]              # ("free",) or ("pro",) or ("free","pro")
     thinking_supported: bool            # can this model think?
     thinking_config_type: Optional[str] # one of the THINKING_* constants above, or None
@@ -44,22 +40,8 @@ class ModelDef:
 
 
 # ============================================================================
-# FREE TIER MODELS
+# FREE TIER MODEL
 # ============================================================================
-
-GPT_5_MINI = ModelDef(
-    provider="openai",
-    model_id="gpt-5-mini",
-    display_name="GPT-5 Mini",
-    tiers=("free",),
-    thinking_supported=True,
-    thinking_config_type=THINKING_REASONING_EFFORT,
-    input_price_per_m=0.15,
-    output_price_per_m=0.60,
-    context_window=128_000,
-    max_output=8_192,
-    is_default={"free": True},
-)
 
 GEMINI_3_FLASH = ModelDef(
     provider="gemini",
@@ -72,89 +54,12 @@ GEMINI_3_FLASH = ModelDef(
     output_price_per_m=0.30,
     context_window=1_000_000,
     max_output=65_536,
-)
-
-DEEPSEEK_CHAT = ModelDef(
-    provider="deepseek",
-    model_id="deepseek-chat",
-    display_name="DeepSeek V3.2",
-    tiers=("free",),
-    thinking_supported=False,
-    thinking_config_type=None,
-    input_price_per_m=0.28,
-    output_price_per_m=0.42,
-    context_window=128_000,
-    max_output=8_192,
-)
-
-DEEPSEEK_REASONER = ModelDef(
-    provider="deepseek",
-    model_id="deepseek-reasoner",
-    display_name="DeepSeek V3.2 Reasoner",
-    tiers=("free",),
-    thinking_supported=True,
-    thinking_config_type=THINKING_MODEL_SWITCH,
-    input_price_per_m=0.28,
-    output_price_per_m=0.42,
-    context_window=128_000,
-    max_output=65_536,
-)
-
-GLM_47_FLASH = ModelDef(
-    provider="zai",
-    model_id="glm-4.7-flash",
-    display_name="GLM-4.7 Flash (Free)",
-    tiers=("free",),
-    thinking_supported=True,
-    thinking_config_type=THINKING_TYPE,
-    input_price_per_m=0.0,
-    output_price_per_m=0.0,
-    context_window=200_000,
-    max_output=128_000,
-)
-
-GLM_47_FLASHX = ModelDef(
-    provider="zai",
-    model_id="glm-4.7-flashx",
-    display_name="GLM-4.7 FlashX",
-    tiers=("free",),
-    thinking_supported=True,
-    thinking_config_type=THINKING_TYPE,
-    input_price_per_m=0.07,
-    output_price_per_m=0.40,
-    context_window=200_000,
-    max_output=128_000,
-)
-
-CLAUDE_HAIKU_45 = ModelDef(
-    provider="anthropic",
-    model_id="claude-haiku-4-5",
-    display_name="Claude Haiku 4.5",
-    tiers=("free", "pro"),
-    thinking_supported=True,
-    thinking_config_type=THINKING_BUDGET_TOKENS,
-    input_price_per_m=0.80,
-    output_price_per_m=4.00,
-    context_window=200_000,
-    max_output=128_000,
+    is_default={"free": True},
 )
 
 # ============================================================================
-# PRO TIER MODELS
+# PRO TIER MODEL
 # ============================================================================
-
-GPT_52 = ModelDef(
-    provider="openai",
-    model_id="gpt-5.2",
-    display_name="GPT-5.2",
-    tiers=("pro",),
-    thinking_supported=True,
-    thinking_config_type=THINKING_REASONING_EFFORT,
-    input_price_per_m=2.50,
-    output_price_per_m=10.00,
-    context_window=128_000,
-    max_output=32_768,
-)
 
 GEMINI_3_PRO = ModelDef(
     provider="gemini",
@@ -167,53 +72,16 @@ GEMINI_3_PRO = ModelDef(
     output_price_per_m=8.00,
     context_window=1_000_000,
     max_output=65_536,
+    is_default={"pro": True},
 )
-
-CLAUDE_SONNET_45 = ModelDef(
-    provider="anthropic",
-    model_id="claude-sonnet-4-5",
-    display_name="Claude Sonnet 4.5",
-    tiers=("pro",),
-    thinking_supported=True,
-    thinking_config_type=THINKING_BUDGET_TOKENS,
-    input_price_per_m=3.00,
-    output_price_per_m=15.00,
-    context_window=200_000,
-    max_output=128_000,
-)
-
-GLM_5 = ModelDef(
-    provider="zai",
-    model_id="glm-5",
-    display_name="GLM-5",
-    tiers=("pro",),
-    thinking_supported=True,
-    thinking_config_type=THINKING_TYPE,
-    input_price_per_m=1.00,
-    output_price_per_m=3.20,
-    context_window=200_000,
-    max_output=128_000,
-)
-
 
 # ============================================================================
 # COLLECTED CATALOG
 # ============================================================================
 
 MODEL_CATALOG: list[ModelDef] = [
-    # Free tier
-    GPT_5_MINI,
     GEMINI_3_FLASH,
-    DEEPSEEK_CHAT,
-    DEEPSEEK_REASONER,
-    GLM_47_FLASH,
-    GLM_47_FLASHX,
-    CLAUDE_HAIKU_45,
-    # Pro tier
-    GPT_52,
     GEMINI_3_PRO,
-    CLAUDE_SONNET_45,
-    GLM_5,
 ]
 
 

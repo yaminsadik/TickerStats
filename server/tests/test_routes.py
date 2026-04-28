@@ -150,7 +150,7 @@ class TestGenerateEndpoint:
     @patch("app.deck.api.routes_deck.verifier")
     @patch("app.deck.api.routes_deck.enrich_request_with_ticker_info", return_value=("Accenture", "IT"))
     @patch("app.deck.services.deck_generator.DeckGenerator.generate_deck")
-    def test_successful_generation(self, mock_generate, mock_enrich, mock_verifier, mock_session_cls, mock_upsert, mock_deck_limit, mock_enforce_deck, client, sample_generate_request, mock_openai_response):
+    def test_successful_generation(self, mock_generate, mock_enrich, mock_verifier, mock_session_cls, mock_upsert, mock_deck_limit, mock_enforce_deck, client, sample_generate_request, mock_gemini_response):
         # Mock auth
         mock_verifier.verify_token.return_value = {"sub": "auth0|test123"}
         mock_user = MagicMock()
@@ -173,8 +173,8 @@ class TestGenerateEndpoint:
             ticker="ACN",
             company_name="Accenture",
             provider_used=ProviderInfo(
-                provider="openai",
-                model="gpt-4o",
+                provider="gemini",
+                model="gemini-3-flash-preview",
                 reasoning_level="medium",
             ),
             results=[
@@ -199,7 +199,7 @@ class TestGenerateEndpoint:
             json=sample_generate_request,
             content_type="application/json",
             headers={
-                "X-OpenAI-API-Key": "test-key",
+                "X-Gemini-API-Key": "test-key",
                 "Authorization": "Bearer fake-token",
             },
         )
@@ -208,7 +208,7 @@ class TestGenerateEndpoint:
         data = response.get_json()
         
         assert data["ticker"] == "ACN"
-        assert data["provider_used"]["provider"] == "openai"
+        assert data["provider_used"]["provider"] == "gemini"
         assert len(data["results"]) == 1
 
 

@@ -24,7 +24,6 @@ class TestEnums:
     """Tests for enum definitions."""
     
     def test_provider_values(self):
-        assert Provider.OPENAI.value == "openai"
         assert Provider.GEMINI.value == "gemini"
     
     def test_reasoning_level_values(self):
@@ -100,7 +99,7 @@ class TestDeckGenerateRequest:
                 risk_profile="moderate",
             ),
             sections=["overview", "swot"],
-            provider=Provider.OPENAI,
+            provider=Provider.GEMINI,
         )
         assert request.ticker == "AAPL"
         assert len(request.sections) == 2
@@ -115,7 +114,7 @@ class TestDeckGenerateRequest:
                 risk_profile="moderate",
             ),
             sections=["overview"],
-            provider=Provider.OPENAI,
+            provider=Provider.GEMINI,
         )
         assert request.ticker == "AAPL"
     
@@ -130,7 +129,7 @@ class TestDeckGenerateRequest:
                     risk_profile="low",
                 ),
                 sections=["overview", "invalid_section"],
-                provider=Provider.OPENAI,
+                provider=Provider.GEMINI,
             )
         assert "invalid_section" in str(exc_info.value).lower()
     
@@ -144,7 +143,7 @@ class TestDeckGenerateRequest:
                 risk_profile="low",
             ),
             sections=["overview", "overview", "swot", "overview"],
-            provider=Provider.OPENAI,
+            provider=Provider.GEMINI,
         )
         assert request.sections == ["overview", "swot"]
     
@@ -158,7 +157,7 @@ class TestDeckGenerateRequest:
                 risk_profile="low",
             ),
             sections=["overview"],
-            provider=Provider.OPENAI,
+            provider=Provider.GEMINI,
         )
         assert request.reasoning_level == ReasoningLevel.MEDIUM
     
@@ -173,7 +172,7 @@ class TestDeckGenerateRequest:
                     risk_profile="low",
                 ),
                 sections=[],
-                provider=Provider.OPENAI,
+                provider=Provider.GEMINI,
             )
     
     def test_invalid_ticker_format(self):
@@ -187,7 +186,7 @@ class TestDeckGenerateRequest:
                     risk_profile="low",
                 ),
                 sections=["overview"],
-                provider=Provider.OPENAI,
+                provider=Provider.GEMINI,
             )
 
 

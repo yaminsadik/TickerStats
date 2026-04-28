@@ -235,8 +235,8 @@ export default function DeckWizardPage() {
   // ===== Config state =====
   const [config, setConfig] = useState<DeckDraftConfig>({
     sections: [],
-    provider: "openai",
-    model: "gpt-5-mini",
+    provider: "gemini",
+    model: "gemini-3-flash-preview",
     quality: "medium",
   });
 
@@ -322,17 +322,6 @@ export default function DeckWizardPage() {
       (option) => option.value === config.model,
     );
     if (!current) {
-      if (
-        config.provider === "deepseek" &&
-        config.model === "deepseek-reasoner"
-      ) {
-        setConfig((prev) => ({
-          ...prev,
-          model: "deepseek-chat",
-          provider: "deepseek",
-        }));
-        return;
-      }
       const fallback = modelOptions[0];
       setConfig((prev) => ({
         ...prev,

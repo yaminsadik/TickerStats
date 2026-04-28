@@ -83,7 +83,6 @@ def _init_cors(app: Flask) -> None:
                 "Content-Type",
                 "Authorization",
                 "X-Request-ID",
-                "X-OpenAI-API-Key",
                 "X-Gemini-API-Key",
             ],
         }

@@ -21,11 +21,8 @@ class Auth0JWTVerifier:
     """Verifies Auth0 JWT tokens using JWKS."""
 
     def __init__(self):
-        if not settings.AUTH0_DOMAIN:
-            raise ValueError("AUTH0_DOMAIN environment variable is not set")
-
         # Validate that AUTH0_DOMAIN looks like an Auth0 tenant domain or custom domain
-        if not (".auth0.com" in settings.AUTH0_DOMAIN or ".auth0.app" in settings.AUTH0_DOMAIN):
+        if settings.AUTH0_DOMAIN and not (".auth0.com" in settings.AUTH0_DOMAIN or ".auth0.app" in settings.AUTH0_DOMAIN):
             import logging
             logger = logging.getLogger(__name__)
             logger.warning(
@@ -34,10 +31,29 @@ class Auth0JWTVerifier:
                 f"and that https://{settings.AUTH0_DOMAIN}/.well-known/jwks.json is reachable."
             )
 
-        self.jwks_url = f"https://{settings.AUTH0_DOMAIN}/.well-known/jwks.json"
+        self.jwks_url = (
+            f"https://{settings.AUTH0_DOMAIN}/.well-known/jwks.json"
+            if settings.AUTH0_DOMAIN
+            else ""
+        )
         self._jwks_cache: Optional[dict] = None
         self._jwks_cached_at: float = 0.0
         self._jwks_lock = threading.Lock()
+
+    def _ensure_configured(self) -> None:
+        missing = []
+        if not settings.AUTH0_DOMAIN:
+            missing.append("AUTH0_DOMAIN")
+        if not settings.AUTH0_API_AUDIENCE:
+            missing.append("AUTH0_API_AUDIENCE")
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "Auth0 is not configured. Set "
+                    f"{', '.join(missing)} in the backend environment."
+                ),
+            )
 
     def _is_jwks_cache_stale(self) -> bool:
         if self._jwks_cache is None:
@@ -60,6 +76,8 @@ class Auth0JWTVerifier:
 
     def get_jwks(self, force_refresh: bool = False) -> dict:
         """Fetch and cache Auth0 JWKS (JSON Web Key Set)."""
+        self._ensure_configured()
+
         if not force_refresh and not self._is_jwks_cache_stale():
             return self._jwks_cache or {}
 
@@ -90,6 +108,8 @@ class Auth0JWTVerifier:
         Raises:
             HTTPException: If token is invalid or expired
         """
+        self._ensure_configured()
+
         try:
             # Get the key ID from token header
             unverified_header = jwt.get_unverified_header(token)

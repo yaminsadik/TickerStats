@@ -387,11 +387,7 @@ class DeckGenerator:
 
         # Env-var fallback map
         env_fallbacks: dict[str, list[str]] = {
-            "openai": ["OPENAI_API_KEY"],
             "gemini": ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
-            "deepseek": ["DEEPSEEK_API_KEY"],
-            "zai": ["ZAI_API_KEY"],
-            "anthropic": ["ANTHROPIC_API_KEY"],
         }
 
         key = api_keys.get(provider)

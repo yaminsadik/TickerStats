@@ -1,4 +1,4 @@
-# TicketStats Setup Guide
+# TickerStats Setup Guide
 
 ## Prerequisites
 
@@ -48,8 +48,8 @@ GRANT ALL PRIVILEGES ON DATABASE ticketstats TO ticketstats;
 1. Go to [Auth0 Dashboard](https://manage.auth0.com)
 2. Navigate to **Applications > APIs > Create API**
 3. Fill in:
-   - **Name**: TicketStats API
-   - **Identifier**: `https://api.ticketstats.com` (use this exact value)
+   - **Name**: TickerStats API
+   - **Identifier**: `https://api.tickerstats.com` (use the same value in frontend and backend env files)
    - **Signing Algorithm**: RS256
 4. Click **Create**
 5. Copy the **Identifier** - this is your `AUTH0_API_AUDIENCE`
@@ -58,7 +58,7 @@ GRANT ALL PRIVILEGES ON DATABASE ticketstats TO ticketstats;
 
 1. Navigate to **Applications > Applications > Create Application**
 2. Fill in:
-   - **Name**: TicketStats Client
+   - **Name**: TickerStats Client
    - **Application Type**: Single Page Web Applications
 3. Click **Create**
 4. Go to **Settings** tab
@@ -95,7 +95,7 @@ DATABASE_URL=postgresql://ticketstats:ticketstats@localhost:5432/ticketstats
 ASYNC_DATABASE_URL=postgresql+asyncpg://ticketstats:ticketstats@localhost:5432/ticketstats
 
 AUTH0_DOMAIN=your-tenant.us.auth0.com
-AUTH0_API_AUDIENCE=https://api.ticketstats.com
+AUTH0_API_AUDIENCE=https://api.tickerstats.com
 
 DEBUG=True
 ENVIRONMENT=development
@@ -114,10 +114,7 @@ alembic upgrade head
 ### Start Backend Server
 
 ```bash
-# FastAPI server (port 8000)
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-
-# Flask Deck Service (port 5001) - in separate terminal
+# Unified FastAPI + Flask server (port 5000)
 python run_unified.py
 ```
 
@@ -141,11 +138,11 @@ cp .env.example .env
 Edit `.env` and fill in:
 
 ```env
-VITE_API_BASE_URL=http://localhost:8000
+VITE_API_BASE=http://localhost:5000
 
 VITE_AUTH0_DOMAIN=your-tenant.us.auth0.com
 VITE_AUTH0_CLIENT_ID=your-auth0-client-id
-VITE_AUTH0_AUDIENCE=https://api.ticketstats.com
+VITE_AUTH0_AUDIENCE=https://api.tickerstats.com
 ```
 
 ### Start Frontend
@@ -154,7 +151,7 @@ VITE_AUTH0_AUDIENCE=https://api.ticketstats.com
 npm run dev
 ```
 
-Visit: http://localhost:5173
+Visit: http://localhost:3000
 
 ---
 
@@ -162,7 +159,7 @@ Visit: http://localhost:5173
 
 ### Test Authentication
 
-1. Open http://localhost:5173
+1. Open http://localhost:3000
 2. Click **Login** button (top right)
 3. Sign up/login with Auth0
 4. You should be redirected back with your name displayed
@@ -174,11 +171,11 @@ Open browser console and run:
 ```javascript
 // Get access token
 const token = localStorage.getItem(
-  "@@auth0spajs@@::YOUR_CLIENT_ID::https://api.ticketstats.com::openid profile email",
+  "@@auth0spajs@@::YOUR_CLIENT_ID::https://api.tickerstats.com::openid profile email",
 );
 
 // Make authenticated request
-fetch("http://localhost:8000/api/user/watchlist", {
+fetch("http://localhost:5000/api/user/watchlist", {
   headers: {
     Authorization: `Bearer ${token}`,
   },

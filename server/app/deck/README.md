@@ -4,11 +4,11 @@ A production-grade Flask backend for generating AI-powered investment pitch deck
 
 ## Overview
 
-This service generates structured slide content for investment pitch decks using LLM providers (OpenAI or Google Gemini). It integrates with the existing yfinance-based comparables table generator to provide market context.
+This service generates structured slide content for investment pitch decks using Google Gemini. It integrates with the existing yfinance-based comparables table generator to provide market context.
 
 ## Features
 
-- **Multiple AI Providers**: Support for OpenAI GPT-4 and Google Gemini
+- **Gemini Generation**: Gemini-backed structured slide generation
 - **Structured Output**: Strict JSON output format for frontend slide rendering
 - **Section Types**: Overview, History, SWOT, Porter's Five Forces, Rebuttals, Layout
 - **Validation**: Server-side JSON schema validation with retry on failure
@@ -30,8 +30,7 @@ pip install -r requirements.txt
 Create a `.env` file in the `server` directory:
 
 ```env
-# Required: At least one LLM provider key
-OPENAI_API_KEY=sk-your-openai-key
+# Required: Gemini API key
 GEMINI_API_KEY=your-gemini-key
 
 # Optional: Flask settings
@@ -126,13 +125,12 @@ Generate pitch deck sections.
   "sections": [
     "overview",
     "history",
-    "swot",
-    "porters_five",
-    "rebuttals",
-    "layout"
+    "business_model_segments",
+    "industry_competitive_landscape",
+    "swot"
   ],
-  "provider": "openai",
-  "model": "gpt-4o",
+  "provider": "gemini",
+  "model": "gemini-3-flash-preview",
   "reasoning_level": "medium",
   "include_comps": true
 }
@@ -144,8 +142,8 @@ Generate pitch deck sections.
 {
   "ticker": "ACN",
   "provider_used": {
-    "provider": "openai",
-    "model": "gpt-4o",
+    "provider": "gemini",
+    "model": "gemini-3-flash-preview",
     "reasoning_level": "medium"
   },
   "generated_at": "2026-01-31T12:00:00Z",
@@ -188,7 +186,7 @@ Generate pitch deck sections.
 ```bash
 curl -X POST http://localhost:5000/api/v1/deck/generate \
   -H "Content-Type: application/json" \
-  -H "X-OpenAI-API-Key: sk-your-key" \
+  -H "X-Gemini-API-Key: your-gemini-key" \
   -d '{
     "ticker": "ACN",
     "company_name": "Accenture",
@@ -198,7 +196,7 @@ curl -X POST http://localhost:5000/api/v1/deck/generate \
       "risk_profile": "moderate"
     },
     "sections": ["overview", "swot"],
-    "provider": "openai",
+    "provider": "gemini",
     "reasoning_level": "medium"
   }'
 ```
@@ -218,7 +216,7 @@ Get suggested sections and ordering without generating content.
     "time_horizon": "12-24 months",
     "risk_profile": "moderate"
   },
-  "provider": "openai"
+  "provider": "gemini"
 }
 ```
 
@@ -272,20 +270,10 @@ curl -X POST http://localhost:5000/api/v1/deck/plan \
 
 ## Provider Configuration
 
-### OpenAI
-
 Models available:
 
-- `gpt-4o` (default for medium/high reasoning)
-- `gpt-4o-mini` (default for low reasoning)
-- `gpt-4-turbo`
-
-### Gemini
-
-Models available:
-
-- `gemini-1.5-pro` (default for medium/high reasoning)
-- `gemini-1.5-flash` (default for low reasoning)
+- `gemini-3-flash-preview` (standard/default)
+- `gemini-3-pro-preview` (Pro/Enterprise)
 
 ### Reasoning Levels
 
@@ -358,7 +346,6 @@ server/app/deck/
 ├── services/
 │   ├── __init__.py
 │   ├── llm_base.py     # Abstract LLM provider interface
-│   ├── llm_openai.py   # OpenAI implementation
 │   ├── llm_gemini.py   # Gemini implementation
 │   ├── deck_generator.py # Generation orchestrator
 │   ├── comps_service.py  # yfinance wrapper
@@ -393,7 +380,6 @@ HTTP Status Codes:
 
 | Variable              | Default          | Description                           |
 | --------------------- | ---------------- | ------------------------------------- |
-| `OPENAI_API_KEY`      | -                | OpenAI API key                        |
 | `GEMINI_API_KEY`      | -                | Google Gemini API key                 |
 | `FLASK_DEBUG`         | `false`          | Enable debug mode                     |
 | `FLASK_HOST`          | `0.0.0.0`        | Server host                           |

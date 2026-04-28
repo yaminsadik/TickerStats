@@ -22,7 +22,6 @@ class DeckConfig:
     SECRET_KEY: str = "dev-secret-key-change-in-production"
     
     # API Keys (loaded from environment)
-    OPENAI_API_KEY: Optional[str] = None
     GEMINI_API_KEY: Optional[str] = None
     
     # Generation settings
@@ -51,7 +50,6 @@ class DeckConfig:
             DEBUG=os.getenv("FLASK_DEBUG", "false").lower() == "true",
             TESTING=os.getenv("FLASK_TESTING", "false").lower() == "true",
             SECRET_KEY=os.getenv("FLASK_SECRET_KEY", cls.SECRET_KEY),
-            OPENAI_API_KEY=os.getenv("OPENAI_API_KEY"),
             GEMINI_API_KEY=os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"),
             DECK_MAX_RETRIES=int(os.getenv("DECK_MAX_RETRIES", "2")),
             DECK_TIMEOUT=int(os.getenv("DECK_TIMEOUT", "60")),

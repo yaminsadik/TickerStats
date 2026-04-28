@@ -44,8 +44,8 @@ def client(app):
 
 
 @pytest.fixture
-def mock_openai_response():
-    """Mock OpenAI API response."""
+def mock_gemini_response():
+    """Mock Gemini API response."""
     return {
         "section_id": "overview",
         "slides": [
@@ -103,8 +103,8 @@ def sample_generate_request():
             "style": "student investment fund pitch deck",
         },
         "sections": ["overview"],
-        "provider": "openai",
-        "model": "gpt-4o",
+        "provider": "gemini",
+        "model": "gemini-3-flash-preview",
         "reasoning_level": "medium",
         "include_comps": False,
     }
@@ -121,5 +121,5 @@ def sample_plan_request():
             "time_horizon": "12-24 months",
             "risk_profile": "moderate",
         },
-        "provider": "openai",
+        "provider": "gemini",
     }

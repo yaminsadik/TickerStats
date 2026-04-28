@@ -1,5 +1,5 @@
 """
-FastAPI application entry point for TicketStats API.
+FastAPI application entry point for TickerStats API.
 
 Architecture: FastAPI is the primary ASGI server.
 The legacy Flask deck-generation service is mounted under /legacy

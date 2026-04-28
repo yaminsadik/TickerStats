@@ -7,7 +7,7 @@ React + TypeScript frontend for TickerStats - an investment research platform fo
 ### Core Functionality
 - **Authentication**: Auth0 integration with protected routes
 - **Browse/Compare**: Real-time relative valuation tables with yfinance data
-- **Deck Generation**: AI-powered pitch deck creation using LLM providers (OpenAI/Gemini)
+- **Deck Generation**: AI-powered pitch deck creation using Gemini
 - **Watchlists**: Save and track tickers with notes
 - **Saved Searches**: Persist analysis configurations
 - **User Profiles**: Subscription tiers, usage tracking, admin controls
@@ -24,7 +24,7 @@ React + TypeScript frontend for TickerStats - an investment research platform fo
 
 - Node.js 18+
 - npm or yarn
-- Backend server running at `http://localhost:5000` (default)
+- Unified backend server running at `http://localhost:5000` (default)
 - Auth0 account configured (see root `AUTH0_SETUP.md`)
 
 ## Setup
@@ -42,7 +42,7 @@ React + TypeScript frontend for TickerStats - an investment research platform fo
    
    Update `.env` with your settings:
    ```bash
-   VITE_API_BASE_URL=http://localhost:5000
+   VITE_API_BASE=http://localhost:5000
    VITE_AUTH0_DOMAIN=your-tenant.us.auth0.com
    VITE_AUTH0_AUDIENCE=https://api.tickerstats.com
    VITE_AUTH0_CLIENT_ID=your-client-id
@@ -60,7 +60,7 @@ React + TypeScript frontend for TickerStats - an investment research platform fo
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `VITE_API_BASE_URL` | Yes | Backend API URL (default: `http://localhost:5000`) |
+| `VITE_API_BASE` | Yes | Backend API URL (default: `http://localhost:5000`) |
 | `VITE_AUTH0_DOMAIN` | Yes | Auth0 tenant domain |
 | `VITE_AUTH0_AUDIENCE` | Yes | Auth0 API identifier |
 | `VITE_AUTH0_CLIENT_ID` | Yes | Auth0 application client ID |
@@ -78,7 +78,7 @@ React + TypeScript frontend for TickerStats - an investment research platform fo
 1. Navigate to `/deck/new`
 2. Enter ticker and company info
 3. Select deck sections (Overview, SWOT, Valuation, etc.)
-4. Choose LLM provider (OpenAI/Gemini) and quality level
+4. Choose Gemini model quality level
 5. Click **Generate Deck**
 6. View/save generated slides
 

@@ -24,24 +24,20 @@ from app.deck.services.model_policy import ModelDecision, resolve_model
 class TestModelCatalog:
 
     def test_catalog_not_empty(self):
-        assert len(MODEL_CATALOG) >= 10
+        assert len(MODEL_CATALOG) == 2
 
     def test_get_models_for_free_tier(self):
         free = get_models_for_tier("free")
-        assert len(free) >= 6
+        assert len(free) == 1
         assert all("free" in m.tiers for m in free)
         free_ids = [m.model_id for m in free]
-        assert "claude-haiku-4-5" in free_ids
+        assert free_ids == ["gemini-3-flash-preview"]
 
     def test_get_models_for_pro_tier(self):
         pro = get_models_for_tier("pro")
-        assert len(pro) >= 4
+        assert len(pro) == 2
         pro_ids = [m.model_id for m in pro]
-        assert "gpt-5.2" in pro_ids
-        assert "gpt-5-mini" in pro_ids
-        assert "claude-haiku-4-5" in pro_ids
-        # Paid models should be listed before inherited free models.
-        assert pro_ids.index("gpt-5-mini") > pro_ids.index("glm-5")
+        assert pro_ids == ["gemini-3-pro-preview", "gemini-3-flash-preview"]
 
     def test_enterprise_maps_to_pro(self):
         pro = get_models_for_tier("pro")
@@ -50,17 +46,16 @@ class TestModelCatalog:
 
     def test_get_default_model_free(self):
         default = get_default_model("free")
-        assert default.model_id == "gpt-5-mini"
+        assert default.model_id == "gemini-3-flash-preview"
 
-    def test_get_default_model_pro_fallback(self):
-        """Pro has no explicit default; first pro model is returned."""
+    def test_get_default_model_pro(self):
         default = get_default_model("pro")
-        assert "pro" in default.tiers
+        assert default.model_id == "gemini-3-pro-preview"
 
     def test_get_model_by_id_found(self):
-        m = get_model_by_id("deepseek-chat")
+        m = get_model_by_id("gemini-3-flash-preview")
         assert m is not None
-        assert m.provider == "deepseek"
+        assert m.provider == "gemini"
 
     def test_get_model_by_id_not_found(self):
         m = get_model_by_id("nonexistent-model")
@@ -74,11 +69,11 @@ class TestModelCatalog:
             assert inp >= 0
             assert out >= 0
 
-    def test_glm_47_flash_is_free(self):
-        m = get_model_by_id("glm-4.7-flash")
+    def test_gemini_flash_pricing(self):
+        m = get_model_by_id("gemini-3-flash-preview")
         assert m is not None
-        assert m.input_price_per_m == 0.0
-        assert m.output_price_per_m == 0.0
+        assert m.input_price_per_m >= 0.0
+        assert m.output_price_per_m >= 0.0
 
     def test_catalog_for_api(self):
         data = get_catalog_for_api("free")
@@ -91,11 +86,7 @@ class TestModelCatalog:
 # =========================================================================
 
 ALL_KEYS = {
-    "openai": "ok",
     "gemini": "ok",
-    "deepseek": "ok",
-    "zai": "ok",
-    "anthropic": "ok",
 }
 
 
@@ -111,22 +102,22 @@ class TestModelPolicy:
             available_keys=ALL_KEYS,
         )
         assert isinstance(decision, ModelDecision)
-        assert decision.model == "gpt-5-mini"
-        assert decision.provider == "openai"
+        assert decision.model == "gemini-3-flash-preview"
+        assert decision.provider == "gemini"
 
     def test_specific_free_model(self):
         decision = resolve_model(
             plan_tier="free",
             analysis_depth="medium",
             model_mode="specific",
-            requested_model_id="deepseek-chat",
+            requested_model_id="gemini-3-flash-preview",
             thinking_requested=False,
             available_keys=ALL_KEYS,
         )
-        assert decision.model == "deepseek-chat"
-        assert decision.provider == "deepseek"
+        assert decision.model == "gemini-3-flash-preview"
+        assert decision.provider == "gemini"
 
-    def test_specific_free_all_six_models(self):
+    def test_specific_free_models(self):
         free_ids = [m.model_id for m in get_models_for_tier("free")]
         for model_id in free_ids:
             decision = resolve_model(
@@ -156,38 +147,39 @@ class TestModelPolicy:
             plan_tier="pro",
             analysis_depth="medium",
             model_mode="specific",
-            requested_model_id="glm-4.7-flashx",
+            requested_model_id="gemini-3-flash-preview",
             thinking_requested=False,
             available_keys=ALL_KEYS,
         )
-        assert decision.model == "glm-4.7-flashx"
-        assert decision.provider == "zai"
+        assert decision.model == "gemini-3-flash-preview"
+        assert decision.provider == "gemini"
 
     def test_thinking_enabled_when_supported(self):
         decision = resolve_model(
             plan_tier="free",
             analysis_depth="high",
             model_mode="specific",
-            requested_model_id="gpt-5-mini",
+            requested_model_id="gemini-3-flash-preview",
             thinking_requested=True,
             available_keys=ALL_KEYS,
         )
         assert decision.thinking_enabled is True
         assert decision.thinking_config is not None
 
-    def test_thinking_disabled_when_not_supported(self):
+    def test_inactive_specific_model_falls_through(self):
         decision = resolve_model(
             plan_tier="free",
             analysis_depth="medium",
             model_mode="specific",
-            requested_model_id="deepseek-chat",
+            requested_model_id="inactive-model",
             thinking_requested=True,
             available_keys=ALL_KEYS,
         )
-        assert decision.thinking_enabled is False
+        assert decision.provider == "gemini"
+        assert decision.model == "gemini-3-flash-preview"
 
     def test_missing_key_excluded_from_fallback(self):
-        keys = {"openai": "ok", "gemini": None, "deepseek": None, "zai": None, "anthropic": None}
+        keys = {"gemini": None}
         decision = resolve_model(
             plan_tier="free",
             analysis_depth="medium",
@@ -213,7 +205,7 @@ class TestModelPolicy:
         assert costs == sorted(costs), "Fallback chain not sorted cheapest-first"
 
     def test_auto_fallback_when_default_key_missing(self):
-        keys = {"openai": None, "gemini": "ok", "deepseek": None, "zai": None, "anthropic": None}
+        keys = {"gemini": "ok"}
         decision = resolve_model(
             plan_tier="free",
             analysis_depth="medium",
@@ -222,7 +214,6 @@ class TestModelPolicy:
             thinking_requested=False,
             available_keys=keys,
         )
-        # Default (openai) key is missing → should fall back to gemini
         assert decision.provider == "gemini"
 
     def test_specific_pro_model_from_free_tier_falls_through(self):
@@ -231,9 +222,9 @@ class TestModelPolicy:
             plan_tier="free",
             analysis_depth="medium",
             model_mode="specific",
-            requested_model_id="gpt-5.2",
+            requested_model_id="gemini-3-pro-preview",
             thinking_requested=False,
             available_keys=ALL_KEYS,
         )
-        # gpt-5.2 is pro-only; free user should not get it
-        assert decision.model != "gpt-5.2"
+        # Pro-only model should fall back to the free Gemini default.
+        assert decision.model == "gemini-3-flash-preview"

@@ -318,7 +318,7 @@ export interface GenerateDeckRequest {
     style?: string;
   };
   sections?: string[];
-  provider?: 'openai' | 'gemini' | 'deepseek' | 'zai' | 'anthropic';
+  provider?: 'gemini';
   model?: string;
   plan_tier?: 'free' | 'pro' | 'enterprise';
   model_mode?: 'auto' | 'specific';

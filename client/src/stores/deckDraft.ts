@@ -40,7 +40,7 @@ export interface DeckDraftIntake {
 
 export interface DeckDraftConfig {
   sections: string[];
-  provider: 'openai' | 'gemini' | 'deepseek' | 'zai' | 'anthropic';
+  provider: 'gemini';
   model?: string;
   quality: 'low' | 'medium' | 'high';
 }
@@ -59,24 +59,12 @@ export interface DeckDraft {
 }
 
 const DEFAULT_MODEL_BY_PROVIDER: Record<DeckDraftConfig['provider'], string> = {
-  openai: 'gpt-5-mini',
   gemini: 'gemini-3-flash-preview',
-  deepseek: 'deepseek-chat',
-  zai: 'glm-4.7-flash',
-  anthropic: 'claude-sonnet-4-5',
 };
 
 function normalizeProvider(value: unknown): DeckDraftConfig['provider'] {
-  if (
-    value === 'openai' ||
-    value === 'gemini' ||
-    value === 'deepseek' ||
-    value === 'zai' ||
-    value === 'anthropic'
-  ) {
-    return value;
-  }
-  return 'openai';
+  void value;
+  return 'gemini';
 }
 
 function normalizeQuality(value: unknown): DeckDraftConfig['quality'] {

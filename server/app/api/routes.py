@@ -331,6 +331,7 @@ async def export_relative_table(
     fields: Optional[str] = Query(None, description="Comma-separated snapshot fields to include"),
     perf: Optional[str] = Query(None, description="Comma-separated performance metrics to compute"),
     perfPeriod: Optional[str] = Query(None, description="Performance period"),
+    dcf: bool = Query(False, description="Include DCF valuation (dcfPrice, dcfUpside)"),
     format: str = Query("csv", description="Export format: csv, xlsx, or pdf"),
     current_user: "User" = Depends(require_paid_or_admin),
 ):
@@ -338,7 +339,8 @@ async def export_relative_table(
     Export relative table data as CSV, XLSX, or PDF.
     Requires a Pro subscription or admin access.
     
-    Columns: symbol + requested snapshot fields + requested perf metrics (if any).
+    Columns: symbol + requested snapshot fields + requested perf metrics (if any)
+    + DCF metrics when dcf=true.
     Null values render as empty cells.
     """
     from app.services.export_service import build_table_rows, generate_csv, generate_xlsx, generate_pdf
@@ -347,7 +349,7 @@ async def export_relative_table(
     if fmt not in ("csv", "xlsx", "pdf"):
         raise HTTPException(status_code=400, detail="Supported formats: csv, xlsx, pdf")
 
-    logger.info(f"Export request (format={fmt}): symbols={symbols}, fields={fields}, perf={perf}, perfPeriod={perfPeriod}")
+    logger.info(f"Export request (format={fmt}): symbols={symbols}, fields={fields}, perf={perf}, perfPeriod={perfPeriod}, dcf={dcf}")
 
     # Parse and validate inputs
     validated_symbols = parse_and_validate_symbols(symbols)
@@ -361,13 +363,14 @@ async def export_relative_table(
         fields=validated_fields,
         perf_metrics=validated_perf_metrics,
         perf_period=validated_perf_period,
+        include_dcf=dcf,
     )
 
     as_of = yfinance_service.get_as_of_timestamp()
 
     # Build normalised table data
     headers, flat_rows = build_table_rows(
-        rows_data, validated_fields, validated_perf_metrics, include_dcf=False,
+        rows_data, validated_fields, validated_perf_metrics, include_dcf=dcf,
     )
 
     # Common response headers

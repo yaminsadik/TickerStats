@@ -34,7 +34,7 @@ from app.deck.utils.ticker_info import enrich_request_with_ticker_info
 from app.core.auth import verifier
 from app.core.config import settings
 from app.core.database import SessionLocal
-from app.models import User
+from app.models import LLMUsageLog, User
 from app.services.usage_limits import (
     check_deck_limit_sync,
     enforce_deck_limit_and_increment_sync,
@@ -152,17 +152,13 @@ def get_deck_generator() -> DeckGenerator:
 
 
 def get_api_keys() -> dict[str, str | None]:
-    """Get API keys from headers or environment for all providers."""
+    """Get API keys for the active Gemini provider."""
     return {
-        "openai": request.headers.get("X-OpenAI-API-Key") or os.getenv("OPENAI_API_KEY"),
         "gemini": (
             request.headers.get("X-Gemini-API-Key")
             or os.getenv("GEMINI_API_KEY")
             or os.getenv("GOOGLE_API_KEY")
         ),
-        "deepseek": request.headers.get("X-DeepSeek-API-Key") or os.getenv("DEEPSEEK_API_KEY"),
-        "zai": request.headers.get("X-ZAI-API-Key") or os.getenv("ZAI_API_KEY"),
-        "anthropic": request.headers.get("X-Anthropic-API-Key") or os.getenv("ANTHROPIC_API_KEY"),
     }
 
 
@@ -245,7 +241,8 @@ def _resolve_plan_and_models(
     """Apply plan-tier model rules and return provider, model, depth, mode.
 
     Delegates to the model_policy module when the model_mode is AUTO.
-    When model_mode is SPECIFIC, the user's explicit choice is honoured.
+    The active model catalog is Gemini-only, so non-Gemini requests fall back
+    to the Gemini default for the user's tier.
     """
     from app.deck.services.model_policy import resolve_model
 
@@ -268,6 +265,74 @@ def _resolve_plan_and_models(
     )
 
     return decision.provider, decision.model, analysis_depth, model_mode
+
+
+def _to_int(value: Any) -> int:
+    try:
+        return int(float(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _estimate_cost_usd(model: str, input_tokens: int, output_tokens: int) -> float:
+    from app.deck.services.model_catalog import get_model_by_id
+
+    model_def = get_model_by_id(model)
+    if model_def is None:
+        return 0.0
+    return round(
+        (input_tokens / 1_000_000) * model_def.input_price_per_m
+        + (output_tokens / 1_000_000) * model_def.output_price_per_m,
+        6,
+    )
+
+
+def _infer_provider(model: str, fallback_provider: str) -> str:
+    from app.deck.services.model_catalog import get_model_by_id
+
+    model_def = get_model_by_id(model)
+    return model_def.provider if model_def is not None else fallback_provider
+
+
+def _record_llm_usage_sync(
+    session,
+    user_id: str,
+    response,
+    thinking_requested: bool,
+) -> None:
+    """Persist one usage-ledger row per successful section generation."""
+    default_provider = response.provider_used.provider
+    default_model = response.provider_used.model
+
+    for section in response.results:
+        metadata = section.generation_metadata or {}
+        tokens = metadata.get("tokens") or {}
+        model = str(metadata.get("model") or default_model or "")[:50]
+        provider = _infer_provider(model, default_provider)[:20]
+        input_tokens = _to_int(
+            tokens.get("prompt_tokens") or tokens.get("input_tokens")
+        )
+        output_tokens = _to_int(
+            tokens.get("completion_tokens") or tokens.get("output_tokens")
+        )
+        reasoning_tokens = _to_int(tokens.get("reasoning_tokens"))
+        latency_ms = _to_int(metadata.get("latency_ms"))
+
+        session.add(LLMUsageLog(
+            user_id=user_id,
+            provider=provider,
+            model=model or default_model[:50],
+            thinking_enabled=thinking_requested or reasoning_tokens > 0,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            reasoning_tokens=reasoning_tokens,
+            estimated_cost_usd=_estimate_cost_usd(
+                model or default_model,
+                input_tokens,
+                output_tokens,
+            ),
+            latency_ms=latency_ms,
+        ))
 
 
 # =============================================================================
@@ -361,7 +426,7 @@ def generate_deck():
                   portfolio_context: {type: string}
                   style: {type: string}
               sections: {type: array, items: {type: string}}
-              provider: {type: string, enum: [openai, gemini]}
+              provider: {type: string, enum: [gemini]}
               model: {type: string}
               reasoning_level: {type: string, enum: [low, medium, high]}
               include_comps: {type: boolean}
@@ -462,13 +527,7 @@ def generate_deck():
     # Validate we have the required key for the chosen provider
     chosen_provider = deck_request.provider.value
     if not api_keys.get(chosen_provider):
-        provider_labels = {
-            "openai": "OPENAI_API_KEY",
-            "gemini": "GEMINI_API_KEY",
-            "deepseek": "DEEPSEEK_API_KEY",
-            "zai": "ZAI_API_KEY",
-            "anthropic": "ANTHROPIC_API_KEY",
-        }
+        provider_labels = {"gemini": "GEMINI_API_KEY"}
         env_hint = provider_labels.get(chosen_provider, chosen_provider.upper() + "_API_KEY")
         return jsonify({
             "error": f"{chosen_provider} API key required. Set {env_hint} env var.",
@@ -485,6 +544,12 @@ def generate_deck():
     # Increment deck usage on success
     session = SessionLocal()
     try:
+        _record_llm_usage_sync(
+            session,
+            user_id,
+            response,
+            thinking_requested=deck_request.reasoning_level == ReasoningLevel.HIGH,
+        )
         allowed_after_generate, locked_limit = enforce_deck_limit_and_increment_sync(
             session,
             user_id,
@@ -498,7 +563,8 @@ def generate_deck():
                 "request_id": getattr(g, "request_id", None),
             }), 403
         session.commit()
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to record deck usage metadata: {e}")
         session.rollback()
     finally:
         session.close()
@@ -532,7 +598,7 @@ def plan_deck():
               fund_constraints:
                 type: object
                 required: [time_horizon, risk_profile]
-              provider: {type: string, enum: [openai, gemini]}
+              provider: {type: string, enum: [gemini]}
     responses:
       200:
         description: Deck plan with suggested sections
