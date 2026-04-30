@@ -1,14 +1,4 @@
-"""
-FastAPI application entry point for TickerStats API.
-
-Architecture: FastAPI is the primary ASGI server.
-The legacy Flask deck-generation service is mounted under /legacy
-via Starlette's WSGIMiddleware so that both run on a single port.
-All new user-facing endpoints live on FastAPI.  Flask routes remain
-available at their original paths (e.g. /api/v1/deck/generate) by
-mounting Flask at "/" – requests that don't match any FastAPI route
-fall through to Flask.
-"""
+"""FastAPI application entry point for TickerStats API."""
 
 import logging
 import os
@@ -17,7 +7,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import Response
-from starlette.middleware.wsgi import WSGIMiddleware
 
 from app.api.routes import router
 from app.api.routes_user import router as user_router, admin_router
@@ -25,6 +14,8 @@ from app.api.routes_stripe import router as stripe_router, webhook_router as str
 from app.core.config import API_VERSION
 from app.core.middleware import RequestTimingMiddleware
 from app.core.error_handlers import register_error_handlers
+from app.deck.api.routes_deck import router as deck_router
+from app.deck.api.routes_dcf import router as dcf_router
 
 # Configure structured JSON logging (reuse the deck service's formatter)
 from app.deck.utils.logging import configure_logging
@@ -32,12 +23,6 @@ from app.deck.utils.logging import configure_logging
 configure_logging(level="INFO", json_output=True)
 
 logger = logging.getLogger(__name__)
-
-
-def _get_flask_app():
-    """Lazily import the Flask app to avoid circular imports."""
-    from app.deck.app import get_app
-    return get_app()
 
 
 @asynccontextmanager
@@ -84,6 +69,22 @@ app.add_middleware(
     expose_headers=["X-Request-ID", "X-Total-Count", "Link"],
 )
 
+
+@app.get("/")
+async def root():
+    return {
+        "service": "tickerstats-api",
+        "version": API_VERSION,
+        "status": "running",
+        "endpoints": {
+            "relative": "/api/relative",
+            "deck": "/api/v1/deck/*",
+            "valuation": "/api/v1/valuation/*",
+            "user": "/api/user/*",
+        },
+    }
+
+
 # Fallback CORS headers for error responses (ensures ACAO on 500s)
 @app.middleware("http")
 async def _cors_fallback(request, call_next):
@@ -111,10 +112,7 @@ app.include_router(user_router)  # User-specific routes (protected)
 app.include_router(admin_router)  # Admin-only routes
 app.include_router(stripe_router)  # Stripe payment routes
 app.include_router(stripe_webhook_router)  # Stripe webhook alias route
+app.include_router(deck_router)  # Deck generation routes
+app.include_router(dcf_router)  # DCF valuation routes
 
-# Mount Flask (deck generation + legacy relative API) under root
-# Flask handles /api/v1/deck/*, /api/v1/valuation/*, /api/v1/sections, /health
-# FastAPI routes are matched first; anything unmatched falls through to Flask.
-app.mount("/", WSGIMiddleware(_get_flask_app()))
-
-logger.info(f"TickerStats API v{API_VERSION} initialized (FastAPI + Flask via WSGIMiddleware)")
+logger.info(f"TickerStats API v{API_VERSION} initialized")

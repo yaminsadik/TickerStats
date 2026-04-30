@@ -1,46 +1,40 @@
-"""
-Pytest configuration and fixtures for deck generation tests.
-"""
+"""Pytest configuration and fixtures for deck generation tests."""
 
 import os
 import pytest
 from unittest.mock import MagicMock, patch
+from fastapi.testclient import TestClient
+from httpx import Response
 
-# Set test environment variables before importing app
-os.environ["FLASK_TESTING"] = "true"
-os.environ["FLASK_DEBUG"] = "false"
-os.environ["RATE_LIMIT_ENABLED"] = "false"
+# Set test environment variables before importing app.
 os.environ["LOG_JSON"] = "false"
+
+
+if not hasattr(Response, "get_json"):
+    Response.get_json = Response.json
 
 
 @pytest.fixture
 def app():
-    """Create Flask test application."""
-    from app.deck.app import create_deck_app
-    from app.deck.config import DeckConfig
-    
-    config = DeckConfig(
-        DEBUG=False,
-        TESTING=True,
-        SECRET_KEY="test-secret-key",
-        RATE_LIMIT_ENABLED=False,
-        CACHE_TYPE="memory",
-        LOG_JSON=False,
-        LOG_LEVEL="WARNING",
-    )
-    
-    app = create_deck_app(config)
-    app.config.update({
-        "TESTING": True,
-    })
-    
-    yield app
+    """Create FastAPI test application."""
+    from app.main import app as fastapi_app
+
+    yield fastapi_app
 
 
 @pytest.fixture
 def client(app):
     """Create test client."""
-    return app.test_client()
+    class CompatTestClient(TestClient):
+        def post(self, url, *args, content_type=None, **kwargs):
+            if content_type:
+                headers = dict(kwargs.pop("headers", {}) or {})
+                headers.setdefault("content-type", content_type)
+                kwargs["headers"] = headers
+            return super().post(url, *args, **kwargs)
+
+    with CompatTestClient(app) as test_client:
+        yield test_client
 
 
 @pytest.fixture

@@ -1,4 +1,4 @@
 """
 Deck generation module for investment pitch deck sections.
-Flask-based API for generating AI-powered pitch deck content.
+FastAPI routes and services for generating AI-powered pitch deck content.
 """

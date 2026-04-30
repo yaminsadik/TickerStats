@@ -1,3 +1,1 @@
-"""
-Deck API blueprints and route handlers.
-"""
+"""Deck API route handlers."""

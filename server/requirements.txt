@@ -19,10 +19,7 @@ python-jose[cryptography]>=3.3.0
 python-multipart>=0.0.6
 passlib[bcrypt]>=1.7.4
 
-# Flask Deck Generation Service
-flask>=3.0.0
-flask-cors>=4.0.0
-flask-limiter>=3.5.0
+# Deck Generation Service
 python-dotenv>=1.0.0
 jsonschema>=4.20.0
 

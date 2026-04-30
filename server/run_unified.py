@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""
-Run the unified TickerStats server (FastAPI primary + Flask deck routes via WSGIMiddleware).
-Single port, single process.  FastAPI handles /api/user/*, /api/relative, /docs.
-Flask handles /api/v1/deck/*, /api/v1/valuation/*, /api/v1/sections.
-"""
+"""Run the TickerStats FastAPI server."""
 
 import os
 import sys
@@ -25,7 +21,7 @@ if __name__ == "__main__":
     host = os.getenv("HOST", "0.0.0.0")
     debug = os.getenv("DEBUG", "false").lower() == "true"
 
-    print(f"🚀 Starting TickerStats Unified Server (FastAPI + Flask)")
+    print("Starting TickerStats API Server (FastAPI)")
     print(f"   • FastAPI docs: http://{host}:{port}/docs")
     print(f"   • User API:     http://{host}:{port}/api/user/*")
     print(f"   • Relative API: http://{host}:{port}/api/relative")

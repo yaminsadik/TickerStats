@@ -44,8 +44,8 @@ class RequestTimingMiddleware(BaseHTTPMiddleware):
         rid_token = request_id_var.set(req_id)
         uid_token = current_user_id_var.set(None)
 
-        # Also push into the Flask-style request context so the shared
-        # JSONFormatter picks it up automatically
+        # Also push into the deck logging context so the shared JSONFormatter
+        # picks it up automatically.
         try:
             from app.deck.utils.logging import set_request_context
             set_request_context(req_id)

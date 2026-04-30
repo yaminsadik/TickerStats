@@ -1,6 +1,5 @@
 """
 Shared export helpers for CSV, XLSX, and PDF generation.
-Used by both FastAPI and Flask export endpoints.
 """
 
 import csv

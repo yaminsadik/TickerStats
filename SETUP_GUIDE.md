@@ -114,7 +114,7 @@ alembic upgrade head
 ### Start Backend Server
 
 ```bash
-# Unified FastAPI + Flask server (port 5000)
+# FastAPI server (port 5000)
 python run_unified.py
 ```
 

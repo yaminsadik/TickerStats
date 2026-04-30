@@ -1,16 +1,21 @@
 """
-Flask Blueprint for deck generation API routes.
-Provides endpoints for generating investment pitch deck sections.
+FastAPI routes for deck generation.
 """
 
+from __future__ import annotations
+
+import asyncio
 import os
 from datetime import datetime, timezone
-from functools import wraps
 from typing import Any
 
-from flask import Blueprint, current_app, g, jsonify, request
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import ValidationError
 
+from app.core.auth import verifier
+from app.core.config import settings
+from app.core.database import SessionLocal
+from app.core.middleware import request_id_var
 from app.deck.api.schemas import (
     SECTION_METADATA,
     AnalysisDepth,
@@ -25,15 +30,8 @@ from app.deck.api.schemas import (
     SectionsResponse,
 )
 from app.deck.services.deck_generator import DeckGenerator, DeckGeneratorConfig
-from app.deck.utils.logging import (
-    clear_request_context,
-    get_logger,
-    set_request_context,
-)
+from app.deck.utils.logging import get_logger
 from app.deck.utils.ticker_info import enrich_request_with_ticker_info
-from app.core.auth import verifier
-from app.core.config import settings
-from app.core.database import SessionLocal
 from app.models import LLMUsageLog, User
 from app.services.usage_limits import (
     check_deck_limit_sync,
@@ -43,8 +41,9 @@ from app.services.usage_limits import (
 
 logger = get_logger(__name__)
 
-# Create Blueprint
-deck_bp = Blueprint("deck", __name__, url_prefix="/api/v1")
+router = APIRouter(prefix="/api/v1", tags=["deck"])
+
+_deck_generator: DeckGenerator | None = None
 
 
 def _utcnow_naive() -> datetime:
@@ -52,9 +51,9 @@ def _utcnow_naive() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-# =============================================================================
-# MIDDLEWARE / DECORATORS
-# =============================================================================
+def _request_id(request: Request) -> str | None:
+    return request.headers.get("x-request-id") or request_id_var.get(None)
+
 
 def _to_json_safe(value: Any) -> Any:
     """Recursively convert values into JSON-serializable structures."""
@@ -69,76 +68,10 @@ def _to_json_safe(value: Any) -> Any:
     return str(value)
 
 
-def request_context():
-    """Decorator to set up request context for logging."""
-    def decorator(f):
-        @wraps(f)
-        def wrapper(*args, **kwargs):
-            import uuid
-            request_id = request.headers.get("X-Request-ID", str(uuid.uuid4())[:8])
-            set_request_context(request_id=request_id)
-            g.request_id = request_id
-            try:
-                return f(*args, **kwargs)
-            finally:
-                clear_request_context()
-        return wrapper
-    return decorator
-
-
-def validate_json():
-    """Decorator to validate that request has JSON body."""
-    def decorator(f):
-        @wraps(f)
-        def wrapper(*args, **kwargs):
-            if not request.is_json:
-                return jsonify({
-                    "error": "Content-Type must be application/json",
-                    "request_id": getattr(g, "request_id", None),
-                }), 400
-            return f(*args, **kwargs)
-        return wrapper
-    return decorator
-
-
-def handle_errors():
-    """Decorator to handle exceptions and return proper error responses."""
-    def decorator(f):
-        @wraps(f)
-        def wrapper(*args, **kwargs):
-            try:
-                return f(*args, **kwargs)
-            except ValidationError as e:
-                logger.warning(f"Validation error: {e}")
-                return jsonify({
-                    "error": "Validation error",
-                    "details": _to_json_safe(e.errors()),
-                    "request_id": getattr(g, "request_id", None),
-                }), 400
-            except ValueError as e:
-                logger.warning(f"Value error: {e}")
-                return jsonify({
-                    "error": str(e),
-                    "request_id": getattr(g, "request_id", None),
-                }), 400
-            except Exception as e:
-                logger.error(f"Unexpected error: {e}", exc_info=True)
-                return jsonify({
-                    "error": "Internal server error",
-                    "message": str(e) if current_app.debug else "An unexpected error occurred",
-                    "request_id": getattr(g, "request_id", None),
-                }), 500
-        return wrapper
-    return decorator
-
-
-# =============================================================================
-# HELPER FUNCTIONS
-# =============================================================================
-
 def get_deck_generator() -> DeckGenerator:
     """Get or create the deck generator instance."""
-    if not hasattr(g, "deck_generator"):
+    global _deck_generator
+    if _deck_generator is None:
         config = DeckGeneratorConfig(
             max_retries=int(os.getenv("DECK_MAX_RETRIES", "2")),
             timeout=int(os.getenv("DECK_TIMEOUT", "60")),
@@ -147,11 +80,11 @@ def get_deck_generator() -> DeckGenerator:
             max_parallel_workers=int(os.getenv("DECK_MAX_PARALLEL_WORKERS", "5")),
             section_delay_seconds=float(os.getenv("DECK_SECTION_DELAY", "0.5")),
         )
-        g.deck_generator = DeckGenerator(config)
-    return g.deck_generator
+        _deck_generator = DeckGenerator(config)
+    return _deck_generator
 
 
-def get_api_keys() -> dict[str, str | None]:
+def get_api_keys(request: Request) -> dict[str, str | None]:
     """Get API keys for the active Gemini provider."""
     return {
         "gemini": (
@@ -162,43 +95,42 @@ def get_api_keys() -> dict[str, str | None]:
     }
 
 
-def _get_bearer_token() -> str | None:
-    auth_header = request.headers.get("Authorization", "")
+def _get_bearer_token(request: Request) -> str | None:
+    auth_header = request.headers.get("authorization", "")
     if auth_header.startswith("Bearer "):
         return auth_header.split(" ", 1)[1].strip()
     return None
 
 
 def _upsert_user_sync(session, user_id: str, payload: dict) -> User:
-    """Sync upsert for Flask routes using the shared User model."""
-    # Try multiple possible claim locations for email, name, picture
-    # Standard claims, custom namespaced claims, or Auth0-specific claims
+    """Sync upsert for deck routes using the shared User model."""
     email = (
-        payload.get("email") or 
-        payload.get(f"https://{settings.AUTH0_DOMAIN}/email") or
-        payload.get("https://tickerstats.com/email") or
-        payload.get("http://tickerstats.com/email")
+        payload.get("email")
+        or payload.get(f"https://{settings.AUTH0_DOMAIN}/email")
+        or payload.get("https://tickerstats.com/email")
+        or payload.get("http://tickerstats.com/email")
     )
     name = (
-        payload.get("name") or 
-        payload.get(f"https://{settings.AUTH0_DOMAIN}/name") or
-        payload.get("https://tickerstats.com/name") or
-        payload.get("http://tickerstats.com/name") or
-        payload.get("nickname")
+        payload.get("name")
+        or payload.get(f"https://{settings.AUTH0_DOMAIN}/name")
+        or payload.get("https://tickerstats.com/name")
+        or payload.get("http://tickerstats.com/name")
+        or payload.get("nickname")
     )
     picture = (
-        payload.get("picture") or 
-        payload.get(f"https://{settings.AUTH0_DOMAIN}/picture") or
-        payload.get("https://tickerstats.com/picture") or
-        payload.get("http://tickerstats.com/picture")
+        payload.get("picture")
+        or payload.get(f"https://{settings.AUTH0_DOMAIN}/picture")
+        or payload.get("https://tickerstats.com/picture")
+        or payload.get("http://tickerstats.com/picture")
     )
-    
-    # Log what we found for debugging
+
     if not email or not name:
         logger.warning(
-            f"Missing user info from token for {user_id}: "
-            f"email={'✓' if email else '✗'}, name={'✓' if name else '✗'}. "
-            f"Available claims: {list(payload.keys())}"
+            "Missing user info from token for %s: email=%s, name=%s. Available claims: %s",
+            user_id,
+            bool(email),
+            bool(name),
+            list(payload.keys()),
         )
 
     user = session.get(User, user_id)
@@ -238,29 +170,21 @@ def _resolve_plan_and_models(
     api_keys: dict[str, str | None],
     plan_tier: str,
 ) -> tuple[str, str | None, AnalysisDepth, ModelMode]:
-    """Apply plan-tier model rules and return provider, model, depth, mode.
-
-    Delegates to the model_policy module when the model_mode is AUTO.
-    The active model catalog is Gemini-only, so non-Gemini requests fall back
-    to the Gemini default for the user's tier.
-    """
+    """Apply plan-tier model rules and return provider, model, depth, mode."""
     from app.deck.services.model_policy import resolve_model
 
     model_mode = deck_request.model_mode or ModelMode.AUTO
     analysis_depth = deck_request.analysis_depth or AnalysisDepth(deck_request.reasoning_level.value)
 
-    # Free tier caps depth at medium
     if plan_tier == "free" and analysis_depth == AnalysisDepth.HIGH:
         analysis_depth = AnalysisDepth.MEDIUM
-
-    thinking_requested = deck_request.reasoning_level == ReasoningLevel.HIGH
 
     decision = resolve_model(
         plan_tier=plan_tier,
         analysis_depth=analysis_depth.value,
         model_mode=model_mode.value,
         requested_model_id=deck_request.model,
-        thinking_requested=thinking_requested,
+        thinking_requested=deck_request.reasoning_level == ReasoningLevel.HIGH,
         available_keys=api_keys,
     )
 
@@ -294,12 +218,7 @@ def _infer_provider(model: str, fallback_provider: str) -> str:
     return model_def.provider if model_def is not None else fallback_provider
 
 
-def _record_llm_usage_sync(
-    session,
-    user_id: str,
-    response,
-    thinking_requested: bool,
-) -> None:
+def _record_llm_usage_sync(session, user_id: str, response, thinking_requested: bool) -> None:
     """Persist one usage-ledger row per successful section generation."""
     default_provider = response.provider_used.provider
     default_model = response.provider_used.model
@@ -309,12 +228,8 @@ def _record_llm_usage_sync(
         tokens = metadata.get("tokens") or {}
         model = str(metadata.get("model") or default_model or "")[:50]
         provider = _infer_provider(model, default_provider)[:20]
-        input_tokens = _to_int(
-            tokens.get("prompt_tokens") or tokens.get("input_tokens")
-        )
-        output_tokens = _to_int(
-            tokens.get("completion_tokens") or tokens.get("output_tokens")
-        )
+        input_tokens = _to_int(tokens.get("prompt_tokens") or tokens.get("input_tokens"))
+        output_tokens = _to_int(tokens.get("completion_tokens") or tokens.get("output_tokens"))
         reasoning_tokens = _to_int(tokens.get("reasoning_tokens"))
         latency_ms = _to_int(metadata.get("latency_ms"))
 
@@ -326,48 +241,48 @@ def _record_llm_usage_sync(
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             reasoning_tokens=reasoning_tokens,
-            estimated_cost_usd=_estimate_cost_usd(
-                model or default_model,
-                input_tokens,
-                output_tokens,
-            ),
+            estimated_cost_usd=_estimate_cost_usd(model or default_model, input_tokens, output_tokens),
             latency_ms=latency_ms,
         ))
 
 
-# =============================================================================
-# ROUTES
-# =============================================================================
+async def _parse_model(model_cls, request: Request):
+    content_type = request.headers.get("content-type", "")
+    if "application/json" not in content_type.lower():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "Content-Type must be application/json",
+                "request_id": _request_id(request),
+            },
+        )
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "Content-Type must be application/json",
+                "request_id": _request_id(request),
+            },
+        )
+    try:
+        return model_cls(**data)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "Validation error",
+                "details": _to_json_safe(exc.errors()),
+                "request_id": _request_id(request),
+            },
+        )
 
-@deck_bp.route("/sections", methods=["GET"])
-@request_context()
-@handle_errors()
-def get_sections():
-    """
-    Get available deck sections.
-    
-    Returns list of all sections that can be generated.
-    
-    ---
-    responses:
-      200:
-        description: List of available sections
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                sections:
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      id: {type: string}
-                      label: {type: string}
-                      description: {type: string}
-    """
-    # Define default sections (core 9, not advanced or user-dependent)
-    DEFAULT_SECTION_IDS = {
+
+@router.get("/sections")
+async def get_sections():
+    """Get available deck sections."""
+    default_section_ids = {
         "company_snapshot",
         "overview",
         "history",
@@ -386,132 +301,82 @@ def get_sections():
             id=section_id.value,
             label=meta.get("label", section_id.value),
             description=meta.get("description"),
-            default=section_id.value in DEFAULT_SECTION_IDS,
+            default=section_id.value in default_section_ids,
             requires_user_input=meta.get("requires_user_input", False),
         ))
-    
-    response = SectionsResponse(sections=sections)
-    return jsonify(response.model_dump())
+
+    return SectionsResponse(sections=sections)
 
 
-@deck_bp.route("/deck/generate", methods=["POST"])
-@request_context()
-@validate_json()
-@handle_errors()
-def generate_deck():
-    """
-    Generate pitch deck sections.
-    
-    Accepts ticker, company info, fund constraints, and selected sections.
-    Returns generated slide content as structured JSON.
-    
-    ---
-    requestBody:
-      required: true
-      content:
-        application/json:
-          schema:
-            type: object
-            required: [ticker, company_name, sector, fund_constraints, sections, provider]
-            properties:
-              ticker: {type: string}
-              company_name: {type: string}
-              sector: {type: string}
-              fund_constraints:
-                type: object
-                required: [time_horizon, risk_profile]
-                properties:
-                  time_horizon: {type: string}
-                  risk_profile: {type: string}
-                  portfolio_context: {type: string}
-                  style: {type: string}
-              sections: {type: array, items: {type: string}}
-              provider: {type: string, enum: [gemini]}
-              model: {type: string}
-              reasoning_level: {type: string, enum: [low, medium, high]}
-              include_comps: {type: boolean}
-    responses:
-      200:
-        description: Generated deck sections
-      400:
-        description: Validation error
-      500:
-        description: Generation error
-    """
-    # Parse and validate request
-    data = request.get_json()
-    deck_request = DeckGenerateRequest(**data)
+@router.post("/deck/generate")
+async def generate_deck(request: Request):
+    """Generate pitch deck sections."""
+    deck_request = await _parse_model(DeckGenerateRequest, request)
 
-    # Require authentication for usage limits
-    token = _get_bearer_token()
+    token = _get_bearer_token(request)
     if not token:
-        return jsonify({
-            "error": "Authentication required",
-            "request_id": getattr(g, "request_id", None),
-        }), 401
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "Authentication required", "request_id": _request_id(request)},
+        )
+
     try:
         payload = verifier.verify_token(token)
     except Exception:
-        return jsonify({
-            "error": "Invalid token",
-            "request_id": getattr(g, "request_id", None),
-        }), 401
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "Invalid token", "request_id": _request_id(request)},
+        )
 
     user_id = payload.get("sub")
     if not user_id:
-        return jsonify({
-            "error": "Invalid token: Missing subject",
-            "request_id": getattr(g, "request_id", None),
-        }), 401
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "Invalid token: Missing subject", "request_id": _request_id(request)},
+        )
 
-    # Upsert user and enforce deck generation limits
     session = SessionLocal()
     try:
         user = _upsert_user_sync(session, user_id, payload)
         plan_tier = get_plan_tier(user)
         allowed, limit = check_deck_limit_sync(user, _utcnow_naive())
         session.commit()
-    except Exception as e:
+    except Exception as exc:
         session.rollback()
-        return jsonify({
-            "error": "User lookup failed",
-            "message": str(e) if current_app.debug else "Failed to resolve authenticated user.",
-            "request_id": getattr(g, "request_id", None),
-        }), 500
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "User lookup failed", "message": str(exc), "request_id": _request_id(request)},
+        )
     finally:
         session.close()
 
     if not allowed:
-        return jsonify({
-            "error": "Deck limit reached",
-            "message": f"Your plan is limited to {limit} deck generations per month.",
-            "request_id": getattr(g, "request_id", None),
-        }), 403
-    
-    # Auto-fetch company name and sector if not provided
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "Deck limit reached",
+                "message": f"Your plan is limited to {limit} deck generations per month.",
+                "request_id": _request_id(request),
+            },
+        )
+
     try:
-        company_name, sector = enrich_request_with_ticker_info(
+        company_name, sector = await asyncio.to_thread(
+            enrich_request_with_ticker_info,
             ticker=deck_request.ticker,
             company_name=deck_request.company_name,
             sector=deck_request.sector,
         )
-        # Update the request object
         deck_request.company_name = company_name
         deck_request.sector = sector
-        
-        logger.info(
-            f"Request enriched: {deck_request.ticker} -> {company_name} ({sector})"
+        logger.info("Request enriched: %s -> %s (%s)", deck_request.ticker, company_name, sector)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": str(exc), "request_id": _request_id(request)},
         )
-    except ValueError as e:
-        return jsonify({
-            "error": str(e),
-            "request_id": g.request_id,
-        }), 400
-    
-    # Get API keys
-    api_keys = get_api_keys()
 
-    # Apply plan-tier model routing
+    api_keys = get_api_keys(request)
     provider_name, model_name, analysis_depth, model_mode = _resolve_plan_and_models(
         deck_request,
         api_keys,
@@ -524,24 +389,27 @@ def generate_deck():
     deck_request.provider = Provider(provider_name)
     deck_request.model = model_name
 
-    # Validate we have the required key for the chosen provider
     chosen_provider = deck_request.provider.value
     if not api_keys.get(chosen_provider):
-        provider_labels = {"gemini": "GEMINI_API_KEY"}
-        env_hint = provider_labels.get(chosen_provider, chosen_provider.upper() + "_API_KEY")
-        return jsonify({
-            "error": f"{chosen_provider} API key required. Set {env_hint} env var.",
-            "request_id": g.request_id,
-        }), 400
-    
-    # Generate deck
+        env_hint = {"gemini": "GEMINI_API_KEY"}.get(
+            chosen_provider,
+            chosen_provider.upper() + "_API_KEY",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": f"{chosen_provider} API key required. Set {env_hint} env var.",
+                "request_id": _request_id(request),
+            },
+        )
+
     generator = get_deck_generator()
-    response = generator.generate_deck(
+    response = await asyncio.to_thread(
+        generator.generate_deck,
         request=deck_request,
         api_keys=api_keys,
     )
-    
-    # Increment deck usage on success
+
     session = SessionLocal()
     try:
         _record_llm_usage_sync(
@@ -557,83 +425,45 @@ def generate_deck():
         )
         if not allowed_after_generate:
             session.rollback()
-            return jsonify({
-                "error": "Deck limit reached",
-                "message": f"Your plan is limited to {locked_limit} deck generations per month.",
-                "request_id": getattr(g, "request_id", None),
-            }), 403
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": "Deck limit reached",
+                    "message": f"Your plan is limited to {locked_limit} deck generations per month.",
+                    "request_id": _request_id(request),
+                },
+            )
         session.commit()
-    except Exception as e:
-        logger.warning(f"Failed to record deck usage metadata: {e}")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("Failed to record deck usage metadata: %s", exc)
         session.rollback()
     finally:
         session.close()
 
-    # Return response
-    return jsonify(response.model_dump())
+    return response
 
 
-@deck_bp.route("/deck/plan", methods=["POST"])
-@request_context()
-@validate_json()
-@handle_errors()
-def plan_deck():
-    """
-    Generate a deck plan with suggested sections.
-    
-    Returns recommended sections and ordering without generating full slides.
-    
-    ---
-    requestBody:
-      required: true
-      content:
-        application/json:
-          schema:
-            type: object
-            required: [ticker, sector, fund_constraints]
-            properties:
-              ticker: {type: string}
-              company_name: {type: string}
-              sector: {type: string}
-              fund_constraints:
-                type: object
-                required: [time_horizon, risk_profile]
-              provider: {type: string, enum: [gemini]}
-    responses:
-      200:
-        description: Deck plan with suggested sections
-      400:
-        description: Validation error
-    """
-    # Parse and validate request
-    data = request.get_json()
-    plan_request = DeckPlanRequest(**data)
-    
-    # Get API keys
-    api_keys = get_api_keys()
-    
-    # Generate plan
+@router.post("/deck/plan")
+async def plan_deck(request: Request):
+    """Generate a deck plan with suggested sections."""
+    plan_request = await _parse_model(DeckPlanRequest, request)
     generator = get_deck_generator()
-    response = generator.plan_deck(
+    return await asyncio.to_thread(
+        generator.plan_deck,
         request=plan_request,
-        api_keys=api_keys,
+        api_keys=get_api_keys(request),
     )
-    
-    return jsonify(response.model_dump())
 
 
-@deck_bp.route("/deck/models", methods=["GET"])
-@request_context()
-@handle_errors()
-def get_available_models():
-    """
-    Return the list of models available for the caller's tier.
-    Requires authentication so the tier can be determined.
-    """
+@router.get("/deck/models")
+async def get_available_models(request: Request):
+    """Return the list of models available for the caller's tier."""
     from app.deck.services.model_catalog import get_catalog_for_api
 
-    token = _get_bearer_token()
-    tier = "free"  # default for unauthenticated
+    token = _get_bearer_token(request)
+    tier = "free"
     if token:
         try:
             payload = verifier.verify_token(token)
@@ -647,57 +477,12 @@ def get_available_models():
                 finally:
                     session.close()
         except Exception:
-            pass  # Fall back to free tier
+            pass
 
-    return jsonify({"tier": tier, "models": get_catalog_for_api(tier)})
+    return {"tier": tier, "models": get_catalog_for_api(tier)}
 
 
-@deck_bp.route("/health", methods=["GET"])
-def deck_health():
+@router.get("/health")
+async def deck_health():
     """Health check endpoint for deck service."""
-    return jsonify({
-        "status": "ok",
-        "service": "deck-generator",
-        "version": "1.0.0",
-    })
-
-
-# =============================================================================
-# ERROR HANDLERS
-# =============================================================================
-
-@deck_bp.errorhandler(400)
-def bad_request(e):
-    return jsonify({
-        "error": "Bad request",
-        "message": str(e),
-        "request_id": getattr(g, "request_id", None),
-    }), 400
-
-
-@deck_bp.errorhandler(404)
-def not_found(e):
-    return jsonify({
-        "error": "Not found",
-        "message": str(e),
-        "request_id": getattr(g, "request_id", None),
-    }), 404
-
-
-@deck_bp.errorhandler(429)
-def rate_limited(e):
-    return jsonify({
-        "error": "Rate limit exceeded",
-        "message": "Too many requests. Please try again later.",
-        "request_id": getattr(g, "request_id", None),
-    }), 429
-
-
-@deck_bp.errorhandler(500)
-def internal_error(e):
-    logger.error(f"Internal server error: {e}", exc_info=True)
-    return jsonify({
-        "error": "Internal server error",
-        "message": "An unexpected error occurred",
-        "request_id": getattr(g, "request_id", None),
-    }), 500
+    return {"status": "ok", "service": "deck-generator", "version": "1.0.0"}

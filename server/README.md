@@ -65,7 +65,7 @@ server/
 python run_unified.py
 ```
 
-The unified FastAPI + Flask server will start at `http://localhost:5000`.
+The FastAPI server will start at `http://localhost:5000`.
 
 ### API Documentation
 
