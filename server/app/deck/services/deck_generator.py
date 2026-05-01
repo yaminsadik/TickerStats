@@ -413,8 +413,17 @@ class DeckGenerator:
         provider: str,
         api_keys: dict[str, Optional[str]],
     ) -> str:
-        """Get API key for provider from the keys dict, checking environment as fallback."""
+        """Get provider credential marker from the keys dict, checking environment as fallback."""
         import os
+
+        from app.core.config import settings
+
+        if provider == "gemini" and settings.GOOGLE_GENAI_USE_VERTEXAI:
+            if settings.GOOGLE_CLOUD_PROJECT and settings.GOOGLE_CLOUD_LOCATION:
+                return api_keys.get(provider) or "__vertex_adc__"
+            raise ValueError(
+                "Gemini Vertex AI requires GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION."
+            )
 
         # Env-var fallback map
         env_fallbacks: dict[str, list[str]] = {

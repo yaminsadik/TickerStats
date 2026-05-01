@@ -219,7 +219,7 @@ export default function DeckDraftPage() {
     setExportingFormat("pdf");
     setExportNotice({
       variant: "info",
-      message: "Creating PDF with Claude. This can take 30-90 seconds; please keep this page open.",
+      message: "Creating PDF with Claude. This can take a few minutes; please keep this page open.",
     });
     try {
       await exportDeckWithClaude(authenticatedFetch, exportData, "pdf", filename);
@@ -244,7 +244,7 @@ export default function DeckDraftPage() {
     setExportingFormat("pptx");
     setExportNotice({
       variant: "info",
-      message: "Creating PPTX with Claude. This can take 30-90 seconds; please keep this page open.",
+      message: "Creating PPTX with Claude. This can take a few minutes; please keep this page open.",
     });
     try {
       await exportDeckWithClaude(authenticatedFetch, exportData, "pptx", filename);

@@ -60,7 +60,8 @@ class ClaudeDeckExportService:
         model: str,
         cache_dir: str,
         max_slides: int,
-        timeout_seconds: float = 180.0,
+        max_tokens: int = 16000,
+        timeout_seconds: float = 360.0,
     ) -> None:
         if not api_key:
             raise ClaudeExportError("ANTHROPIC_API_KEY is required for Claude export")
@@ -68,6 +69,7 @@ class ClaudeDeckExportService:
         self.model = model
         self.cache_dir = Path(cache_dir)
         self.max_slides = max_slides
+        self.max_tokens = max_tokens
         self.timeout_seconds = timeout_seconds
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -105,6 +107,11 @@ class ClaudeDeckExportService:
         usage = message.get("usage") or {}
         file_ids = list(dict.fromkeys(self._extract_file_ids(message)))
         if not file_ids:
+            if message.get("stop_reason") == "max_tokens":
+                raise ClaudeExportError(
+                    "Claude export exceeded its output token budget before returning a file. "
+                    "Increase CLAUDE_EXPORT_MAX_TOKENS or export a smaller deck."
+                )
             raise ClaudeExportError("Claude export completed without returning a file")
 
         downloaded = [self._download_file(file_id) for file_id in file_ids]
@@ -157,7 +164,7 @@ class ClaudeDeckExportService:
         }
         payload = {
             "model": self.model,
-            "max_tokens": 4096,
+            "max_tokens": self.max_tokens,
             "container": {"skills": skills},
             "messages": [{"role": "user", "content": prompt}],
             "tools": [{"type": "code_execution_20250825", "name": "code_execution"}],
@@ -220,7 +227,8 @@ class ClaudeDeckExportService:
             "with one accent color, strong visual hierarchy, generous spacing, readable tables/cards, and no decorative "
             "clutter. If the deck JSON includes generation errors or only a subset of requested sections, include a "
             "short status note in the appendix that makes clear which sections were not available in the source JSON.\n\n"
-            "Return the generated file through the enabled Skill/code execution environment.\n\n"
+            "Return the generated file through the enabled Skill/code execution environment. Keep any explanatory "
+            "text minimal; prioritize creating and attaching the requested file.\n\n"
             f"Deck JSON:\n{normalized}"
         )
 

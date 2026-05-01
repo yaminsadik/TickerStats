@@ -70,9 +70,35 @@ class Settings(BaseSettings):
         default=30,
         validation_alias=AliasChoices("CLAUDE_EXPORT_MAX_SLIDES"),
     )
+    CLAUDE_EXPORT_MAX_TOKENS: int = Field(
+        default=16000,
+        validation_alias=AliasChoices("CLAUDE_EXPORT_MAX_TOKENS"),
+    )
+    CLAUDE_EXPORT_TIMEOUT_SECONDS: float = Field(
+        default=360.0,
+        validation_alias=AliasChoices("CLAUDE_EXPORT_TIMEOUT_SECONDS"),
+    )
     CLAUDE_EXPORT_ALLOW_FREE: bool = Field(
         default=False,
         validation_alias=AliasChoices("CLAUDE_EXPORT_ALLOW_FREE"),
+    )
+
+    # Google Gemini on Vertex AI
+    GOOGLE_GENAI_USE_VERTEXAI: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("GOOGLE_GENAI_USE_VERTEXAI"),
+    )
+    GOOGLE_CLOUD_PROJECT: str = Field(
+        default="",
+        validation_alias=AliasChoices("GOOGLE_CLOUD_PROJECT"),
+    )
+    GOOGLE_CLOUD_LOCATION: str = Field(
+        default="us-central1",
+        validation_alias=AliasChoices("GOOGLE_CLOUD_LOCATION"),
+    )
+    VERTEX_GEMINI_DEFAULT_MODEL: str = Field(
+        default="gemini-3-flash-preview",
+        validation_alias=AliasChoices("VERTEX_GEMINI_DEFAULT_MODEL"),
     )
 
     # Stripe

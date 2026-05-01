@@ -1,5 +1,5 @@
 """
-Config-driven model catalog for the currently active Gemini-only model
+Config-driven model catalog for the currently active Gemini-on-Vertex model
 surface.
 
 To add / remove / rename a model, edit THIS FILE ONLY.
@@ -28,7 +28,7 @@ THINKING_LEVEL = "thinking_level"  # Gemini: thinking_level="HIGH"|"LOW"
 class ModelDef:
     provider: str                       # active provider is "gemini"
     model_id: str                       # API model name, e.g. "gemini-3-flash-preview"
-    display_name: str                   # UI label, e.g. "Gemini 3 Flash"
+    display_name: str                   # UI label, e.g. "Gemini 2.5 Flash"
     tiers: tuple[str, ...]              # ("free",) or ("pro",) or ("free","pro")
     thinking_supported: bool            # can this model think?
     thinking_config_type: Optional[str] # one of the THINKING_* constants above, or None
@@ -43,11 +43,11 @@ class ModelDef:
 # FREE TIER MODEL
 # ============================================================================
 
-GEMINI_3_FLASH = ModelDef(
+GEMINI_3_FLASH_PREVIEW = ModelDef(
     provider="gemini",
     model_id="gemini-3-flash-preview",
-    display_name="Gemini 3 Flash",
-    tiers=("free",),
+    display_name="Gemini 3 Flash Preview",
+    tiers=("free", "pro"),
     thinking_supported=True,
     thinking_config_type=THINKING_LEVEL,
     input_price_per_m=0.075,
@@ -61,10 +61,10 @@ GEMINI_3_FLASH = ModelDef(
 # PRO TIER MODEL
 # ============================================================================
 
-GEMINI_3_1_PRO = ModelDef(
+GEMINI_3_1_PRO_PREVIEW = ModelDef(
     provider="gemini",
     model_id="gemini-3.1-pro-preview",
-    display_name="Gemini 3.1 Pro",
+    display_name="Gemini 3.1 Pro Preview",
     tiers=("pro",),
     thinking_supported=True,
     thinking_config_type=THINKING_LEVEL,
@@ -80,8 +80,8 @@ GEMINI_3_1_PRO = ModelDef(
 # ============================================================================
 
 MODEL_CATALOG: list[ModelDef] = [
-    GEMINI_3_FLASH,
-    GEMINI_3_1_PRO,
+    GEMINI_3_FLASH_PREVIEW,
+    GEMINI_3_1_PRO_PREVIEW,
 ]
 
 

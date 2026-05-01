@@ -84,3 +84,4 @@ coverage/
 *apikey*
 credentials.json
 secrets.json
+server/secrets/

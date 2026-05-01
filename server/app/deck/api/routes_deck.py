@@ -46,6 +46,7 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["deck"])
 
 _deck_generator: DeckGenerator | None = None
+VERTEX_GEMINI_KEY_SENTINEL = "__vertex_adc__"
 
 
 def _utcnow_naive() -> datetime:
@@ -88,14 +89,27 @@ def get_deck_generator() -> DeckGenerator:
 
 def get_api_keys(request: Request) -> dict[str, str | None]:
     """Get server-side API keys for configured LLM providers."""
+    gemini_key = (
+        request.headers.get("X-Gemini-API-Key")
+        or os.getenv("GEMINI_API_KEY")
+        or os.getenv("GOOGLE_API_KEY")
+    )
+    if _is_vertex_gemini_configured():
+        gemini_key = VERTEX_GEMINI_KEY_SENTINEL
+
     return {
-        "gemini": (
-            request.headers.get("X-Gemini-API-Key")
-            or os.getenv("GEMINI_API_KEY")
-            or os.getenv("GOOGLE_API_KEY")
-        ),
+        "gemini": gemini_key,
         "anthropic": settings.ANTHROPIC_API_KEY or os.getenv("ANTHROPIC_API_KEY"),
     }
+
+
+def _is_vertex_gemini_configured() -> bool:
+    """Return whether Gemini should authenticate through Vertex AI ADC."""
+    return bool(
+        settings.GOOGLE_GENAI_USE_VERTEXAI
+        and settings.GOOGLE_CLOUD_PROJECT
+        and settings.GOOGLE_CLOUD_LOCATION
+    )
 
 
 def _get_bearer_token(request: Request) -> str | None:
@@ -410,14 +424,27 @@ async def generate_deck(request: Request):
 
     chosen_provider = deck_request.provider.value
     if not api_keys.get(chosen_provider):
-        env_hint = {"gemini": "GEMINI_API_KEY"}.get(
-            chosen_provider,
-            chosen_provider.upper() + "_API_KEY",
-        )
+        if chosen_provider == "gemini" and settings.GOOGLE_GENAI_USE_VERTEXAI:
+            env_hint = "GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION"
+            message = f"{chosen_provider} Vertex AI configuration required. Set {env_hint}."
+        else:
+            env_hint = {"gemini": "GEMINI_API_KEY"}.get(
+                chosen_provider,
+                chosen_provider.upper() + "_API_KEY",
+            )
+            message = f"{chosen_provider} API key required. Set {env_hint} env var."
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
-                "error": f"{chosen_provider} API key required. Set {env_hint} env var.",
+                "error": message,
+                "request_id": _request_id(request),
+            },
+        )
+    if chosen_provider == "gemini" and settings.GOOGLE_GENAI_USE_VERTEXAI and not _is_vertex_gemini_configured():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "Gemini Vertex AI requires GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION.",
                 "request_id": _request_id(request),
             },
         )
@@ -534,6 +561,8 @@ async def export_deck_with_claude(request: Request):
         model=settings.CLAUDE_EXPORT_MODEL,
         cache_dir=settings.CLAUDE_EXPORT_CACHE_DIR,
         max_slides=settings.CLAUDE_EXPORT_MAX_SLIDES,
+        max_tokens=settings.CLAUDE_EXPORT_MAX_TOKENS,
+        timeout_seconds=settings.CLAUDE_EXPORT_TIMEOUT_SECONDS,
     )
 
     try:

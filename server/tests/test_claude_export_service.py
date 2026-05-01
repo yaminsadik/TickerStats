@@ -108,6 +108,31 @@ def test_claude_export_service_surfaces_api_errors(tmp_path, monkeypatch):
         )
 
 
+def test_claude_export_service_surfaces_max_token_stop(tmp_path, monkeypatch):
+    service = ClaudeDeckExportService(
+        api_key="test-key",
+        model="claude-sonnet-4-5",
+        cache_dir=str(tmp_path),
+        max_slides=10,
+    )
+
+    def fake_create_message(**_kwargs):
+        return {
+            "stop_reason": "max_tokens",
+            "usage": {"input_tokens": 100, "output_tokens": 4096},
+            "content": [{"type": "text", "text": "Creating the deck..."}],
+        }
+
+    monkeypatch.setattr(service, "_create_message", fake_create_message)
+
+    with pytest.raises(ClaudeExportError, match="output token budget"):
+        service.export(
+            deck=_sample_deck(),
+            export_format=ClaudeExportFormat.PPTX,
+            title="ACN pitch deck",
+        )
+
+
 def test_claude_export_service_enforces_slide_cap(tmp_path):
     service = ClaudeDeckExportService(
         api_key="test-key",

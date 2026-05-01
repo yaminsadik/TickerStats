@@ -19,7 +19,13 @@ services:
       - AUTH0_DOMAIN=${AUTH0_DOMAIN}
       - AUTH0_API_AUDIENCE=${AUTH0_API_AUDIENCE}
       - AUTH0_ALGORITHMS=${AUTH0_ALGORITHMS}
+      - GOOGLE_GENAI_USE_VERTEXAI=${GOOGLE_GENAI_USE_VERTEXAI:-false}
+      - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-}
+      - GOOGLE_CLOUD_LOCATION=${GOOGLE_CLOUD_LOCATION:-us-central1}
+      - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS:-}
       - DEBUG=false
+    volumes:
+      - ./secrets:/app/secrets:ro
     depends_on:
       db:
         condition: service_healthy
