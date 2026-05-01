@@ -18,10 +18,10 @@ class TestProviderReasoningMapping:
         assert extra["model"] == "gpt-5.2"
         assert extra["reasoning_effort"] == "high"
 
-    def test_gemini_pro_maps_medium_to_high(self):
+    def test_gemini_31_pro_maps_medium_to_high(self):
         extra = self.generator._build_provider_options_extra(
             provider_name="gemini",
-            model="gemini-3-pro-preview",
+            model="gemini-3.1-pro-preview",
             reasoning_level="medium",
         )
         assert extra["thinking_level"] == "high"

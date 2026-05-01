@@ -24,7 +24,7 @@ export const FREE_MODEL_OPTIONS: ModelOption[] = [
 ];
 
 export const PRO_MODEL_OPTIONS: ModelOption[] = [
-  { value: "gemini-3-pro-preview", provider: "gemini", label: "Gemini 3 Pro (Google)", short: "Gemini 3 Pro" },
+  { value: "gemini-3.1-pro-preview", provider: "gemini", label: "Gemini 3.1 Pro (Google)", short: "Gemini 3.1 Pro" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -64,7 +64,7 @@ type BadgeSet = { free: string[]; pro: string[] };
 
 const MODEL_BADGES: Record<string, BadgeSet> = {
   "gemini-3-flash-preview": { free: ["Low cost", "Long context"], pro: ["Long context", "Efficient"] },
-  "gemini-3-pro-preview": { free: ["Best quality", "Long context"], pro: ["Best quality", "Long context"] },
+  "gemini-3.1-pro-preview": { free: ["Best quality", "Long context"], pro: ["Best quality", "Long context"] },
 };
 
 export function getModelBadges(modelId: string, tier: string): string[] {
@@ -75,7 +75,7 @@ export function getModelBadges(modelId: string, tier: string): string[] {
 
 export const MODEL_RECOMMENDED: Record<string, "free" | "pro" | null> = {
   "gemini-3-flash-preview": "free",
-  "gemini-3-pro-preview": "pro",
+  "gemini-3.1-pro-preview": "pro",
 };
 
 // ---------------------------------------------------------------------------
@@ -93,7 +93,7 @@ export function getReasoningNote(provider: Provider): string {
 
 export function getQualityOptions(provider: Provider, modelId: string) {
   void provider;
-  return modelId === "gemini-3-pro-preview"
+  return modelId === "gemini-3.1-pro-preview"
     ? QUALITY_OPTIONS_GEMINI_PRO
     : QUALITY_OPTIONS_GEMINI_FLASH;
 }

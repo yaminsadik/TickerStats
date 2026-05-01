@@ -1,5 +1,5 @@
 import type { RelativeTableResponse, PerfPeriod } from '../types/api';
-import { API_BASE } from '../config/apiBase';
+import { apiUrl } from '../config/apiBase';
 
 export interface FetchRelativeParams {
   symbols: string[];
@@ -12,7 +12,7 @@ export interface FetchRelativeParams {
 export async function fetchRelativeTable(
   params: FetchRelativeParams
 ): Promise<RelativeTableResponse> {
-  const url = new URL(`${API_BASE}/api/relative`);
+  const url = apiUrl('/api/relative');
 
   url.searchParams.set('symbols', params.symbols.join(','));
 
@@ -43,7 +43,7 @@ export async function fetchRelativeTableAuthed(
   authFetch: (url: string, options?: RequestInit) => Promise<Response>,
   params: FetchRelativeParams
 ): Promise<RelativeTableResponse> {
-  const url = new URL(`${API_BASE}/api/relative`);
+  const url = apiUrl('/api/relative');
 
   url.searchParams.set('symbols', params.symbols.join(','));
 
@@ -73,7 +73,7 @@ export async function fetchRelativeTableAuthed(
 export type ExportFormat = 'csv' | 'xlsx' | 'pdf';
 
 export function getExportUrl(params: FetchRelativeParams, format: ExportFormat = 'csv'): string {
-  const url = new URL(`${API_BASE}/api/relative/export`);
+  const url = apiUrl('/api/relative/export');
 
   url.searchParams.set('symbols', params.symbols.join(','));
   url.searchParams.set('format', format);

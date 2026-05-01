@@ -61,10 +61,10 @@ GEMINI_3_FLASH = ModelDef(
 # PRO TIER MODEL
 # ============================================================================
 
-GEMINI_3_PRO = ModelDef(
+GEMINI_3_1_PRO = ModelDef(
     provider="gemini",
-    model_id="gemini-3-pro-preview",
-    display_name="Gemini 3 Pro",
+    model_id="gemini-3.1-pro-preview",
+    display_name="Gemini 3.1 Pro",
     tiers=("pro",),
     thinking_supported=True,
     thinking_config_type=THINKING_LEVEL,
@@ -81,7 +81,7 @@ GEMINI_3_PRO = ModelDef(
 
 MODEL_CATALOG: list[ModelDef] = [
     GEMINI_3_FLASH,
-    GEMINI_3_PRO,
+    GEMINI_3_1_PRO,
 ]
 
 

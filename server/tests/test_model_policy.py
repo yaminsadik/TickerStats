@@ -37,7 +37,10 @@ class TestModelCatalog:
         pro = get_models_for_tier("pro")
         assert len(pro) == 2
         pro_ids = [m.model_id for m in pro]
-        assert pro_ids == ["gemini-3-pro-preview", "gemini-3-flash-preview"]
+        assert pro_ids == [
+            "gemini-3.1-pro-preview",
+            "gemini-3-flash-preview",
+        ]
 
     def test_enterprise_maps_to_pro(self):
         pro = get_models_for_tier("pro")
@@ -50,7 +53,7 @@ class TestModelCatalog:
 
     def test_get_default_model_pro(self):
         default = get_default_model("pro")
-        assert default.model_id == "gemini-3-pro-preview"
+        assert default.model_id == "gemini-3.1-pro-preview"
 
     def test_get_model_by_id_found(self):
         m = get_model_by_id("gemini-3-flash-preview")
@@ -222,7 +225,7 @@ class TestModelPolicy:
             plan_tier="free",
             analysis_depth="medium",
             model_mode="specific",
-            requested_model_id="gemini-3-pro-preview",
+            requested_model_id="gemini-3.1-pro-preview",
             thinking_requested=False,
             available_keys=ALL_KEYS,
         )
