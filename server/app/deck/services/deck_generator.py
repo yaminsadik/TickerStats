@@ -192,9 +192,39 @@ class DeckGenerator:
                     logger.warning(f"DCF calculation error: {dcf_result.get('error')}")
             except Exception as e:
                 logger.warning(f"Failed to calculate DCF: {e}")
+
+        company_profile: dict[str, Any] = {
+            "ticker": request.ticker,
+            "name": request.company_name,
+            "sector": request.sector,
+        }
+        try:
+            from app.deck.utils.ticker_info import get_company_info
+
+            fetched_profile = get_company_info(request.ticker)
+            if fetched_profile:
+                company_profile.update({
+                    "name": fetched_profile.get("company_name") or request.company_name,
+                    "sector": fetched_profile.get("sector") or request.sector,
+                    "industry": fetched_profile.get("industry"),
+                    "description": fetched_profile.get("description"),
+                    "website": fetched_profile.get("website"),
+                })
+        except Exception as e:
+            logger.warning(f"Failed to fetch company profile: {e}")
         
-        # Generate constraints hash for caching
-        constraints_hash = compute_constraints_hash(request.fund_constraints.model_dump())
+        # Generate a cache key from the full generation context, not just fund
+        # constraints. This prevents stale sections after prompt/context changes
+        # or after users change thesis, catalysts, data blocks, etc.
+        try:
+            request_cache_payload = request.model_dump(mode="json")
+        except TypeError:
+            request_cache_payload = request.model_dump()
+        constraints_hash = compute_constraints_hash({
+            "prompt_version": "company-profile-context-v1",
+            "request": request_cache_payload,
+            "company_profile": company_profile,
+        })
         
         # Generate each section IN PARALLEL for significant speedup
         results = []
@@ -222,6 +252,7 @@ class DeckGenerator:
                 comps_summary=comps_for_section,
                 dcf_summary=dcf_for_section,
                 requested_sections=request.sections,
+                company_profile=company_profile,
                 request=request,
             )
 
@@ -472,13 +503,30 @@ class DeckGenerator:
         comps_summary: Optional[str],
         dcf_summary: Optional[str],
         requested_sections: list[str],
+        company_profile: Optional[dict[str, Any]] = None,
         request: Optional[Any] = None,
     ) -> dict[str, Any]:
         """Assemble all inputs used by section prompt builders."""
+        profile = company_profile or {}
+        profile_name = profile.get("name") or company_name
+        profile_sector = profile.get("sector") or sector
+        profile_description = profile.get("description") or ""
         inputs = {
             "ticker": ticker,
-            "company_name": company_name,
-            "sector": sector,
+            "company_name": profile_name,
+            "sector": profile_sector,
+            "industry": profile.get("industry") or "",
+            "description": profile_description,
+            "company_description": profile_description,
+            "business_description": profile_description,
+            "company": {
+                "ticker": ticker,
+                "name": profile_name,
+                "sector": profile_sector,
+                "industry": profile.get("industry"),
+                "description": profile_description,
+                "website": profile.get("website"),
+            },
             "fund_constraints": fund_constraints,
             "comps_summary": comps_summary,
             "dcf_summary": dcf_summary,

@@ -59,7 +59,7 @@ export interface DeckDraft {
 }
 
 const DEFAULT_MODEL_BY_PROVIDER: Record<DeckDraftConfig['provider'], string> = {
-  gemini: 'gemini-3-flash-preview',
+  gemini: 'gemini-3.1-pro-preview',
 };
 
 function normalizeProvider(value: unknown): DeckDraftConfig['provider'] {
@@ -67,7 +67,10 @@ function normalizeProvider(value: unknown): DeckDraftConfig['provider'] {
   return 'gemini';
 }
 
-function normalizeQuality(value: unknown): DeckDraftConfig['quality'] {
+function normalizeQuality(value: unknown, model?: string): DeckDraftConfig['quality'] {
+  if (model === 'gemini-3.1-pro-preview' && value !== 'low' && value !== 'high') {
+    return 'high';
+  }
   if (value === 'low' || value === 'medium' || value === 'high') {
     return value;
   }
@@ -76,11 +79,12 @@ function normalizeQuality(value: unknown): DeckDraftConfig['quality'] {
 
 function normalizeDraftConfig(raw?: Partial<DeckDraftConfig>): DeckDraftConfig {
   const provider = normalizeProvider(raw?.provider);
+  const model = raw?.model || DEFAULT_MODEL_BY_PROVIDER[provider];
   return {
     sections: Array.isArray(raw?.sections) ? raw.sections : [],
     provider,
-    model: raw?.model || DEFAULT_MODEL_BY_PROVIDER[provider],
-    quality: normalizeQuality(raw?.quality),
+    model,
+    quality: normalizeQuality(raw?.quality, model),
   };
 }
 

@@ -697,6 +697,50 @@ class DeckGenerateResponse(BaseModel):
     request_id: str = Field(..., description="Unique request identifier for tracing")
 
 
+class ClaudeExportFormat(str, Enum):
+    """Supported Claude Skills export formats."""
+    PPTX = "pptx"
+    PDF = "pdf"
+    BOTH = "both"
+
+
+class DeckClaudeExportRequest(BaseModel):
+    """Request schema for Claude Skills-powered deck export."""
+    deck: dict[str, Any] = Field(
+        ...,
+        description="Canonical DeckGenerateResponse JSON, or compatible saved draft content.",
+    )
+    export_format: ClaudeExportFormat = Field(
+        default=ClaudeExportFormat.PPTX,
+        description="Document format to generate.",
+    )
+    title: Optional[str] = Field(
+        None,
+        description="Optional export title used for the generated filename and cover slide.",
+        max_length=200,
+    )
+
+    @model_validator(mode="after")
+    def validate_deck_payload(self) -> "DeckClaudeExportRequest":
+        sections = self.deck.get("results") or self.deck.get("sections") or []
+        if not isinstance(sections, list) or not sections:
+            raise ValueError("deck must include a non-empty results or sections array")
+
+        slide_count = 0
+        for section in sections:
+            if not isinstance(section, dict):
+                raise ValueError("each deck section must be an object")
+            slides = section.get("slides") or []
+            if not isinstance(slides, list):
+                raise ValueError("each deck section must include a slides array")
+            slide_count += len(slides)
+
+        if slide_count <= 0:
+            raise ValueError("deck must include at least one slide")
+
+        return self
+
+
 # =============================================================================
 # Section List Response
 # =============================================================================

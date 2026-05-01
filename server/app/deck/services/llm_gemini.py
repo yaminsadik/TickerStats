@@ -1,6 +1,6 @@
 """
 Google Gemini LLM provider implementation.
-Supports Gemini 3 Flash Preview with Structured Outputs for guaranteed schema-conformant JSON.
+Supports Gemini 3.1 Pro Preview with Structured Outputs for guaranteed schema-conformant JSON.
 
 NOTE: This currently uses the deprecated `google.generativeai` SDK. Plan migration
 to `google.genai` when provider feature parity is confirmed in this code path.
@@ -30,16 +30,16 @@ logger = get_logger(__name__)
 class GeminiProvider(LLMProvider):
     """
     Google Gemini API provider with Structured Outputs support.
-    Uses Gemini 3 Flash Preview with native JSON Schema enforcement.
+    Uses Gemini 3.1 Pro Preview with native JSON Schema enforcement.
     """
     
     PROVIDER_NAME = "gemini"
     
     # Default models by reasoning level - Gemini 3 family
     DEFAULT_MODELS = {
-        "low": "gemini-3-flash-preview",
-        "medium": "gemini-3-flash-preview",
-        "high": "gemini-3-flash-preview",
+        "low": "gemini-3.1-pro-preview",
+        "medium": "gemini-3.1-pro-preview",
+        "high": "gemini-3.1-pro-preview",
     }
     
     def __init__(self, api_key: str, default_model: Optional[str] = None):
@@ -62,7 +62,7 @@ class GeminiProvider(LLMProvider):
             )
     
     def get_default_model(self) -> str:
-        return "gemini-3-flash-preview"
+        return "gemini-3.1-pro-preview"
     
     def _map_reasoning_level(self, level: str) -> dict:
         """Map reasoning level to Gemini-specific parameters."""

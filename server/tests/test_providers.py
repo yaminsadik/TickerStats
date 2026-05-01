@@ -281,20 +281,20 @@ class TestOpenAIProvider:
 class TestGeminiProvider:
     """Tests for Gemini provider with mocked API client."""
     
-    def test_default_model_is_gemini3_flash(self):
-        """Verify default model is Gemini 3 Flash Preview."""
+    def test_default_model_is_gemini31_pro(self):
+        """Verify default model is Gemini 3.1 Pro Preview."""
         from app.deck.services.llm_gemini import GeminiProvider
         
         provider = GeminiProvider("test-key")
-        assert provider.get_default_model() == "gemini-3-flash-preview"
+        assert provider.get_default_model() == "gemini-3.1-pro-preview"
     
     def test_default_models_by_level(self):
-        """Verify DEFAULT_MODELS uses Gemini 3 Flash Preview."""
+        """Verify DEFAULT_MODELS uses Gemini 3.1 Pro Preview."""
         from app.deck.services.llm_gemini import GeminiProvider
         
-        assert GeminiProvider.DEFAULT_MODELS["low"] == "gemini-3-flash-preview"
-        assert GeminiProvider.DEFAULT_MODELS["medium"] == "gemini-3-flash-preview"
-        assert GeminiProvider.DEFAULT_MODELS["high"] == "gemini-3-flash-preview"
+        assert GeminiProvider.DEFAULT_MODELS["low"] == "gemini-3.1-pro-preview"
+        assert GeminiProvider.DEFAULT_MODELS["medium"] == "gemini-3.1-pro-preview"
+        assert GeminiProvider.DEFAULT_MODELS["high"] == "gemini-3.1-pro-preview"
     
     def test_reasoning_level_mapping(self):
         """Verify reasoning level config for Gemini 3."""
@@ -304,10 +304,10 @@ class TestGeminiProvider:
         
         low = provider._map_reasoning_level("low")
         assert low["temperature"] == 1.0  # Structured Outputs best at temp=1
-        assert low["model"] == "gemini-3-flash-preview"
+        assert low["model"] == "gemini-3.1-pro-preview"
         
         medium = provider._map_reasoning_level("medium")
-        assert medium["model"] == "gemini-3-flash-preview"
+        assert medium["model"] == "gemini-3.1-pro-preview"
     
     def test_schema_conversion_to_gemini_format(self):
         """Test JSON schema conversion to Gemini format."""

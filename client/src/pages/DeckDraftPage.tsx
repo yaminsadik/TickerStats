@@ -24,6 +24,8 @@ import {
   type DeckExportData,
 } from "../components/ui";
 import { exportDeckToPDF, exportDeckToPPTX } from "../utils/deckExport";
+import { exportDeckWithClaude } from "../utils/claudeDeckExport";
+import { useAuthenticatedFetch } from "../hooks/useAuthenticatedApi";
 import { useUserProfile } from "../hooks/useUserProfile";
 import {
   getDraft,
@@ -43,6 +45,7 @@ export default function DeckDraftPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { canExport } = useUserProfile();
+  const { authenticatedFetch } = useAuthenticatedFetch();
 
   const [draft, setDraft] = useState<DeckDraft | null>(null);
   const [loading, setLoading] = useState(true);
@@ -53,6 +56,13 @@ export default function DeckDraftPage() {
     null,
   );
   const [showJsonViewer, setShowJsonViewer] = useState(false);
+  const [exportingFormat, setExportingFormat] = useState<"pdf" | "pptx" | null>(
+    null,
+  );
+  const [exportNotice, setExportNotice] = useState<{
+    variant: "info" | "warning";
+    message: string;
+  } | null>(null);
 
   // Load draft on mount
   useEffect(() => {
@@ -205,14 +215,50 @@ export default function DeckDraftPage() {
   const handleExportPDF = async () => {
     if (!exportData) return;
     const ticker = draft?.basics.ticker || "deck";
-    await exportDeckToPDF(exportData, `${ticker}_pitch_deck.pdf`);
+    const filename = `${ticker}_pitch_deck.pdf`;
+    setExportingFormat("pdf");
+    setExportNotice({
+      variant: "info",
+      message: "Creating PDF with Claude. This can take 30-90 seconds; please keep this page open.",
+    });
+    try {
+      await exportDeckWithClaude(authenticatedFetch, exportData, "pdf", filename);
+      setExportNotice(null);
+    } catch (error) {
+      console.warn("Claude PDF export failed; using local fallback.", error);
+      setExportNotice({
+        variant: "warning",
+        message: "Claude PDF export failed, so a local fallback PDF was downloaded.",
+      });
+      await exportDeckToPDF(exportData, filename);
+    } finally {
+      setExportingFormat(null);
+    }
   };
 
   // Export as PPTX
   const handleExportPPTX = async () => {
     if (!exportData) return;
     const ticker = draft?.basics.ticker || "deck";
-    await exportDeckToPPTX(exportData, `${ticker}_pitch_deck.pptx`);
+    const filename = `${ticker}_pitch_deck.pptx`;
+    setExportingFormat("pptx");
+    setExportNotice({
+      variant: "info",
+      message: "Creating PPTX with Claude. This can take 30-90 seconds; please keep this page open.",
+    });
+    try {
+      await exportDeckWithClaude(authenticatedFetch, exportData, "pptx", filename);
+      setExportNotice(null);
+    } catch (error) {
+      console.warn("Claude PPTX export failed; using local fallback.", error);
+      setExportNotice({
+        variant: "warning",
+        message: "Claude PPTX export failed, so the older local PPTX was downloaded.",
+      });
+      await exportDeckToPPTX(exportData, filename);
+    } finally {
+      setExportingFormat(null);
+    }
   };
 
   // Computed counts from export data
@@ -265,6 +311,12 @@ export default function DeckDraftPage() {
   // Handle both 'sections' (legacy) and 'results' (current) field names
   const { metadata, sections, warnings, results } = draft.generatedContent;
   const actualSections = sections ?? results ?? [];
+  const generationErrors = Array.isArray((draft.generatedContent as any).errors)
+    ? ((draft.generatedContent as any).errors as Array<{
+        section_id?: string;
+        message?: string;
+      }>)
+    : [];
 
   const safeMetadata = metadata ?? {
     ticker: draft.generatedContent?.ticker || draft.basics.ticker,
@@ -343,21 +395,29 @@ export default function DeckDraftPage() {
             variant="outline"
             size="sm"
             onClick={handleExportPDF}
-            disabled={!canExport}
+            disabled={!canExport || exportingFormat !== null}
             title={!canExport ? "Upgrade to Pro to export decks" : undefined}
           >
-            <FileText className="w-4 h-4 mr-2" />
-            PDF
+            {exportingFormat === "pdf" ? (
+              <Spinner size="sm" className="mr-2" />
+            ) : (
+              <FileText className="w-4 h-4 mr-2" />
+            )}
+            {exportingFormat === "pdf" ? "Creating PDF..." : "PDF"}
           </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={handleExportPPTX}
-            disabled={!canExport}
+            disabled={!canExport || exportingFormat !== null}
             title={!canExport ? "Upgrade to Pro to export decks" : undefined}
           >
-            <Presentation className="w-4 h-4 mr-2" />
-            PPTX
+            {exportingFormat === "pptx" ? (
+              <Spinner size="sm" className="mr-2" />
+            ) : (
+              <Presentation className="w-4 h-4 mr-2" />
+            )}
+            {exportingFormat === "pptx" ? "Creating PPTX..." : "PPTX"}
           </Button>
         </div>
         <div className="flex items-center gap-2">
@@ -367,6 +427,31 @@ export default function DeckDraftPage() {
           </Button>
         </div>
       </div>
+
+      {exportNotice && (
+        <Alert
+          variant={exportNotice.variant === "warning" ? "warning" : "info"}
+          title={exportNotice.variant === "warning" ? "Export fallback used" : "Creating export"}
+          className="mb-6"
+        >
+          {exportNotice.message}
+        </Alert>
+      )}
+
+      {generationErrors.length > 0 && (
+        <Alert variant="warning" title="Deck generated with missing sections" className="mb-6">
+          <p className="mb-2">
+            Some sections failed during JSON generation, so Claude can only export the sections that exist in this draft.
+          </p>
+          <ul className="list-disc list-inside space-y-1">
+            {generationErrors.slice(0, 5).map((error, i) => (
+              <li key={i}>
+                {error.section_id || "section"}: {error.message || "generation failed"}
+              </li>
+            ))}
+          </ul>
+        </Alert>
+      )}
 
       {/* Warnings */}
       {warnings && warnings.length > 0 && (

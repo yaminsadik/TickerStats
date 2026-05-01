@@ -22,6 +22,7 @@ passlib[bcrypt]>=1.7.4
 # Deck Generation Service
 python-dotenv>=1.0.0
 jsonschema>=4.20.0
+httpx>=0.27.0
 
 # LLM Providers (versions supporting Structured Outputs)
 openai>=1.60.0  # Required for GPT-5.2 + Structured Outputs with json_schema

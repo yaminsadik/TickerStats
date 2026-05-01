@@ -15,13 +15,15 @@ import {
   Loader2,
   Presentation,
 } from "lucide-react";
-import { Button, Card, Badge, Alert, JsonViewerModal } from "../components/ui";
+import { Button, Card, Badge, Alert, JsonViewerModal, Spinner } from "../components/ui";
 import { RelativeTable } from "../components/RelativeTable";
 import { useSignalSettings } from "../hooks/useSignalSettings";
 import { exportDeckToPDF, exportDeckToPPTX } from "../utils/deckExport";
+import { exportDeckWithClaude } from "../utils/claudeDeckExport";
 import { SNAPSHOT_FIELDS } from "../types/api";
 import type { RelativeTableResponse, RowData } from "../types/api";
 import { useUserProfile } from "../hooks/useUserProfile";
+import { useAuthenticatedFetch } from "../hooks/useAuthenticatedApi";
 import { useDeckDetail, useDeleteDeck } from "../queries/useDeckQueries";
 import type { GeneratedSection, Slide, BulletPoint } from "../api/deckApi";
 
@@ -69,6 +71,7 @@ export default function DeckViewPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { canExport } = useUserProfile();
+  const { authenticatedFetch } = useAuthenticatedFetch();
 
   const {
     data: deck,
@@ -83,6 +86,13 @@ export default function DeckViewPage() {
     new Set(),
   );
   const [showJsonViewer, setShowJsonViewer] = useState(false);
+  const [exportingFormat, setExportingFormat] = useState<"pdf" | "pptx" | null>(
+    null,
+  );
+  const [exportNotice, setExportNotice] = useState<{
+    variant: "info" | "warning";
+    message: string;
+  } | null>(null);
   const { settings: signalSettings } = useSignalSettings();
 
   // Expand all sections when deck loads
@@ -114,11 +124,70 @@ export default function DeckViewPage() {
   const content = deck?.content as any;
   const sections: GeneratedSection[] =
     content?.results || content?.sections || [];
+  const generationErrors = Array.isArray(content?.errors)
+    ? (content.errors as Array<{ section_id?: string; message?: string }>)
+    : [];
   const compsTable = content?.computed_inputs?.comps_table;
   const compsData = useMemo(
     () => convertCompsToRelativeTable(compsTable),
     [compsTable],
   );
+
+  const handleExportPDF = async () => {
+    if (!deck?.content) return;
+    const filename = `${deck.ticker}_deck.pdf`;
+    setExportingFormat("pdf");
+    setExportNotice({
+      variant: "info",
+      message: "Creating PDF with Claude. This can take 30-90 seconds; please keep this page open.",
+    });
+    try {
+      await exportDeckWithClaude(
+        authenticatedFetch,
+        deck.content as any,
+        "pdf",
+        filename,
+      );
+      setExportNotice(null);
+    } catch (error) {
+      console.warn("Claude PDF export failed; using local fallback.", error);
+      setExportNotice({
+        variant: "warning",
+        message: "Claude PDF export failed, so a local fallback PDF was downloaded.",
+      });
+      await exportDeckToPDF(deck.content as any, filename);
+    } finally {
+      setExportingFormat(null);
+    }
+  };
+
+  const handleExportPPTX = async () => {
+    if (!deck?.content) return;
+    const filename = `${deck.ticker}_deck.pptx`;
+    setExportingFormat("pptx");
+    setExportNotice({
+      variant: "info",
+      message: "Creating PPTX with Claude. This can take 30-90 seconds; please keep this page open.",
+    });
+    try {
+      await exportDeckWithClaude(
+        authenticatedFetch,
+        deck.content as any,
+        "pptx",
+        filename,
+      );
+      setExportNotice(null);
+    } catch (error) {
+      console.warn("Claude PPTX export failed; using local fallback.", error);
+      setExportNotice({
+        variant: "warning",
+        message: "Claude PPTX export failed, so the older local PPTX was downloaded.",
+      });
+      await exportDeckToPPTX(deck.content as any, filename);
+    } finally {
+      setExportingFormat(null);
+    }
+  };
 
   if (loading) {
     return (
@@ -179,39 +248,60 @@ export default function DeckViewPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => {
-              if (deck?.content) {
-                exportDeckToPDF(deck.content as any, `${deck.ticker}_deck.pdf`);
-              }
-            }}
-            disabled={!canExport}
+            onClick={handleExportPDF}
+            disabled={!canExport || exportingFormat !== null}
             title={!canExport ? "Upgrade to Pro to export decks" : undefined}
           >
-            <FileText className="w-4 h-4 mr-1" />
-            PDF
+            {exportingFormat === "pdf" ? (
+              <Spinner size="sm" className="mr-1" />
+            ) : (
+              <FileText className="w-4 h-4 mr-1" />
+            )}
+            {exportingFormat === "pdf" ? "Creating PDF..." : "PDF"}
           </Button>
           <Button
             variant="outline"
             size="sm"
-            onClick={() => {
-              if (deck?.content) {
-                exportDeckToPPTX(
-                  deck.content as any,
-                  `${deck.ticker}_deck.pptx`,
-                );
-              }
-            }}
-            disabled={!canExport}
+            onClick={handleExportPPTX}
+            disabled={!canExport || exportingFormat !== null}
             title={!canExport ? "Upgrade to Pro to export decks" : undefined}
           >
-            <Presentation className="w-4 h-4 mr-1" />
-            PPTX
+            {exportingFormat === "pptx" ? (
+              <Spinner size="sm" className="mr-1" />
+            ) : (
+              <Presentation className="w-4 h-4 mr-1" />
+            )}
+            {exportingFormat === "pptx" ? "Creating PPTX..." : "PPTX"}
           </Button>
           <Button variant="outline" size="sm" onClick={handleDelete}>
             <Trash2 className="w-4 h-4 text-red-400" />
           </Button>
         </div>
       </div>
+
+      {exportNotice && (
+        <Alert
+          variant={exportNotice.variant === "warning" ? "warning" : "info"}
+          title={exportNotice.variant === "warning" ? "Export fallback used" : "Creating export"}
+        >
+          {exportNotice.message}
+        </Alert>
+      )}
+
+      {generationErrors.length > 0 && (
+        <Alert variant="warning" title="Deck generated with missing sections">
+          <p className="mb-2">
+            Some sections failed during JSON generation, so Claude can only export the sections that exist in this deck.
+          </p>
+          <ul className="list-disc list-inside space-y-1">
+            {generationErrors.slice(0, 5).map((error, i) => (
+              <li key={i}>
+                {error.section_id || "section"}: {error.message || "generation failed"}
+              </li>
+            ))}
+          </ul>
+        </Alert>
+      )}
 
       {/* Comps table */}
       {compsData && (

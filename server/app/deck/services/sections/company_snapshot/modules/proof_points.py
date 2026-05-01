@@ -28,6 +28,8 @@ def build_context(inputs: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "kpis": kpis,
+        "sector": inputs.get("sector") or (inputs.get("company") or {}).get("sector"),
+        "industry": inputs.get("industry") or (inputs.get("company") or {}).get("industry"),
         "confidence": confidence,
         "notes": notes,
     }
@@ -43,7 +45,15 @@ def build_prompt_fragment(ctx: dict[str, Any]) -> str:
         )
         kpi_hint = f"Known operational KPIs:\n{kpi_list}"
     else:
-        kpi_hint = "No operational KPIs provided — infer 3 plausible KPIs from sector/industry if possible."
+        context = " / ".join(
+            str(value)
+            for value in [ctx.get("sector"), ctx.get("industry")]
+            if value
+        )
+        kpi_hint = (
+            "No operational KPIs provided — infer 3 plausible KPIs from "
+            f"sector/industry if possible. Context: {context or 'not provided'}."
+        )
 
     notes_hint = ""
     if ctx["notes"]:
@@ -55,6 +65,7 @@ def build_prompt_fragment(ctx: dict[str, Any]) -> str:
 INSTRUCTIONS:
 - kpis: list 3 to 6 operational KPIs with label, value, and optional as_of.
 - Use provided KPIs if available. If fewer than 3 are provided, include what exists.
+- If inferring KPIs, infer KPI names only; set value to "not provided" unless explicitly supplied.
 - Set confidence to "{ctx["confidence"]}".{notes_hint}
 
 HARD RULES:

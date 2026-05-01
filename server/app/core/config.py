@@ -53,6 +53,28 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("ENVIRONMENT"),
     )
 
+    # Claude Skills export
+    ANTHROPIC_API_KEY: str = Field(
+        default="",
+        validation_alias=AliasChoices("ANTHROPIC_API_KEY"),
+    )
+    CLAUDE_EXPORT_MODEL: str = Field(
+        default="claude-sonnet-4-5",
+        validation_alias=AliasChoices("CLAUDE_EXPORT_MODEL"),
+    )
+    CLAUDE_EXPORT_CACHE_DIR: str = Field(
+        default="/tmp/tickerstats_deck_exports",
+        validation_alias=AliasChoices("CLAUDE_EXPORT_CACHE_DIR"),
+    )
+    CLAUDE_EXPORT_MAX_SLIDES: int = Field(
+        default=30,
+        validation_alias=AliasChoices("CLAUDE_EXPORT_MAX_SLIDES"),
+    )
+    CLAUDE_EXPORT_ALLOW_FREE: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("CLAUDE_EXPORT_ALLOW_FREE"),
+    )
+
     # Stripe
     STRIPE_SECRET_KEY: str = Field(
         default="",

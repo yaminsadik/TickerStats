@@ -236,8 +236,8 @@ export default function DeckWizardPage() {
   const [config, setConfig] = useState<DeckDraftConfig>({
     sections: [],
     provider: "gemini",
-    model: "gemini-3-flash-preview",
-    quality: "medium",
+    model: "gemini-3.1-pro-preview",
+    quality: "high",
   });
 
   // Comparable companies state

@@ -73,10 +73,18 @@ def build_prompt_fragment(ctx: dict[str, Any]) -> str:
         )
         parts.append(f"Provided revenue flow:\n{flow_str}")
     else:
-        parts.append(
-            "No explicit revenue flow provided — infer a plausible 4-6 step flow "
-            "from the company description and sector. Add notes explaining inference."
-        )
+        if ctx["description"]:
+            parts.append(
+                "No explicit revenue flow provided — infer a plausible 4-6 step flow "
+                "ONLY from the company description, sector, and industry above. "
+                "Add notes explaining inference."
+            )
+        else:
+            parts.append(
+                "No explicit revenue flow or company description provided — keep "
+                "the revenue flow generic to the stated sector/industry, set low "
+                "confidence, and do NOT invent unrelated product categories."
+            )
 
     if ctx["has_pricing_notes"]:
         notes_list = ctx["pricing_contract_notes"]
@@ -100,6 +108,7 @@ def build_prompt_fragment(ctx: dict[str, Any]) -> str:
         "- who_they_sell_to: 2-5 customer type descriptions.\n"
         "- revenue_flow: 4-6 FlowStep objects with step and optional note.\n"
         "- pricing_contract_notes: 0-3 items, ONLY if explicitly disclosed.\n"
+        "- Ground all inferred products/services in the company name, ticker, sector, industry, and description.\n"
         "- Do NOT fabricate pricing details."
     )
 

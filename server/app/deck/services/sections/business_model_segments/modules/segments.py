@@ -30,6 +30,7 @@ def build_context(inputs: dict[str, Any]) -> dict[str, Any]:
         "confidence": confidence,
         "company_name": inputs.get("company_name", ""),
         "sector": inputs.get("sector", ""),
+        "industry": inputs.get("industry", ""),
         "description": (
             inputs.get("company_description")
             or inputs.get("business_description")
@@ -87,9 +88,12 @@ def build_prompt_fragment(ctx: dict[str, Any]) -> str:
         desc = ctx.get("description", "")
         if desc:
             parts.append(f"Company description for inference: {desc}")
+        if ctx.get("industry"):
+            parts.append(f"Industry for inference: {ctx['industry']}")
         parts.append(
             'INSTRUCTIONS:\n'
-            '- Infer 2-4 plausible primary segments from the company description/sector.\n'
+            '- Infer 2-4 plausible primary segments ONLY from the company description, sector, and industry.\n'
+            '- If description is missing, keep segments broad and sector-level; do NOT invent unrelated categories.\n'
             '- Set revenue_mix_pct to null, profit_mix_pct to null, profit_basis to null.\n'
             '- Write a one_liner for each (max 15 words).\n'
             '- Provide 2-4 drivers per segment.\n'

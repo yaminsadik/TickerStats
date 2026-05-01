@@ -3,6 +3,7 @@ Utility to fetch company information from ticker symbol using yfinance.
 """
 
 import logging
+from functools import lru_cache
 from typing import Optional
 
 import yfinance as yf
@@ -10,6 +11,7 @@ import yfinance as yf
 logger = logging.getLogger(__name__)
 
 
+@lru_cache(maxsize=512)
 def get_company_info(ticker: str) -> dict[str, Optional[str]]:
     """
     Fetch company name and sector from ticker using yfinance.
@@ -18,11 +20,14 @@ def get_company_info(ticker: str) -> dict[str, Optional[str]]:
         ticker: Stock ticker symbol
         
     Returns:
-        Dict with 'company_name' and 'sector' keys (values may be None if not found)
+        Dict with company profile keys (values may be None if not found)
     """
     result = {
         "company_name": None,
         "sector": None,
+        "industry": None,
+        "description": None,
+        "website": None,
     }
     
     try:
@@ -47,6 +52,18 @@ def get_company_info(ticker: str) -> dict[str, Optional[str]]:
         sector = info.get("sector") or info.get("industry")
         if sector:
             result["sector"] = str(sector).strip()
+
+        industry = info.get("industry")
+        if industry:
+            result["industry"] = str(industry).strip()
+
+        description = info.get("longBusinessSummary")
+        if description:
+            result["description"] = str(description).strip()
+
+        website = info.get("website")
+        if website:
+            result["website"] = str(website).strip()
         
         logger.info(f"Found: {result['company_name']} in {result['sector']}")
         
