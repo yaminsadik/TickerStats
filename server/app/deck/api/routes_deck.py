@@ -577,6 +577,11 @@ async def export_deck_with_claude(request: Request):
         status_code = status.HTTP_400_BAD_REQUEST
         if "API error" in message or "request failed" in message or "download failed" in message:
             status_code = status.HTTP_502_BAD_GATEWAY
+        logger.warning(
+            "Claude deck export failed: %s",
+            message,
+            extra={"request_id": _request_id(request)},
+        )
         raise HTTPException(
             status_code=status_code,
             detail={"error": message, "request_id": _request_id(request)},

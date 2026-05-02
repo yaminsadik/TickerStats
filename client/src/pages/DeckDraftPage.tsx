@@ -23,7 +23,7 @@ import {
   SectionSkeleton,
   type DeckExportData,
 } from "../components/ui";
-import { exportDeckToPDF, exportDeckToPPTX } from "../utils/deckExport";
+import { exportDeckToPDF } from "../utils/deckExport";
 import { exportDeckWithClaude } from "../utils/claudeDeckExport";
 import { useAuthenticatedFetch } from "../hooks/useAuthenticatedApi";
 import { useUserProfile } from "../hooks/useUserProfile";
@@ -61,6 +61,7 @@ export default function DeckDraftPage() {
   );
   const [exportNotice, setExportNotice] = useState<{
     variant: "info" | "warning";
+    title?: string;
     message: string;
   } | null>(null);
 
@@ -250,12 +251,14 @@ export default function DeckDraftPage() {
       await exportDeckWithClaude(authenticatedFetch, exportData, "pptx", filename);
       setExportNotice(null);
     } catch (error) {
-      console.warn("Claude PPTX export failed; using local fallback.", error);
+      const message =
+        error instanceof Error ? error.message : "Claude PPTX export failed.";
+      console.warn("Claude PPTX export failed; no local fallback downloaded.", error);
       setExportNotice({
         variant: "warning",
-        message: "Claude PPTX export failed, so the older local PPTX was downloaded.",
+        title: "Claude export failed",
+        message: `${message} No local PPTX fallback was downloaded.`,
       });
-      await exportDeckToPPTX(exportData, filename);
     } finally {
       setExportingFormat(null);
     }
@@ -431,7 +434,10 @@ export default function DeckDraftPage() {
       {exportNotice && (
         <Alert
           variant={exportNotice.variant === "warning" ? "warning" : "info"}
-          title={exportNotice.variant === "warning" ? "Export fallback used" : "Creating export"}
+          title={
+            exportNotice.title ||
+            (exportNotice.variant === "warning" ? "Export warning" : "Creating export")
+          }
           className="mb-6"
         >
           {exportNotice.message}

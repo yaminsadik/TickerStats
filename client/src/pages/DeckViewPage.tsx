@@ -18,7 +18,7 @@ import {
 import { Button, Card, Badge, Alert, JsonViewerModal, Spinner } from "../components/ui";
 import { RelativeTable } from "../components/RelativeTable";
 import { useSignalSettings } from "../hooks/useSignalSettings";
-import { exportDeckToPDF, exportDeckToPPTX } from "../utils/deckExport";
+import { exportDeckToPDF } from "../utils/deckExport";
 import { exportDeckWithClaude } from "../utils/claudeDeckExport";
 import { SNAPSHOT_FIELDS } from "../types/api";
 import type { RelativeTableResponse, RowData } from "../types/api";
@@ -91,6 +91,7 @@ export default function DeckViewPage() {
   );
   const [exportNotice, setExportNotice] = useState<{
     variant: "info" | "warning";
+    title?: string;
     message: string;
   } | null>(null);
   const { settings: signalSettings } = useSignalSettings();
@@ -178,12 +179,14 @@ export default function DeckViewPage() {
       );
       setExportNotice(null);
     } catch (error) {
-      console.warn("Claude PPTX export failed; using local fallback.", error);
+      const message =
+        error instanceof Error ? error.message : "Claude PPTX export failed.";
+      console.warn("Claude PPTX export failed; no local fallback downloaded.", error);
       setExportNotice({
         variant: "warning",
-        message: "Claude PPTX export failed, so the older local PPTX was downloaded.",
+        title: "Claude export failed",
+        message: `${message} No local PPTX fallback was downloaded.`,
       });
-      await exportDeckToPPTX(deck.content as any, filename);
     } finally {
       setExportingFormat(null);
     }
@@ -282,7 +285,10 @@ export default function DeckViewPage() {
       {exportNotice && (
         <Alert
           variant={exportNotice.variant === "warning" ? "warning" : "info"}
-          title={exportNotice.variant === "warning" ? "Export fallback used" : "Creating export"}
+          title={
+            exportNotice.title ||
+            (exportNotice.variant === "warning" ? "Export warning" : "Creating export")
+          }
         >
           {exportNotice.message}
         </Alert>
