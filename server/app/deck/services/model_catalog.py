@@ -17,7 +17,7 @@ from typing import Optional
 # Thinking-config type constants (used by active model policy)
 # ---------------------------------------------------------------------------
 
-THINKING_LEVEL = "thinking_level"  # Gemini: thinking_level="HIGH"|"LOW"
+THINKING_LEVEL = "thinking_level"  # Gemini 3: "MINIMAL"|"LOW"|"MEDIUM"|"HIGH"
 
 
 # ---------------------------------------------------------------------------

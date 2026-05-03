@@ -391,6 +391,12 @@ class GeminiProvider(LLMProvider):
                     "response_json_schema": gemini_schema,  # Native Structured Outputs
                 }
 
+                # Inject thinking config so the level actually reaches the API
+                if active_thinking_level:
+                    generation_config["thinking_config"] = {
+                        "thinking_level": active_thinking_level.upper(),
+                    }
+
                 logger.info("Calling Gemini API with Structured Outputs", extra={
                     "model": model_name,
                     "max_tokens": current_max_tokens,

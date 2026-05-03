@@ -360,7 +360,7 @@ export default function BrowsePage() {
                   </div>
                   <p className="text-sm text-amber-200/80">
                     You've used all {savedSearchesLimit} saved searches on the
-                    free plan. Upgrade to Pro for unlimited saved searches.
+                    free plan. Paid accounts can save more searches.
                   </p>
                 </div>
                 <div className="flex gap-2 justify-end pt-2">
@@ -375,7 +375,7 @@ export default function BrowsePage() {
                     Close
                   </Button>
                   <Button size="sm" onClick={() => navigate("/profile")}>
-                    Upgrade
+                    Billing
                   </Button>
                 </div>
               </div>

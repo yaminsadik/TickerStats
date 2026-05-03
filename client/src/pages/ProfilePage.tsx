@@ -136,20 +136,29 @@ export default function ProfilePage() {
         </div>
       </Card>
 
-      {/* Subscription Card */}
+      {/* Billing Card */}
       <Card className="p-6 space-y-4">
         <h3 className="text-lg font-semibold text-white flex items-center gap-2">
           <Crown className="w-5 h-5 text-yellow-500" />
-          Subscription
+          Exports & Billing
         </h3>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="bg-slate-800/50 rounded-lg p-4">
             <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">
-              Current Plan
+              Account
             </p>
             <p className="text-lg font-semibold text-white capitalize">
               {profile.subscription_tier}
+            </p>
+          </div>
+
+          <div className="bg-slate-800/50 rounded-lg p-4">
+            <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">
+              Export Credits
+            </p>
+            <p className="text-lg font-semibold text-white">
+              {profile.deck_export_credits}
             </p>
           </div>
 
@@ -168,20 +177,19 @@ export default function ProfilePage() {
         {profile.subscription_tier === "free" && (
           <div className="bg-gradient-to-r from-blue-900/40 to-purple-900/40 border border-blue-800/50 rounded-lg p-4">
             <h4 className="text-sm font-semibold text-white mb-2">
-              Upgrade to Pro
+              2 Deck Exports for $4.99
             </h4>
             <ul className="text-sm text-slate-300 space-y-1 mb-3">
+              <li>✓ Unlock PDF and PPTX export for 2 finished decks</li>
+              <li>✓ No subscription or renewal</li>
               <li>
-                ✓ Unlimited saved searches (currently limited to{" "}
-                {profile.saved_searches_limit})
+                ✓ Free preview stays available before you pay
               </li>
-              <li>✓ Export to CSV, Excel, and PDF</li>
-              <li>✓ Priority deck generation</li>
             </ul>
             <Button
               variant="primary"
               size="sm"
-              onClick={() => createCheckout("pro")}
+              onClick={() => createCheckout("deck_export")}
               disabled={isCreatingCheckout}
             >
               {isCreatingCheckout ? (
@@ -192,7 +200,7 @@ export default function ProfilePage() {
               ) : (
                 <>
                   <ExternalLink className="w-4 h-4 mr-1" />
-                  Upgrade Now
+                  Buy 2 Export Credits
                 </>
               )}
             </Button>
@@ -220,7 +228,7 @@ export default function ProfilePage() {
               ) : (
                 <>
                   <ExternalLink className="w-4 h-4 mr-1" />
-                  Manage Subscription
+                  Manage Billing
                 </>
               )}
             </Button>
@@ -261,7 +269,7 @@ export default function ProfilePage() {
                 / {profile.deck_limit == null ? "∞" : profile.deck_limit}
               </span>
             </p>
-            <p className="text-xs text-slate-400 mt-1">Decks / month</p>
+            <p className="text-xs text-slate-400 mt-1">Deck Generations</p>
           </div>
 
           <div className="bg-slate-800/50 rounded-lg p-4 sm:p-5 text-center">
@@ -278,10 +286,10 @@ export default function ProfilePage() {
 
           <div className="bg-slate-800/50 rounded-lg p-4 sm:p-5 text-center">
             <FileText className="w-5 h-5 text-green-400 mx-auto mb-1" />
-            <p className="text-2xl font-bold text-white">
-              {profile.can_export ? "✓" : "✗"}
+            <p className="text-xl font-bold text-white">
+              {profile.can_export ? "All" : "2 / $4.99"}
             </p>
-            <p className="text-xs text-slate-400 mt-1">Export Access</p>
+            <p className="text-xs text-slate-400 mt-1">Deck Exports</p>
           </div>
 
           <div className="bg-slate-800/50 rounded-lg p-4 sm:p-5 text-center">

@@ -1,13 +1,22 @@
 import { useMutation } from "@tanstack/react-query";
-import { subscriptionApi } from "../api/subscriptionApi";
+import {
+  subscriptionApi,
+  type CheckoutItem,
+  type CreateCheckoutSessionOptions,
+} from "../api/subscriptionApi";
 import { useAuthenticatedFetch } from "../hooks/useAuthenticatedApi";
 
 export function useSubscriptionMutations() {
   const { authenticatedFetch } = useAuthenticatedFetch();
 
   const checkoutMutation = useMutation({
-    mutationFn: (tier: "pro" | "enterprise") =>
-      subscriptionApi.createCheckoutSession(authenticatedFetch, tier),
+    mutationFn: ({
+      item,
+      options,
+    }: {
+      item: CheckoutItem;
+      options?: CreateCheckoutSessionOptions;
+    }) => subscriptionApi.createCheckoutSession(authenticatedFetch, item, options),
     onSuccess: (data) => {
       // Redirect to Stripe Checkout
       if (data.url) {
@@ -25,7 +34,10 @@ export function useSubscriptionMutations() {
   });
 
   return {
-    createCheckout: checkoutMutation.mutate,
+    createCheckout: (
+      item: CheckoutItem,
+      options?: CreateCheckoutSessionOptions,
+    ) => checkoutMutation.mutate({ item, options }),
     isCreatingCheckout: checkoutMutation.isPending,
     checkoutError:
       checkoutMutation.error instanceof Error

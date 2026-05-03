@@ -10,6 +10,7 @@ import {
   fetchDecks,
   deleteDeckFromDB,
   createDeckInDB,
+  unlockDeckExport,
   type CreateDeckPayload,
 } from "../api/userApi";
 import { queryKeys } from "../lib/queryKeys";
@@ -79,6 +80,22 @@ export function useSaveDeck() {
       createDeckInDB(authenticatedFetch, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.decks.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.profile });
+    },
+  });
+}
+
+/**
+ * Unlock export for a saved deck using an available export credit.
+ */
+export function useUnlockDeckExport() {
+  const { authenticatedFetch } = useAuthenticatedFetch();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: number) => unlockDeckExport(authenticatedFetch, id),
+    onSuccess: (_data, id) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.decks.detail(id) });
       queryClient.invalidateQueries({ queryKey: queryKeys.profile });
     },
   });

@@ -122,3 +122,57 @@ def test_gemini_design_service_requires_api_key(tmp_path):
             model="gemini-3-flash-preview",
             cache_dir=str(tmp_path),
         )
+
+
+def test_compact_deck_adds_comps_section_when_comps_data_exists(tmp_path):
+    service = GeminiPptxDesignService(
+        api_key="test-key",
+        model="gemini-3-flash-preview",
+        cache_dir=str(tmp_path),
+    )
+    deck = {
+        **_sample_deck(),
+        "computed_inputs": {
+            "comps_table": {
+                "target": {
+                    "ticker": "ACN",
+                    "snapshot": {"sharePrice": 100, "marketCap": 1000},
+                },
+                "comparables": [
+                    {"ticker": "IBM", "snapshot": {"sharePrice": 90, "marketCap": 900}},
+                ],
+            }
+        },
+    }
+
+    compact = service._compact_deck(deck)
+
+    comps_section = compact["sections"][-1]
+    assert comps_section["section_id"] == "comparable_companies"
+    assert compact["comps_table"]["subject_index"] == 0
+
+
+def test_dedupe_preserves_multi_ref_two_column_blocks(tmp_path):
+    service = GeminiPptxDesignService(
+        api_key="test-key",
+        model="gemini-3-flash-preview",
+        cache_dir=str(tmp_path),
+    )
+    slide_design = {
+        "blocks": [
+            {
+                "type": "two_column_panel",
+                "text_refs": ["bullet_0", "bullet_1", "bullet_2", "bullet_3"],
+            }
+        ]
+    }
+    slide = {"bullets": ["one", "two", "three", "four"]}
+
+    service._dedupe_block_refs(slide_design, slide)
+
+    assert slide_design["blocks"][0]["text_refs"] == [
+        "bullet_0",
+        "bullet_1",
+        "bullet_2",
+        "bullet_3",
+    ]

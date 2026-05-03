@@ -24,6 +24,7 @@ export const userProfileSchema = z.object({
   deck_count_month: z.number(),
   deck_limit: z.number().nullable(),
   can_export: z.boolean(),
+  deck_export_credits: z.number().default(0),
 });
 
 export type UserProfileParsed = z.infer<typeof userProfileSchema>;

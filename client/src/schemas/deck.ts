@@ -36,6 +36,7 @@ export const deckMetaSchema = z.object({
 
 export const deckFullSchema = deckMetaSchema.extend({
   content: z.record(z.string(), z.unknown()),
+  export_unlocked: z.boolean().default(false),
 });
 
 export type DeckMetaParsed = z.infer<typeof deckMetaSchema>;

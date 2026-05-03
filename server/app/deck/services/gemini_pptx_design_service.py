@@ -15,7 +15,7 @@ from app.deck.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-PROMPT_VERSION = "gemini-pptx-design-v4"
+PROMPT_VERSION = "gemini-pptx-design-v6"
 
 
 class GeminiPptxDesignError(Exception):
@@ -117,62 +117,179 @@ class GeminiPptxDesignService:
 
     def _system_prompt(self) -> str:
         return (
-            "You are an investment banking deck layout planner. Return only strict JSON matching the "
-            "supplied schema. No prose, no markdown, no comments. You write a reusable bulge-bracket "
-            "style layout blueprint for a local pptxgenjs renderer.\n\n"
-            "Design system: deep navy #0A2540 for titles, rules, and primary emphasis; one warm accent "
-            "#7A1F2B or #B8860B for selective emphasis; white page ground; light gray #F4F5F7 for card "
-            "fills; mid gray #6B7280 for body/source text; dark gray #374151 for table/card borders. "
-            "Use restrained IB styling: flat cards, hairline rules, almost no shadows, high alignment, "
-            "medium-high density with visible whitespace. No gradients or decorative clutter.\n\n"
-            "Canvas is 13.33 x 7.5 inches. Title band is y=0.3 to 1.0, footer band y=7.05 to 7.4, "
-            "content band y=1.1 to 7.0. Outer margins are 0.5 inches. Prefer full width 12.33, halves "
-            "6.07, thirds 3.97, quarters 2.92, or 60/40 splits 7.40 + 4.73. Use 3-6 blocks per slide "
-            "except cover/divider. Blocks must not overlap; preserve 0.15+ inch gutters.\n\n"
-            "Supported block types only: hero_callout, metric_tile, bullet_card, text_box, timeline_item, "
-            "two_column_panel, risk_box, valuation_callout, section_badge. Use hero_callout for the main "
-            "takeaway, metric_tile for KPI-like facts, bullet_card for grouped narrative, timeline_item "
-            "for sequenced dates/catalysts, risk_box for risk/mitigant content, valuation_callout for "
-            "target/multiple/DCF/upside content.\n\n"
-            "Preserve facts. Never invent financial claims, numbers, dates, target prices, ratings, or "
-            "company facts. Factual content must be referenced through text_refs such as title or bullet_0. "
-            "Do not reuse the same bullet_N in multiple blocks on the same slide. Use bullet_0 for the hero "
-            "only, then use bullet_1, bullet_2, etc. for supporting blocks. If there are fewer bullets than "
-            "blocks, create fewer blocks instead of duplicating a bullet. Timeline and KPI blocks must map "
-            "to distinct bullet_N values. "
-            "static_text may only contain design labels like Key Takeaway, Market believes, We believe, "
-            "Risks, Catalysts, BEAR, BASE, BULL, Target, Upside. Use body only for non-factual labels or "
-            "leave it empty. Vary slide arrangements across consecutive slides."
+            "ROLE\n"
+            "You are a layout planning engine for institutional equity research pitch books. "
+            "You convert structured slide content into a strict JSON layout blueprint that a pptxgenjs "
+            "renderer will execute. You output JSON only matching the supplied schema. No prose, no "
+            "markdown, no comments.\n\n"
+
+            "PRIME DIRECTIVES\n"
+            "1. Preserve every fact verbatim. Do not invent, round, or smooth tickers, prices, ratios, "
+            "percentages, dates, ranges, names, or claims.\n"
+            "2. Reference text only by key path: title or bullet_N (zero-based). The renderer resolves "
+            "keys to text. Never paste raw strings into text_refs or text_source.\n"
+            "3. If a value is missing, null, not provided, or N/A, do not render a block for it. "
+            "Do not fill with placeholder text.\n"
+            "4. If input contains VERIFY:, Low confidence:, confidence: low, or a warning flag, surface "
+            "it as a text_box footnote in muted italic style and add it to the slide warnings array.\n"
+            "5. Notes mixing speaker commentary and disclosure metadata: route narrative commentary "
+            "(starting with Highlight, Emphasize, Address) to speaker_notes. Route disclosure metadata "
+            "(confidence, source flags) to a footnote text_box.\n"
+            "6. Output one JSON object per call matching the supplied schema. No trailing commas.\n\n"
+
+            "CANVAS (inches, 13.33 x 7.5)\n"
+            "Safe margins: left 0.4, right 0.4, top 0.3, bottom 0.3. "
+            "Title band: x 0.4, y 0.3, w 12.53, h 0.55. Content body: y_min 1.25, y_max 6.85. "
+            "Footer: y 7.05. Inter-block gutter: 0.2 horizontal, 0.18 vertical. "
+            "Never let blocks overlap or cross title/footer bands.\n\n"
+
+            "STYLE TOKENS (map to block style fields)\n"
+            "style.fill values: white (paper), light_gray (panel), navy (dark emphasis), accent (warm). "
+            "style.text_color values: navy (ink primary), text (body), mid_gray (muted/footnote), "
+            "white (on dark fills), positive (green valence), negative (red valence). "
+            "style.header_color values: navy, accent, text, positive, negative. "
+            "style.border values: none, hairline_navy, hairline_gray. "
+            "style.alignment: left (default), center, right. "
+            "Accent is reserved for ONE element per slide: a recommendation badge, a highlighted comp row, "
+            "a hero metric, or a target price. Do not over-accent.\n\n"
+
+            "TYPOGRAPHY\n"
+            "Fonts: Aptos Display for titles and hero numbers, Aptos for everything else. "
+            "Sizes: cover_title 38pt, section_title 28pt, slide_title 18pt, kicker 12pt, metric_value 28pt, "
+            "metric_label 9pt, body 10pt, label 9pt, footnote 7pt, badge 7pt. "
+            "Weights: 700 for titles and metrics, 600 for kickers and labels, 400 for body.\n\n"
+
+            "BLOCK TYPES (using schema field names)\n"
+            "All blocks use: type, x, y, w, h, text_refs, text_source, static_text, label, title, body, "
+            "accent_color, tone, severity, highlight_row_index, style.\n\n"
+
+            "hero_callout: Main takeaway. text_refs=[bullet_0], label=design heading like Key Takeaway. "
+            "tone=neutral|positive|negative|accent. style.fill=white.\n"
+            "metric_tile: KPI fact. text_refs=[bullet_N] for the value, label=metric name. "
+            "tone for delta valence. w 2.4-3.2, h 1.2-1.6. Skip if value is not provided.\n"
+            "bullet_card: Grouped narrative. text_refs=[bullet_1, bullet_2, ...] max 5. "
+            "label=card heading. style.fill=white or light_gray. "
+            "If confidence is low, set static_text=[low confidence].\n"
+            "text_box: Footnotes/disclosures. text_refs=[bullet_N], style.text_color=mid_gray, "
+            "style.alignment=left. Use sparingly.\n"
+            "timeline_item: Dated milestone. text_refs=[bullet_N], label=year or date. "
+            "tone=neutral|positive|negative|accent.\n"
+            "two_column_panel: Contrasting views. text_refs=[bullet_0, bullet_1, bullet_2, bullet_3], "
+            "static_text=[Left Heading, Right Heading]. "
+            "tone for left valence via accent_color.\n"
+            "risk_box: Risk/mitigant. text_refs=[bullet_N], label=risk title. "
+            "severity=low|medium|high. style.fill=white, style.border=hairline_gray.\n"
+            "valuation_callout: Price target/DCF. text_refs=[bullet_N], label=method name. "
+            "static_text=[method label]. tone=positive|negative|neutral.\n"
+            "section_badge: Section divider slide. text_refs=[title], label=section name. "
+            "Used on its own slide.\n"
+            "comps_table: Comparable companies table. text_refs=[] (renderer reads comps from deck data). "
+            "highlight_row_index=0 for the subject ticker. label=table heading. "
+            "x 0.4, y 1.25, w 12.53, h up to 5.0.\n"
+            "cover_block: Title slide. text_refs=[title], label=ticker. "
+            "Used on its own slide.\n\n"
+
+            "ARCHETYPE LAYOUTS\n"
+            "Pick by section_id or infer from slide content. Match the actual pipeline output.\n\n"
+
+            "comparable_companies: One comps_table at x 0.4 y 1.25 w 12.53, highlight subject row. "
+            "One footnote text_box below for data-as-of disclosure.\n"
+            "company_snapshot: Top hero_callout full width h 0.9 with positioning sentence. "
+            "Left half w 6.0 bullet_card What and how with 3-5 bullets. "
+            "Right half w 6.13 bullet_card Money model with up to 4 bullets.\n"
+            "business_profile: Left bullet_card listing segments. Right stacked bullet_cards for "
+            "Customers, Footprint, Proof Points. Confidence badges where relevant.\n"
+            "company_overview: Top hero_callout with ecosystem thesis. Body two_column_panel "
+            "left What right Who with 3 bullets each.\n"
+            "why_now: Top hero_callout with thesis (tone accent). Body bullet_card with 3-4 supporting "
+            "points full width. Footnote text_box with valuation caveat.\n"
+            "investment_catalysts: Two bullet_cards: left Near term right Medium term. "
+            "Bottom risk_box at full width severity medium.\n"
+            "company_history: Top hero_callout. Body row of 4-5 timeline_items evenly spaced. "
+            "VERIFY markers go to footnote text_box.\n"
+            "business_model: Top hero_callout with revenue flow. Body two_column_panel "
+            "left Products right Customers.\n"
+            "segments_unit_economics: Left two-thirds bullet_card with segments. "
+            "Right one-third stacked metric_tiles or single bullet_card.\n"
+            "industry_overview: Top hero_callout. Body 3 bullet_cards across w 4.05 each "
+            "covering growth drivers, structural trends, additional drivers.\n"
+            "competitive_landscape: Top bullet_card listing competitors full width. "
+            "Bottom two_column_panel left Moat pillars right Porter forces.\n"
+            "historical_performance: Top hero_callout (data unavailable if no data). "
+            "Body 3 metric_tiles if metrics present, else single bullet_card.\n"
+            "current_setup: Single bullet_card full width with up to 5 bullets. Confidence badge.\n"
+            "management_incentives: Two stacked bullet_cards: Management and Incentives.\n"
+            "ownership_governance: Two stacked bullet_cards: Ownership and Governance.\n"
+            "capital_structure: Left bullet_card Leverage profile. Right 2x2 metric_tiles.\n"
+            "liquidity_share_count: Two stacked bullet_cards: Liquidity and Share count.\n"
+            "swot_strengths_weaknesses: two_column_panel left Strengths (tone positive) "
+            "right Weaknesses (tone negative). Up to 4 bullets each.\n"
+            "swot_opportunities_threats: two_column_panel left Opportunities (tone positive) "
+            "right Threats (tone negative). Up to 4 bullets each.\n"
+            "key_drivers_kpis: Top hero_callout with takeaway. Body 3 bullet_cards across "
+            "one per KPI.\n"
+            "sector_invariants: Single bullet_card full width. Low confidence badge if applicable.\n"
+            "investment_thesis: Top hero_callout with thesis (tone accent). Body 3 bullet_cards "
+            "across as pillars.\n"
+            "variant_view: two_column_panel left Market believes (tone neutral) right We believe "
+            "(tone accent). Below risk_box What would change our mind severity medium.\n"
+            "catalysts_timeline: Top hero_callout. Body row of 4 timeline_items.\n"
+            "valuation_framework: Top hero_callout. Body 3 bullet_cards across, one per method.\n"
+            "valuation_price_target: Left valuation_callout with DCF target. Right bullet_card "
+            "Multiples context.\n"
+            "recommendation: Centered hero_callout y 1.5 w 12.53 h 1.2 (tone from recommendation). "
+            "Below 3 metric_tiles. Below bullet_card Monitoring plan.\n\n"
+
+            "LAYOUT QUALITY RULES\n"
+            "Maximum 6 rendered blocks per slide excluding title and footer. "
+            "Prefer 3 or 4 equal columns; for uneven use 60/40 or 67/33. "
+            "Align block left edges. Every non-cover slide must have a title. "
+            "Do not place two metric_tiles taller than 1.6 in the same row. "
+            "If body is sparse (fewer than 3 blocks), increase block heights and white space; "
+            "do not add decorative blocks. Vary arrangements across consecutive slides.\n\n"
+
+            "DISCLOSURE HANDLING\n"
+            "not provided / null / N/A: do not render a value tile, surface in a bullet or warning.\n"
+            "VERIFY: route to footnote text_box in mid_gray italic.\n"
+            "confidence: low: set static_text=[low confidence] on the affected card.\n"
+            "Speaker commentary in Notes: route to speaker_notes output, not to rendered blocks.\n\n"
+
+            "FAILURE MODES TO AVOID\n"
+            "- Inventing a number to fill a metric_tile: forbidden, skip the tile.\n"
+            "- Rewriting a bullet for clarity: forbidden, reference by key path only.\n"
+            "- Dropping VERIFY or low confidence flags: forbidden, route to footnote or warnings.\n"
+            "- Adding decorative blocks for empty space: forbidden, increase whitespace.\n"
+            "- Using accent on more than one block per slide.\n"
+            "- Letting blocks exceed the body region or overlap.\n"
+            "- Concatenating speaker commentary into rendered blocks.\n"
+            "- Reusing the same bullet_N in multiple blocks on the same slide.\n\n"
+
+            "Return JSON only matching the supplied schema."
         )
 
     def _user_prompt(self, *, compact_deck: dict[str, Any], title: str | None) -> str:
         return (
-            "Create a PPTX design blueprint for this deck using canonical bulge-bracket investment "
-            "banking pitch deck conventions. Return one slide design item for every slide in the same "
-            "section_id + slide_index order. Prefer layout=blueprint with 3-6 positioned blocks per slide. "
+            "Create a PPTX design blueprint for this deck. Return one slide design item for every slide "
+            "in the same section_id + slide_index order. Use layout=blueprint with 3-6 positioned blocks. "
+            "Set the archetype field on each slide design to the matching archetype from the system prompt. "
             "Do not repeat the same arrangement on consecutive slides.\n\n"
             "For each slide, choose blocks that map to the source content:\n"
-            "- hero_callout for the main takeaway, usually text_source bullet_0.\n"
-            "- metric_tile for short KPI-like bullets.\n"
+            "- hero_callout for the main takeaway, usually text_refs [bullet_0].\n"
+            "- metric_tile for short KPI-like facts.\n"
             "- bullet_card for supporting arguments.\n"
-            "- timeline_item for dated milestones/catalysts.\n"
-            "- two_column_panel for market view vs variant view or competitive contrasts.\n"
+            "- timeline_item for dated milestones.\n"
+            "- two_column_panel for contrasting views (market vs variant, strengths vs weaknesses).\n"
             "- risk_box for risk/mitigant items.\n"
-            "- valuation_callout for price target, multiple, DCF, upside/downside, or valuation takeaway.\n\n"
-            "Prefer text_refs over text_source. Use text_refs values only: title or bullet_N where N is "
-            "a zero-based bullet index. Never use the same bullet_N twice on the same slide unless the "
-            "slide has only one bullet and only one factual block. For multiple KPI/timeline/card blocks, "
-            "assign sequential distinct sources: bullet_0, bullet_1, bullet_2, bullet_3. Every block must "
-            "have x, y, w, h coordinates in inches. Keep "
-            "layouts clean with spacing; do not overlap blocks. Use style tokens when helpful: fill can "
-            "be white, light_gray, navy, or accent; text_color/header_color can be navy, accent, text, "
-            "mid_gray, white, positive, or negative; border can be none, hairline_navy, or hairline_gray. "
-            "If a slide is naturally SWOT/timeline/valuation/two_column, still include useful blocks.\n\n"
-            "Slide playbook: executive summary uses a full-width hero banner plus 2x2 cards; KPI slides "
-            "use a 2x3 metric tile grid; valuation uses a top valuation_callout plus two supporting panels; "
-            "variant view uses three vertical cards for Market believes / We believe / We're wrong if; "
-            "catalysts use timeline_item blocks along a horizontal strip; risk slides use risk_box grids; "
-            "recommendation uses one large hero_callout plus three recap cards.\n\n"
+            "- valuation_callout for price target, DCF, upside content.\n"
+            "- comps_table for comparable companies data (renderer reads comps from deck data).\n\n"
+            "Use text_refs [bullet_0], [bullet_1], etc. to reference content. Never duplicate the same "
+            "bullet_N across blocks on the same slide. For multiple blocks, assign sequential distinct "
+            "bullet references. Every block must have x, y, w, h in inches within the content body region.\n\n"
+            "Slide playbook: executive summary uses full-width hero plus 2x2 cards; KPI slides use "
+            "metric tile grids; valuation uses top valuation_callout plus supporting panels; variant view "
+            "uses two_column_panel for Market believes vs We believe plus risk_box; catalysts use "
+            "timeline_item blocks; risk slides use risk_box; SWOT uses two_column_panel with tone; "
+            "comparable companies uses a single comps_table block with highlight_row_index=0.\n\n"
             f"Export title: {title or compact_deck.get('title') or 'Investment pitch deck'}\n"
             f"Deck JSON:\n{json.dumps(compact_deck, ensure_ascii=True, separators=(',', ':'))}"
         )
@@ -184,6 +301,7 @@ class GeminiPptxDesignService:
         for section in sections if isinstance(sections, list) else []:
             if not isinstance(section, dict):
                 continue
+            section_id = str(section.get("section_id") or "section")[:120]
             compact_slides: list[dict[str, Any]] = []
             for index, slide in enumerate(section.get("slides") or []):
                 if not isinstance(slide, dict):
@@ -203,22 +321,78 @@ class GeminiPptxDesignService:
                         "title": str(slide.get("title") or "")[:140],
                         "bullets": bullets[:6],
                         "layout_hints": slide.get("layout_hints") or {},
+                        "archetype": section_id.replace("-", "_"),
                     }
                 )
             if compact_slides:
                 compact_sections.append(
                     {
-                        "section_id": str(section.get("section_id") or "section")[:120],
+                        "section_id": section_id,
                         "slides": compact_slides,
                     }
                 )
 
-        return {
+        # Include comps data if available (compact form for token efficiency)
+        comps_compact = None
+        computed_inputs = deck.get("computed_inputs") if isinstance(deck.get("computed_inputs"), dict) else {}
+        comps_raw = computed_inputs.get("comps_table") if isinstance(computed_inputs.get("comps_table"), dict) else None
+        if comps_raw:
+            try:
+                headers = ["Symbol", "Price", "Mkt Cap", "EV", "Fwd P/E", "P/S", "P/B", "EV/EBITDA", "EV/Rev", "Margin", "ROE"]
+                rows = []
+                target = comps_raw.get("target")
+                if isinstance(target, dict):
+                    snap = target.get("snapshot") or {}
+                    rows.append([target.get("ticker", ""), snap.get("sharePrice"), snap.get("marketCap"),
+                                 snap.get("enterpriseValue"), snap.get("forwardPE"), snap.get("priceSales"),
+                                 snap.get("priceBook"), snap.get("evEbitda"), snap.get("evRevenue"),
+                                 snap.get("profitMargin"), snap.get("roe")])
+                for comp in (comps_raw.get("comparables") or [])[:5]:
+                    if not isinstance(comp, dict):
+                        continue
+                    snap = comp.get("snapshot") or {}
+                    rows.append([comp.get("ticker", ""), snap.get("sharePrice"), snap.get("marketCap"),
+                                 snap.get("enterpriseValue"), snap.get("forwardPE"), snap.get("priceSales"),
+                                 snap.get("priceBook"), snap.get("evEbitda"), snap.get("evRevenue"),
+                                 snap.get("profitMargin"), snap.get("roe")])
+                if rows:
+                    comps_compact = {"headers": headers, "rows": rows, "subject_index": 0}
+            except Exception:
+                comps_compact = None
+
+        if comps_compact and not any(
+            section.get("section_id") in {"comparable_companies", "comparables"}
+            for section in compact_sections
+        ):
+            compact_sections.append(
+                {
+                    "section_id": "comparable_companies",
+                    "slides": [
+                        {
+                            "slide_index": 0,
+                            "slide_id": "comparable_companies_1",
+                            "title": "Comparable Companies",
+                            "bullets": ["Comparable-company trading metrics from computed market data."],
+                            "layout_hints": {
+                                "style": "table",
+                                "suggested_visual": "comps_table",
+                                "max_bullets": 1,
+                            },
+                            "archetype": "comparable_companies",
+                        }
+                    ],
+                }
+            )
+
+        result: dict[str, Any] = {
             "ticker": deck.get("ticker") or metadata.get("ticker"),
             "company_name": deck.get("company_name") or metadata.get("company_name"),
             "title": deck.get("title") or metadata.get("title"),
             "sections": compact_sections,
         }
+        if comps_compact:
+            result["comps_table"] = comps_compact
+        return result
 
     def _ensure_slide_coverage(self, spec: dict[str, Any], compact_deck: dict[str, Any]) -> None:
         existing = {
@@ -307,8 +481,20 @@ class GeminiPptxDesignService:
                 cleaned_refs = [replacement]
                 used.add(replacement)
 
-            if cleaned_refs:
-                block["text_refs"] = cleaned_refs[:2]
+            block_type = str(block.get("type") or "")
+            max_refs = 1
+            if block_type == "two_column_panel":
+                max_refs = 4
+            elif block_type == "bullet_card":
+                max_refs = 5
+            elif block_type == "text_box":
+                max_refs = 2
+
+            if block_type in {"comps_table", "cover_block", "section_badge"}:
+                block["text_refs"] = []
+                block["text_source"] = "title"
+            elif cleaned_refs:
+                block["text_refs"] = cleaned_refs[:max_refs]
                 block["text_source"] = cleaned_refs[0]
             else:
                 block["text_refs"] = []
@@ -316,7 +502,59 @@ class GeminiPptxDesignService:
 
     def _fallback_blocks(self, slide: dict[str, Any]) -> list[dict[str, Any]]:
         bullets = slide.get("bullets") or []
+        title = str(slide.get("title") or "").lower()
+        archetype = str(slide.get("archetype") or "").lower()
         blocks: list[dict[str, Any]] = []
+
+        if "comparable" in title or archetype in {"comparable_companies", "comparables"}:
+            return [{
+                "type": "comps_table",
+                "x": 0.4,
+                "y": 1.25,
+                "w": 12.53,
+                "h": 5.0,
+                "text_source": "title",
+                "text_refs": [],
+                "static_text": ["Comparable companies"],
+                "label": "Comparable Companies",
+                "title": "",
+                "body": "",
+                "accent_color": "38BDF8",
+                "highlight_row_index": 0,
+                "style": {
+                    "fill": "white",
+                    "text_color": "text",
+                    "header_color": "navy",
+                    "border": "hairline_gray",
+                    "alignment": "left",
+                },
+            }]
+
+        if "timeline" in title or archetype in {"catalysts_timeline", "company_history"}:
+            for index, _bullet in enumerate(bullets[:4]):
+                blocks.append({
+                    "type": "timeline_item",
+                    "x": 0.65 + index * 3.02,
+                    "y": 2.3,
+                    "w": 2.72,
+                    "h": 2.15,
+                    "text_source": f"bullet_{index}",
+                    "text_refs": [f"bullet_{index}"],
+                    "static_text": [],
+                    "label": "",
+                    "title": "",
+                    "body": "",
+                    "accent_color": "38BDF8",
+                    "style": {
+                        "fill": "white",
+                        "text_color": "text",
+                        "header_color": "accent",
+                        "border": "none",
+                        "alignment": "left",
+                    },
+                })
+            return blocks
+
         if bullets:
             blocks.append({
                 "type": "hero_callout",

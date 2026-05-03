@@ -12,6 +12,7 @@ import {
   ChevronRight,
   FileText,
   Loader2,
+  Lock,
   Presentation,
 } from "lucide-react";
 import { Button, Card, Badge, Alert, Spinner } from "../components/ui";
@@ -23,7 +24,12 @@ import { SNAPSHOT_FIELDS } from "../types/api";
 import type { RelativeTableResponse, RowData } from "../types/api";
 import { useUserProfile } from "../hooks/useUserProfile";
 import { useAuthenticatedFetch } from "../hooks/useAuthenticatedApi";
-import { useDeckDetail, useDeleteDeck } from "../queries/useDeckQueries";
+import {
+  useDeckDetail,
+  useDeleteDeck,
+  useUnlockDeckExport,
+} from "../queries/useDeckQueries";
+import { useSubscriptionMutations } from "../queries/useSubscriptionMutations";
 import type { GeneratedSection, Slide, BulletPoint } from "../api/deckApi";
 
 function convertCompsToRelativeTable(
@@ -69,8 +75,11 @@ function convertCompsToRelativeTable(
 export default function DeckViewPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { canExport } = useUserProfile();
+  const { canExport, deckExportCredits } = useUserProfile();
   const { authenticatedFetch } = useAuthenticatedFetch();
+  const unlockExportMutation = useUnlockDeckExport();
+  const { createCheckout, isCreatingCheckout, checkoutError } =
+    useSubscriptionMutations();
 
   const {
     data: deck,
@@ -92,6 +101,9 @@ export default function DeckViewPage() {
     title?: string;
     message: string;
   } | null>(null);
+  const [localExportUnlocked, setLocalExportUnlocked] = useState(false);
+  const deckExportUnlocked =
+    canExport || localExportUnlocked || Boolean(deck?.export_unlocked);
   const { settings: signalSettings } = useSignalSettings();
 
   // Expand all sections when deck loads
@@ -102,6 +114,7 @@ export default function DeckViewPage() {
       (deck.content as any)?.sections ||
       [];
     setExpandedSections(new Set(sections.map((s: any) => s.section_id)));
+    setLocalExportUnlocked(false);
   }, [deck]);
 
   const toggleSection = (sectionId: string) => {
@@ -155,6 +168,33 @@ export default function DeckViewPage() {
     } finally {
       setExportingFormat(null);
     }
+  };
+
+  const handleUnlockExport = async () => {
+    if (!deck) return;
+    if (deckExportCredits > 0) {
+      try {
+        await unlockExportMutation.mutateAsync(deck.id);
+        setLocalExportUnlocked(true);
+        setExportNotice({
+          variant: "info",
+          title: "Export unlocked",
+          message: "This deck is ready for PDF and PPTX export.",
+        });
+      } catch (error) {
+        setExportNotice({
+          variant: "warning",
+          title: "Unlock failed",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Could not unlock export for this deck.",
+        });
+      }
+      return;
+    }
+
+    createCheckout("deck_export", { deckId: deck.id });
   };
 
   const handleExportPPTX = async () => {
@@ -243,12 +283,28 @@ export default function DeckViewPage() {
           </div>
         </div>
         <div className="flex gap-2">
+          {!deckExportUnlocked && (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleUnlockExport}
+              disabled={isCreatingCheckout || unlockExportMutation.isPending}
+              title="Unlock PDF and PPTX export for this deck"
+            >
+              {isCreatingCheckout || unlockExportMutation.isPending ? (
+                <Spinner size="sm" className="mr-1" />
+              ) : (
+                <Lock className="w-4 h-4 mr-1" />
+              )}
+              {deckExportCredits > 0 ? "Use Export Credit" : "Buy 2 for $4.99"}
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
             onClick={handleExportPDF}
-            disabled={!canExport || exportingFormat !== null}
-            title={!canExport ? "Upgrade to Pro to export decks" : undefined}
+            disabled={!deckExportUnlocked || exportingFormat !== null}
+            title={!deckExportUnlocked ? "Unlock export for $4.99" : undefined}
           >
             {exportingFormat === "pdf" ? (
               <Spinner size="sm" className="mr-1" />
@@ -261,8 +317,8 @@ export default function DeckViewPage() {
             variant="outline"
             size="sm"
             onClick={handleExportPPTX}
-            disabled={!canExport || exportingFormat !== null}
-            title={!canExport ? "Upgrade to Pro to export decks" : undefined}
+            disabled={!deckExportUnlocked || exportingFormat !== null}
+            title={!deckExportUnlocked ? "Unlock export for $4.99" : undefined}
           >
             {exportingFormat === "pptx" ? (
               <Spinner size="sm" className="mr-1" />
@@ -286,6 +342,12 @@ export default function DeckViewPage() {
           }
         >
           {exportNotice.message}
+        </Alert>
+      )}
+
+      {checkoutError && (
+        <Alert variant="error" title="Checkout">
+          {checkoutError}
         </Alert>
       )}
 

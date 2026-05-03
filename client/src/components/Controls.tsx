@@ -17,7 +17,7 @@ interface ControlsProps {
   isLoading: boolean;
   canCompare: boolean;
   canExport: boolean;
-  /** When true, export is disabled with a "Pro" upgrade badge */
+  /** When true, export is disabled behind a paid export gate. */
   exportLocked?: boolean;
 }
 
@@ -152,7 +152,7 @@ export function Controls({
           <button
             onClick={() => !exportLocked && setShowExportMenu((prev) => !prev)}
             disabled={!canExport || exportLocked}
-            title={exportLocked ? "Upgrade to Pro to export data" : undefined}
+            title={exportLocked ? "Paid export required" : undefined}
             className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             <svg
@@ -171,7 +171,7 @@ export function Controls({
             Export
             {exportLocked && (
               <span className="ml-1 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide bg-amber-500 text-white rounded">
-                Pro
+                Paid
               </span>
             )}
             {!exportLocked && (

@@ -212,6 +212,10 @@ class DeckGenerator:
                 })
         except Exception as e:
             logger.warning(f"Failed to fetch company profile: {e}")
+
+        resolved_company_name = str(
+            company_profile.get("name") or request.company_name or request.ticker
+        )
         
         # Generate a cache key from the full generation context, not just fund
         # constraints. This prevents stale sections after prompt/context changes
@@ -246,7 +250,7 @@ class DeckGenerator:
             comps_for_section = comps_summary
             section_inputs = self._assemble_section_inputs(
                 ticker=request.ticker,
-                company_name=request.company_name,
+                company_name=resolved_company_name,
                 sector=request.sector,
                 fund_constraints=request.fund_constraints.model_dump(),
                 comps_summary=comps_for_section,
@@ -284,7 +288,7 @@ class DeckGenerator:
                         provider=cur_provider,
                         section_id=section_id,
                         ticker=request.ticker,
-                        company_name=request.company_name,
+                        company_name=resolved_company_name,
                         sector=request.sector,
                         fund_constraints=request.fund_constraints.model_dump(),
                         reasoning_level=request.reasoning_level.value,
@@ -386,10 +390,48 @@ class DeckGenerator:
                 ),
                 retries_attempted=0,
             ))
+
+        if comps_data and not any(
+            result.section_id in {"comparable_companies", "comparables"}
+            for result in results
+        ):
+            results.append(
+                SectionResult(
+                    section_id="comparable_companies",
+                    section_name="Comparable Companies",
+                    slides=[
+                        Slide(
+                            slide_id="comparable_companies_1",
+                            title="Comparable Companies",
+                            bullets=[
+                                BulletPoint(
+                                    text="Comparable-company trading metrics from computed market data.",
+                                    source_needed=False,
+                                )
+                            ],
+                            speaker_notes="Renderer uses computed_inputs.comps_table for the full trading comps table.",
+                            layout_hints=LayoutHints(
+                                style="table",
+                                max_bullets=1,
+                                suggested_visual="comps_table",
+                            ),
+                            flags=SlideFlags(
+                                needs_sources=False,
+                                contains_numbers=True,
+                                is_draft=False,
+                            ),
+                        )
+                    ],
+                    needs_verification=False,
+                    verification_notes=[],
+                    citations=[],
+                    generation_metadata={"source": "computed_inputs.comps_table"},
+                )
+            )
         
         return DeckGenerateResponse(
             ticker=request.ticker,
-            company_name=request.company_name,
+            company_name=resolved_company_name,
             plan_tier=getattr(request, "plan_tier", None),
             model_mode=getattr(request, "model_mode", None),
             analysis_depth=getattr(request, "analysis_depth", None),

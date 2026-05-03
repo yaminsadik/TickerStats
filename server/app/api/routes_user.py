@@ -14,7 +14,7 @@ from app.core.auth import (
 )
 from app.core.database import get_db
 from app.core.middleware import request_id_var
-from app.models import User, Watchlist, SavedAnalysis, Deck, AdminAuditLog
+from app.models import User, Watchlist, SavedAnalysis, Deck, DeckExportUnlock, AdminAuditLog
 from app.services.usage_limits import (
     get_plan_tier,
     get_compare_limit,
@@ -115,9 +115,16 @@ class DeckFullResponse(BaseModel):
     content: dict
     llm_provider: Optional[str]
     created_at: str
+    export_unlocked: bool = False
 
     class Config:
         from_attributes = True
+
+
+class DeckExportUnlockResponse(BaseModel):
+    deck_id: int
+    export_unlocked: bool
+    remaining_export_credits: int
 
 
 # --- Profile ---
@@ -139,6 +146,7 @@ class ProfileResponse(BaseModel):
     deck_count_month: int = 0
     deck_limit: Optional[int] = None
     can_export: bool = False
+    deck_export_credits: int = 0
     # LLM usage quotas
     daily_thinking_uses: int = 0
     daily_thinking_limit: Optional[int] = None
@@ -214,7 +222,7 @@ def _deck_meta(d: Deck) -> DeckMetaResponse:
     )
 
 
-def _deck_full(d: Deck) -> DeckFullResponse:
+def _deck_full(d: Deck, export_unlocked: bool = False) -> DeckFullResponse:
     return DeckFullResponse(
         id=d.id,
         ticker=d.ticker,
@@ -222,7 +230,26 @@ def _deck_full(d: Deck) -> DeckFullResponse:
         content=d.content,
         llm_provider=d.llm_provider,
         created_at=d.created_at.isoformat(),
+        export_unlocked=export_unlocked,
     )
+
+
+def _has_global_export_access(user: User) -> bool:
+    return user.is_paid or user.is_admin
+
+
+async def _has_deck_export_unlock(
+    db: AsyncSession,
+    user_id: str,
+    deck_id: int,
+) -> bool:
+    result = await db.execute(
+        select(DeckExportUnlock.id).where(
+            DeckExportUnlock.user_id == user_id,
+            DeckExportUnlock.deck_id == deck_id,
+        )
+    )
+    return result.scalar_one_or_none() is not None
 
 
 def _set_link_headers(
@@ -415,7 +442,7 @@ async def create_saved_analysis(
         if count >= FREE_TIER_MAX_SAVED_SEARCHES:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Free tier is limited to {FREE_TIER_MAX_SAVED_SEARCHES} saved searches. Upgrade to Pro for unlimited.",
+                detail=f"Free tier is limited to {FREE_TIER_MAX_SAVED_SEARCHES} saved searches.",
             )
 
     analysis = SavedAnalysis(
@@ -523,7 +550,7 @@ async def create_deck(
     db.add(deck)
     await db.flush()
     await db.refresh(deck)
-    return _deck_full(deck)
+    return _deck_full(deck, export_unlocked=_has_global_export_access(current_user))
 
 
 @router.get("/decks/{deck_id}", response_model=DeckFullResponse)
@@ -542,7 +569,69 @@ async def get_deck(
     deck = result.scalar_one_or_none()
     if not deck:
         raise HTTPException(status_code=404, detail="Deck not found")
-    return _deck_full(deck)
+    export_unlocked = _has_global_export_access(current_user) or await _has_deck_export_unlock(
+        db,
+        current_user.auth0_user_id,
+        deck.id,
+    )
+    return _deck_full(deck, export_unlocked=export_unlocked)
+
+
+@router.post("/decks/{deck_id}/unlock-export", response_model=DeckExportUnlockResponse)
+async def unlock_deck_export(
+    deck_id: int,
+    current_user: User = Depends(get_current_user_with_upsert),
+    db: AsyncSession = Depends(get_db),
+):
+    """Use one export credit to unlock PDF/PPTX export for a saved deck."""
+    result = await db.execute(
+        select(Deck).where(
+            Deck.id == deck_id,
+            Deck.user_id == current_user.auth0_user_id,
+        )
+    )
+    deck = result.scalar_one_or_none()
+    if not deck:
+        raise HTTPException(status_code=404, detail="Deck not found")
+
+    if _has_global_export_access(current_user):
+        return DeckExportUnlockResponse(
+            deck_id=deck.id,
+            export_unlocked=True,
+            remaining_export_credits=current_user.deck_export_credits or 0,
+        )
+
+    existing_unlocked = await _has_deck_export_unlock(
+        db,
+        current_user.auth0_user_id,
+        deck.id,
+    )
+    if existing_unlocked:
+        return DeckExportUnlockResponse(
+            deck_id=deck.id,
+            export_unlocked=True,
+            remaining_export_credits=current_user.deck_export_credits or 0,
+        )
+
+    if (current_user.deck_export_credits or 0) <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Deck export requires a $4.99 export credit purchase.",
+        )
+
+    current_user.deck_export_credits = (current_user.deck_export_credits or 0) - 1
+    db.add(
+        DeckExportUnlock(
+            user_id=current_user.auth0_user_id,
+            deck_id=deck.id,
+        )
+    )
+    await db.commit()
+    return DeckExportUnlockResponse(
+        deck_id=deck.id,
+        export_unlocked=True,
+        remaining_export_credits=current_user.deck_export_credits or 0,
+    )
 
 
 @router.delete("/decks/{deck_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -584,6 +673,7 @@ async def get_profile(
     saved_count = count_result.scalar() or 0
 
     is_paid = current_user.is_paid
+    has_global_export_access = _has_global_export_access(current_user)
     plan_tier = get_plan_tier(current_user)
     compare_limit = get_compare_limit(plan_tier)
     deck_limit = get_deck_limit(plan_tier)
@@ -611,7 +701,8 @@ async def get_profile(
         compare_limit=compare_limit,
         deck_count_month=current_user.deck_count_month or 0,
         deck_limit=deck_limit,
-        can_export=is_paid or current_user.is_admin,
+        can_export=has_global_export_access,
+        deck_export_credits=current_user.deck_export_credits or 0,
         daily_thinking_uses=thinking_uses,
         daily_thinking_limit=thinking_limit,
         monthly_model_cost_usd=model_cost,
@@ -650,6 +741,7 @@ async def update_profile(
     )
     saved_count = count_result.scalar() or 0
     is_paid = current_user.is_paid
+    has_global_export_access = _has_global_export_access(current_user)
     plan_tier = get_plan_tier(current_user)
     compare_limit = get_compare_limit(plan_tier)
     deck_limit = get_deck_limit(plan_tier)
@@ -678,7 +770,8 @@ async def update_profile(
         compare_limit=compare_limit,
         deck_count_month=current_user.deck_count_month or 0,
         deck_limit=deck_limit,
-        can_export=is_paid or current_user.is_admin,
+        can_export=has_global_export_access,
+        deck_export_credits=current_user.deck_export_credits or 0,
         daily_thinking_uses=thinking_uses,
         daily_thinking_limit=thinking_limit,
         monthly_model_cost_usd=model_cost,

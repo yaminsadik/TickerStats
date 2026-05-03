@@ -1,14 +1,14 @@
 """Stripe integration service for subscription management."""
 import logging
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import stripe
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.models import User
+from app.models import Deck, DeckExportUnlock, User
 
 logger = logging.getLogger(__name__)
 
@@ -16,21 +16,27 @@ logger = logging.getLogger(__name__)
 stripe.api_key = settings.STRIPE_SECRET_KEY or None
 STRIPE_WEBHOOK_SECRET = settings.STRIPE_WEBHOOK_SECRET
 FRONTEND_URL = settings.FRONTEND_URL
+DECK_EXPORT_CREDITS_PER_PURCHASE = 2
 
 
 def _price_ids() -> Dict[str, str]:
-    """Return configured Stripe Price IDs by tier."""
+    """Return configured Stripe subscription Price IDs by tier."""
     return {
         "pro": settings.STRIPE_PRICE_ID_PRO,
         "enterprise": settings.STRIPE_PRICE_ID_ENTERPRISE,
     }
 
 
+def _deck_export_price_id() -> str:
+    """Return the configured one-time deck export Price ID."""
+    return settings.STRIPE_PRICE_ID_DECK_EXPORT
+
+
 class StripeService:
     """Service for handling Stripe operations."""
 
     @staticmethod
-    def _create_checkout_session_payload(
+    def _create_subscription_checkout_session_payload(
         customer_id: str,
         price_id: str,
         user: User,
@@ -53,6 +59,44 @@ class StripeService:
                 "auth0_user_id": user.auth0_user_id,
                 "tier": tier,
             },
+            allow_promotion_codes=True,
+            billing_address_collection="auto",
+        )
+
+    @staticmethod
+    def _create_deck_export_checkout_session_payload(
+        customer_id: str,
+        price_id: str,
+        user: User,
+        deck_id: Optional[int] = None,
+    ):
+        """Create a Stripe checkout session request payload for deck export credits."""
+        success_url = f"{FRONTEND_URL}/profile?export_checkout=success"
+        cancel_url = f"{FRONTEND_URL}/profile?export_checkout=cancelled"
+        if deck_id is not None:
+            success_url = f"{FRONTEND_URL}/deck/db/{deck_id}?export_checkout=success"
+            cancel_url = f"{FRONTEND_URL}/deck/db/{deck_id}?export_checkout=cancelled"
+
+        metadata = {
+            "auth0_user_id": user.auth0_user_id,
+            "product": "deck_export",
+        }
+        if deck_id is not None:
+            metadata["deck_id"] = str(deck_id)
+
+        return stripe.checkout.Session.create(
+            customer=customer_id,
+            mode="payment",
+            payment_method_types=["card"],
+            line_items=[
+                {
+                    "price": price_id,
+                    "quantity": 1,
+                }
+            ],
+            success_url=success_url,
+            cancel_url=cancel_url,
+            metadata=metadata,
             allow_promotion_codes=True,
             billing_address_collection="auto",
         )
@@ -96,9 +140,9 @@ class StripeService:
 
     @staticmethod
     async def _find_user_by_customer_id(
-        customer_id: str | None,
+        customer_id: Optional[str],
         db: AsyncSession,
-    ) -> User | None:
+    ) -> Optional[User]:
         """Find user by Stripe customer ID."""
         if not customer_id:
             return None
@@ -139,7 +183,7 @@ class StripeService:
         try:
             customer_id = await StripeService._ensure_stripe_customer_id(user, db)
             try:
-                session = StripeService._create_checkout_session_payload(
+                session = StripeService._create_subscription_checkout_session_payload(
                     customer_id=customer_id,
                     price_id=price_id,
                     user=user,
@@ -156,7 +200,7 @@ class StripeService:
                 user.stripe_customer_id = None
                 await db.commit()
                 customer_id = await StripeService._ensure_stripe_customer_id(user, db)
-                session = StripeService._create_checkout_session_payload(
+                session = StripeService._create_subscription_checkout_session_payload(
                     customer_id=customer_id,
                     price_id=price_id,
                     user=user,
@@ -171,6 +215,78 @@ class StripeService:
 
         logger.info(f"Created checkout session {session.id} for user {user.auth0_user_id}")
         
+        return {
+            "url": session.url,
+            "session_id": session.id,
+        }
+
+    @staticmethod
+    async def create_deck_export_checkout_session(
+        user: User,
+        db: AsyncSession,
+        deck_id: Optional[int] = None,
+    ) -> Dict[str, str]:
+        """
+        Create a one-time Stripe Checkout session for deck export credits.
+
+        If deck_id is provided, the completed payment unlocks that deck and
+        adds the remaining credit balance. If omitted, it adds all credits.
+        """
+        if not settings.STRIPE_SECRET_KEY:
+            raise ValueError("Stripe secret key is not configured")
+
+        price_id = _deck_export_price_id()
+        if not price_id:
+            raise ValueError("Price ID not configured for deck export")
+
+        if deck_id is not None:
+            result = await db.execute(
+                select(Deck).where(
+                    Deck.id == deck_id,
+                    Deck.user_id == user.auth0_user_id,
+                )
+            )
+            if not result.scalar_one_or_none():
+                raise ValueError("Deck not found for export checkout")
+
+        try:
+            customer_id = await StripeService._ensure_stripe_customer_id(user, db)
+            try:
+                session = StripeService._create_deck_export_checkout_session_payload(
+                    customer_id=customer_id,
+                    price_id=price_id,
+                    user=user,
+                    deck_id=deck_id,
+                )
+            except stripe.error.InvalidRequestError as exc:
+                if not StripeService._is_missing_customer_error(exc):
+                    raise
+                logger.warning(
+                    f"Stripe customer disappeared during deck export checkout for user "
+                    f"{user.auth0_user_id}: {customer_id}. Recreating customer and retrying."
+                )
+                user.stripe_customer_id = None
+                await db.commit()
+                customer_id = await StripeService._ensure_stripe_customer_id(user, db)
+                session = StripeService._create_deck_export_checkout_session_payload(
+                    customer_id=customer_id,
+                    price_id=price_id,
+                    user=user,
+                    deck_id=deck_id,
+                )
+        except stripe.error.StripeError as exc:
+            logger.error(
+                f"Stripe API error creating deck export checkout for user "
+                f"{user.auth0_user_id}: {exc}"
+            )
+            message = getattr(exc, "user_message", None) or str(exc)
+            raise ValueError(f"Stripe checkout error: {message}") from exc
+
+        logger.info(
+            f"Created deck export checkout session {session.id} for user "
+            f"{user.auth0_user_id} deck_id={deck_id}"
+        )
+
         return {
             "url": session.url,
             "session_id": session.id,
@@ -293,6 +409,10 @@ class StripeService:
             logger.error("No auth0_user_id in checkout session metadata")
             return
 
+        if metadata.get("product") == "deck_export":
+            await StripeService._handle_deck_export_checkout_completed(session, db)
+            return
+
         # Get user
         result = await db.execute(
             select(User).where(User.auth0_user_id == auth0_user_id)
@@ -309,6 +429,91 @@ class StripeService:
         
         await db.commit()
         logger.info(f"Updated user {auth0_user_id} after checkout completion")
+
+    @staticmethod
+    async def _handle_deck_export_checkout_completed(
+        session: Dict[str, Any],
+        db: AsyncSession,
+    ):
+        """Handle a completed one-time deck export credit checkout."""
+        customer_id = session.get("customer")
+        session_id = session.get("id")
+        metadata = session.get("metadata", {})
+        auth0_user_id = metadata.get("auth0_user_id")
+        deck_id_raw = metadata.get("deck_id")
+
+        if not auth0_user_id:
+            logger.error("No auth0_user_id in deck export checkout metadata")
+            return
+
+        result = await db.execute(
+            select(User).where(User.auth0_user_id == auth0_user_id)
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            logger.error(f"User not found for deck export checkout: {auth0_user_id}")
+            return
+
+        user.stripe_customer_id = customer_id
+
+        deck_id: Optional[int] = None
+        if deck_id_raw:
+            try:
+                deck_id = int(deck_id_raw)
+            except (TypeError, ValueError):
+                logger.error(f"Invalid deck_id in deck export checkout metadata: {deck_id_raw}")
+
+        if deck_id is not None:
+            deck_result = await db.execute(
+                select(Deck).where(
+                    Deck.id == deck_id,
+                    Deck.user_id == auth0_user_id,
+                )
+            )
+            deck = deck_result.scalar_one_or_none()
+            if deck:
+                existing = await db.execute(
+                    select(DeckExportUnlock).where(
+                        DeckExportUnlock.user_id == auth0_user_id,
+                        DeckExportUnlock.deck_id == deck_id,
+                    )
+                )
+                if not existing.scalar_one_or_none():
+                    db.add(
+                        DeckExportUnlock(
+                            user_id=auth0_user_id,
+                            deck_id=deck_id,
+                            stripe_checkout_session_id=session_id,
+                        )
+                    )
+                    user.deck_export_credits = (
+                        (user.deck_export_credits or 0)
+                        + max(DECK_EXPORT_CREDITS_PER_PURCHASE - 1, 0)
+                    )
+                else:
+                    user.deck_export_credits = (
+                        (user.deck_export_credits or 0)
+                        + DECK_EXPORT_CREDITS_PER_PURCHASE
+                    )
+                await db.commit()
+                logger.info(
+                    f"Unlocked deck export for user {auth0_user_id}, deck_id={deck_id}; "
+                    f"credits={user.deck_export_credits or 0}"
+                )
+                return
+            logger.error(
+                f"Deck not found for completed export checkout: user={auth0_user_id}, "
+                f"deck_id={deck_id}"
+            )
+
+        user.deck_export_credits = (
+            (user.deck_export_credits or 0) + DECK_EXPORT_CREDITS_PER_PURCHASE
+        )
+        await db.commit()
+        logger.info(
+            f"Added {DECK_EXPORT_CREDITS_PER_PURCHASE} deck export credits "
+            f"for user {auth0_user_id}"
+        )
 
     @staticmethod
     async def _handle_subscription_created(subscription: Dict[str, Any], db: AsyncSession):

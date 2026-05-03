@@ -203,7 +203,7 @@ async def get_relative_table(
             status_code=403,
             detail=(
                 f"Free tier is limited to {limit} compare actions per month. "
-                "Upgrade to Pro for unlimited compares."
+                "Paid account limits are managed from billing."
             ),
         )
 
@@ -231,7 +231,7 @@ async def get_relative_table(
                 status_code=403,
                 detail=(
                     f"Free tier is limited to {blocked_limit} compare actions per month. "
-                    "Upgrade to Pro for unlimited compares."
+                    "Paid account limits are managed from billing."
                 ),
             )
 
@@ -337,7 +337,7 @@ async def export_relative_table(
 ):
     """
     Export relative table data as CSV, XLSX, or PDF.
-    Requires a Pro subscription or admin access.
+    Requires paid account access or admin access.
     
     Columns: symbol + requested snapshot fields + requested perf metrics (if any)
     + DCF metrics when dcf=true.

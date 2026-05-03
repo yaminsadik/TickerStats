@@ -406,7 +406,7 @@ export default function DeckDraftPage() {
             size="sm"
             onClick={() => setShowJsonViewer(true)}
             disabled={!canExport}
-            title={!canExport ? "Upgrade to Pro to export decks" : undefined}
+            title={!canExport ? "Unlock export from the saved deck page" : undefined}
           >
             <FileCode className="w-4 h-4 mr-2" />
             View Deck
@@ -416,7 +416,7 @@ export default function DeckDraftPage() {
             size="sm"
             onClick={handleExportPDF}
             disabled={!canExport || exportingFormat !== null}
-            title={!canExport ? "Upgrade to Pro to export decks" : undefined}
+            title={!canExport ? "Unlock export from the saved deck page" : undefined}
           >
             {exportingFormat === "pdf" ? (
               <Spinner size="sm" className="mr-2" />
@@ -430,7 +430,7 @@ export default function DeckDraftPage() {
             size="sm"
             onClick={handleExportPPTX}
             disabled={!canExport || exportingFormat !== null}
-            title={!canExport ? "Upgrade to Pro to export decks" : undefined}
+            title={!canExport ? "Unlock export from the saved deck page" : undefined}
           >
             {exportingFormat === "pptx" ? (
               <Spinner size="sm" className="mr-2" />

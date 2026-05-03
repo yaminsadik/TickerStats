@@ -23,6 +23,7 @@ class User(Base):
     stripe_customer_id = Column(String(255), nullable=True, unique=True)
     stripe_subscription_id = Column(String(255), nullable=True)
     subscription_expires_at = Column(DateTime, nullable=True)
+    deck_export_credits = Column(Integer, nullable=False, default=0)
 
     # Admin flag
     is_admin = Column(Boolean, nullable=False, default=False)
@@ -41,6 +42,11 @@ class User(Base):
     watchlists = relationship("Watchlist", back_populates="user", cascade="all, delete-orphan")
     saved_analyses = relationship("SavedAnalysis", back_populates="user", cascade="all, delete-orphan")
     decks = relationship("Deck", back_populates="user", cascade="all, delete-orphan")
+    deck_export_unlocks = relationship(
+        "DeckExportUnlock",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
 
     @property
     def is_paid(self) -> bool:
@@ -128,9 +134,36 @@ class Deck(Base):
 
     # Relationships
     user = relationship("User", back_populates="decks")
+    export_unlocks = relationship(
+        "DeckExportUnlock",
+        back_populates="deck",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self):
         return f"<Deck(id={self.id}, ticker={self.ticker}, title={self.title})>"
+
+
+class DeckExportUnlock(Base):
+    """A paid export unlock for one generated deck."""
+    __tablename__ = "deck_export_unlocks"
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "deck_id", name="uq_deck_export_unlock_user_deck"),
+        Index("ix_deck_export_unlock_user_deck", "user_id", "deck_id"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(255), ForeignKey("users.auth0_user_id", ondelete="CASCADE"), nullable=False)
+    deck_id = Column(Integer, ForeignKey("decks.id", ondelete="CASCADE"), nullable=False)
+    stripe_checkout_session_id = Column(String(255), nullable=True, unique=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship("User", back_populates="deck_export_unlocks")
+    deck = relationship("Deck", back_populates="export_unlocks")
+
+    def __repr__(self):
+        return f"<DeckExportUnlock(user={self.user_id}, deck_id={self.deck_id})>"
 
 
 class LLMUsageLog(Base):

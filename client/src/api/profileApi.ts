@@ -39,6 +39,7 @@ export interface UserProfile {
   deck_count_month: number;
   deck_limit: number | null;
   can_export: boolean;
+  deck_export_credits: number;
   daily_thinking_uses: number;
   daily_thinking_limit: number | null;
   monthly_model_cost_usd: number;

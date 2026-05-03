@@ -74,7 +74,7 @@ function ExportButton() {
         onClick={() => setShowTooltip((v) => !v)}
         onBlur={() => setShowTooltip(false)}
         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800/60 border border-slate-700/60 text-slate-500 cursor-not-allowed transition-colors hover:bg-slate-800"
-        aria-label="Export is a Pro feature"
+        aria-label="Export requires a paid unlock"
       >
         <Download className="w-3.5 h-3.5" />
         Export
@@ -93,7 +93,7 @@ function ExportButton() {
             <X className="w-2.5 h-2.5 text-slate-300" />
           </button>
           <Lock className="w-3 h-3 inline mr-1 text-amber-400" />
-          Export is a <span className="text-blue-400 font-semibold">Pro</span> feature
+          Export requires a <span className="text-blue-400 font-semibold">paid unlock</span>
           <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-px w-0 h-0 border-x-4 border-x-transparent border-t-4 border-t-slate-800" />
         </div>
       )}

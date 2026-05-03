@@ -11,6 +11,12 @@ export interface CreatePortalSessionResponse {
   url: string;
 }
 
+export type CheckoutItem = "pro" | "enterprise" | "deck_export";
+
+export interface CreateCheckoutSessionOptions {
+  deckId?: number;
+}
+
 async function jsonOrThrow<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
@@ -23,12 +29,17 @@ async function jsonOrThrow<T>(response: Response): Promise<T> {
 export const subscriptionApi = {
   async createCheckoutSession(
     authFetch: AuthFetch,
-    tier: "pro" | "enterprise",
+    item: CheckoutItem,
+    options: CreateCheckoutSessionOptions = {},
   ): Promise<CreateCheckoutSessionResponse> {
+    const body =
+      item === "deck_export"
+        ? { product: item, deck_id: options.deckId }
+        : { tier: item };
     const response = await authFetch(`${API_BASE}/api/v1/stripe/create-checkout-session`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tier }),
+      body: JSON.stringify(body),
     });
     return jsonOrThrow<CreateCheckoutSessionResponse>(response);
   },

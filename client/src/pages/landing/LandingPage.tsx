@@ -139,19 +139,17 @@ export default function LandingPage() {
   }, [isAuthenticated, navigate, loginWithRedirect]);
 
   const primaryCTALabel = isAuthenticated ? "Go to app" : "Sign up free";
-  const hasProAccess =
-    profile?.subscription_tier === "pro" ||
-    profile?.subscription_tier === "enterprise";
+  const hasPaidExportAccess = Boolean(profile?.can_export);
   const isResolvingTier = isAuthenticated && profileLoading;
-  const proCTALabel = isCreatingCheckout
+  const exportCTALabel = isCreatingCheckout
     ? "Redirecting..."
     : !isAuthenticated
-      ? "Start Pro"
-      : hasProAccess
+      ? "Sign up to export"
+      : hasPaidExportAccess
         ? "Go to app"
-        : "Get Pro";
+        : "Buy export credit";
 
-  const handleProCTA = useCallback(() => {
+  const handleExportCTA = useCallback(() => {
     if (isResolvingTier || isCreatingCheckout) return;
 
     if (!isAuthenticated) {
@@ -162,15 +160,15 @@ export default function LandingPage() {
       return;
     }
 
-    if (hasProAccess) {
+    if (hasPaidExportAccess) {
       navigate("/browse");
       return;
     }
 
-    createCheckout("pro");
+    createCheckout("deck_export");
   }, [
     createCheckout,
-    hasProAccess,
+    hasPaidExportAccess,
     isAuthenticated,
     isCreatingCheckout,
     isResolvingTier,
@@ -687,10 +685,10 @@ export default function LandingPage() {
               Simple, transparent pricing
             </h2>
             <p className="text-lg text-slate-400 mb-12 text-center max-w-2xl mx-auto">
-              Start free, upgrade when you need more.
+              Generate for free, pay only when you export a finished deck.
             </p>
 
-            {/* Pricing cards: Free + Pro + Contact */}
+            {/* Pricing cards: Free + export + contact */}
             <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto mb-12 print:break-inside-avoid">
               {/* Free tier */}
               <PricingCard
@@ -703,14 +701,14 @@ export default function LandingPage() {
                 highlighted={false}
               />
 
-              {/* Pro tier */}
+              {/* One-time export */}
               <PricingCard
                 name={TIERS.pro.name}
                 price={TIERS.pro.price}
                 period={TIERS.pro.period}
                 features={TIERS.pro.features}
-                cta={isResolvingTier ? "Checking plan..." : proCTALabel}
-                onClick={handleProCTA}
+                cta={isResolvingTier ? "Checking account..." : exportCTALabel}
+                onClick={handleExportCTA}
                 disabled={isResolvingTier || isCreatingCheckout}
                 highlighted
               />
@@ -721,8 +719,8 @@ export default function LandingPage() {
                   Need more?
                 </h3>
                 <p className="text-sm text-slate-400 mb-6 flex-1">
-                  Running a larger fund or need custom limits? Reach out and
-                  we'll figure it out together.
+                  Need a larger limit or a custom workflow? Reach out and we'll
+                  figure it out together.
                 </p>
                 <button
                   onClick={() => navigate("/contact")}
@@ -739,7 +737,7 @@ export default function LandingPage() {
                 Models: Auto (Best Available) selects from {MODELS.join(", ")}.
                 <br />
                 Model availability may change. TickerStats automatically selects
-                the best available model for your tier.
+                the best available model for your deck.
               </p>
             </div>
 
@@ -811,7 +809,7 @@ export default function LandingPage() {
               />
               <FAQItem
                 question="What AI models are available?"
-                answer={`TickerStats uses Auto (Best Available) by default, selecting from ${MODELS.join(", ")}. Model availability may change. Free users get standard models; Pro unlocks premium model tiers.`}
+                answer={`TickerStats uses Auto (Best Available) by default, selecting from ${MODELS.join(", ")}. Model availability may change as we tune quality and cost.`}
               />
               <FAQItem
                 question="Can I choose peer companies?"
@@ -915,7 +913,7 @@ function PricingCard({
     >
       {highlighted && (
         <span className="text-[10px] uppercase tracking-wider font-bold text-blue-200 mb-2">
-          Most Popular
+          Pay Per Deck
         </span>
       )}
       <h3 className="text-xl font-bold text-white mb-2">{name}</h3>

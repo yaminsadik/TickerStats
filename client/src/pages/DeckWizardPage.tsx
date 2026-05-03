@@ -162,7 +162,8 @@ export default function DeckWizardPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { authenticatedFetch } = useAuthenticatedFetch();
-  const { tier, deckCount, deckLimit } = useUserProfile();
+  const { tier, deckCount, deckLimit, loading: profileLoading } =
+    useUserProfile();
   const atDeckLimit = deckLimit !== null && deckCount >= deckLimit;
 
   // Get pre-filled ticker and comparables from navigation state
@@ -317,7 +318,10 @@ export default function DeckWizardPage() {
   }, [qualityOptions, config.quality]);
 
   // Keep selected model/provider valid for current tier.
+  // Skip until profile is resolved; tier defaults to "free" while loading and
+  // would incorrectly downgrade Pro users from 3.1 Pro to Flash.
   useEffect(() => {
+    if (profileLoading) return;
     const current = modelOptions.find(
       (option) => option.value === config.model,
     );
@@ -333,7 +337,12 @@ export default function DeckWizardPage() {
     if (config.provider !== current.provider) {
       setConfig((prev) => ({ ...prev, provider: current.provider }));
     }
-  }, [modelOptions, config.model, config.provider]);
+  }, [
+    profileLoading,
+    modelOptions,
+    config.model,
+    config.provider,
+  ]);
 
   // Save deck to DB mutation
   const saveDeckMutation = useSaveDeck();
@@ -474,7 +483,7 @@ export default function DeckWizardPage() {
   const handleGenerate = () => {
     if (atDeckLimit) {
       setLimitError(
-        `You have reached your monthly deck limit (${deckCount}/${deckLimit}). Upgrade to Pro for more.`,
+        `You have reached your free deck limit (${deckCount}/${deckLimit}). Export is available after you unlock a finished deck.`,
       );
       return;
     }

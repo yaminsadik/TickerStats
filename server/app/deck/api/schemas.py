@@ -718,6 +718,8 @@ class PptxBlockType(str, Enum):
     RISK_BOX = "risk_box"
     VALUATION_CALLOUT = "valuation_callout"
     SECTION_BADGE = "section_badge"
+    COMPS_TABLE = "comps_table"
+    COVER_BLOCK = "cover_block"
 
 
 class DeckPptxDesignSpecRequest(BaseModel):
@@ -753,6 +755,32 @@ class DeckPptxDesignSpecRequest(BaseModel):
         return self
 
 
+# Map style-token names Gemini may emit to valid 6-char hex accent colors.
+_TOKEN_TO_HEX: dict[str, str] = {
+    "navy": "172554",
+    "blue": "1E3A8A",
+    "accent": "38BDF8",
+    "ink": "0F172A",
+    "text": "334155",
+    "muted": "64748B",
+    "mid_gray": "6B7280",
+    "positive": "16A34A",
+    "negative": "DC2626",
+    "neutral_gold": "8C6B27",
+    "white": "FFFFFF",
+    "paper": "FFFFFF",
+    "panel": "F4F5F7",
+    "light_gray": "F4F5F7",
+    "rule": "C9CCD1",
+}
+
+
+def _resolve_accent_hex(value: str) -> str:
+    """Convert a token name or raw hex string to a valid 6-char hex color."""
+    cleaned = value.strip().removeprefix("#")
+    return _TOKEN_TO_HEX.get(cleaned, _TOKEN_TO_HEX.get(cleaned.lower(), cleaned))
+
+
 class PptxDesignTheme(BaseModel):
     """Theme overrides consumed by the local PPTX renderer."""
     name: str = Field(default="institutional_navy", max_length=80)
@@ -783,8 +811,9 @@ class PptxDesignTheme(BaseModel):
     @classmethod
     def normalize_hex_color(cls, value):
         if isinstance(value, str):
-            return value.strip().removeprefix("#")
+            return _resolve_accent_hex(value)
         return value
+
 
 
 class PptxSlideDesign(BaseModel):
@@ -793,16 +822,18 @@ class PptxSlideDesign(BaseModel):
     slide_index: int = Field(..., ge=0)
     slide_id: Optional[str] = Field(default=None, max_length=160)
     layout: PptxDesignLayout = Field(default=PptxDesignLayout.CARDS)
+    archetype: Optional[str] = Field(default=None, max_length=80)
     emphasis: str = Field(default="balanced", max_length=80)
     accent_color: str = Field(default="38BDF8", pattern=r"^[0-9A-Fa-f]{6}$")
     rationale: str = Field(default="", max_length=240)
     blocks: list["PptxLayoutBlock"] = Field(default_factory=list, max_length=12)
+    warnings: list[str] = Field(default_factory=list, max_length=10)
 
     @field_validator("accent_color", mode="before")
     @classmethod
     def normalize_accent_color(cls, value):
         if isinstance(value, str):
-            return value.strip().removeprefix("#")
+            return _resolve_accent_hex(value)
         return value
 
 
@@ -845,13 +876,28 @@ class PptxLayoutBlock(BaseModel):
         max_length=240,
     )
     accent_color: str = Field(default="38BDF8", pattern=r"^[0-9A-Fa-f]{6}$")
+    tone: Optional[str] = Field(
+        default=None,
+        description="Valence hint: neutral, positive, negative, or accent.",
+        max_length=20,
+    )
+    severity: Optional[str] = Field(
+        default=None,
+        description="Risk severity for risk_box: low, medium, or high.",
+        max_length=10,
+    )
+    highlight_row_index: Optional[int] = Field(
+        default=None,
+        description="For comps_table: zero-based index of the row to highlight (subject ticker).",
+        ge=0,
+    )
     style: PptxBlockStyle = Field(default_factory=PptxBlockStyle)
 
     @field_validator("accent_color", mode="before")
     @classmethod
     def normalize_block_accent_color(cls, value):
         if isinstance(value, str):
-            return value.strip().removeprefix("#")
+            return _resolve_accent_hex(value)
         return value
 
 

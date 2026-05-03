@@ -1,6 +1,6 @@
 """Stripe API routes for subscription management."""
 import logging
-from typing import Literal
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Header
 from pydantic import BaseModel
@@ -19,7 +19,9 @@ webhook_router = APIRouter(prefix="/api/v1/webhooks", tags=["stripe"])
 
 class CreateCheckoutSessionRequest(BaseModel):
     """Request to create a Stripe checkout session."""
-    tier: Literal["pro", "enterprise"]
+    tier: Optional[Literal["pro", "enterprise"]] = None
+    product: Optional[Literal["deck_export"]] = None
+    deck_id: Optional[int] = None
 
 
 class CreateCheckoutSessionResponse(BaseModel):
@@ -40,16 +42,25 @@ async def create_checkout_session(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Create a Stripe Checkout session for subscribing to a plan.
+    Create a Stripe Checkout session for a subscription or one-time deck export.
     
     Returns a URL to redirect the user to Stripe Checkout.
     """
     try:
-        result = await StripeService.create_checkout_session(
-            user=current_user,
-            tier=request.tier,
-            db=db,
-        )
+        if request.product == "deck_export":
+            result = await StripeService.create_deck_export_checkout_session(
+                user=current_user,
+                db=db,
+                deck_id=request.deck_id,
+            )
+        elif request.tier:
+            result = await StripeService.create_checkout_session(
+                user=current_user,
+                tier=request.tier,
+                db=db,
+            )
+        else:
+            raise ValueError("Checkout request requires tier or product")
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

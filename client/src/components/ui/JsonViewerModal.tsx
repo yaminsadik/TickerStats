@@ -56,6 +56,7 @@ interface ExportSection {
 
 export interface DeckExportData {
   ticker: string;
+  company_name?: string;
   generated_at: string;
   request_id?: string;
   provider_used?: {

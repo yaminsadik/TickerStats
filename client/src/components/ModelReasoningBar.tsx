@@ -45,7 +45,7 @@ export default function ModelReasoningBar({
   const isPro = tier === "pro" || tier === "enterprise";
 
   const modelOptions = useMemo(() => {
-    if (isPro) return [...PRO_MODEL_OPTIONS, ...FREE_MODEL_OPTIONS];
+    if (isPro) return PRO_MODEL_OPTIONS;
     return FREE_MODEL_OPTIONS;
   }, [isPro]);
 
@@ -73,8 +73,10 @@ export default function ModelReasoningBar({
   );
   const freeModels = useMemo(
     () =>
-      filteredModels.filter((m) =>
-        FREE_MODEL_OPTIONS.some((f) => f.value === m.value),
+      filteredModels.filter(
+        (m) =>
+          FREE_MODEL_OPTIONS.some((f) => f.value === m.value) &&
+          !PRO_MODEL_OPTIONS.some((p) => p.value === m.value),
       ),
     [filteredModels],
   );

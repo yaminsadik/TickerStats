@@ -106,6 +106,10 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("STRIPE_PRICE_ID_ENTERPRISE"),
     )
+    STRIPE_PRICE_ID_DECK_EXPORT: str = Field(
+        default="",
+        validation_alias=AliasChoices("STRIPE_PRICE_ID_DECK_EXPORT"),
+    )
     FRONTEND_URL: str = Field(
         default="http://localhost:3000",
         validation_alias=AliasChoices("FRONTEND_URL"),

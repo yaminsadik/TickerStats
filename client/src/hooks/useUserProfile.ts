@@ -16,6 +16,7 @@ export function useUserProfile() {
     refresh,
     /** Convenience: is user on a paid plan (pro/enterprise) or admin? */
     canExport: profile?.can_export ?? false,
+    deckExportCredits: profile?.deck_export_credits ?? 0,
     /** Convenience: has the user hit the saved-search limit? */
     atSaveLimit:
       profile != null &&

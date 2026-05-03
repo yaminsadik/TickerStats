@@ -39,6 +39,13 @@ export interface DeckMeta {
 
 export interface DeckFull extends DeckMeta {
   content: Record<string, unknown>;
+  export_unlocked: boolean;
+}
+
+export interface DeckExportUnlock {
+  deck_id: number;
+  export_unlocked: boolean;
+  remaining_export_credits: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -197,6 +204,16 @@ export async function fetchDeck(
 ): Promise<DeckFull> {
   const res = await authFetch(`${API_BASE}/api/user/decks/${id}`);
   return jsonOrThrow<DeckFull>(res);
+}
+
+export async function unlockDeckExport(
+  authFetch: AuthFetch,
+  id: number
+): Promise<DeckExportUnlock> {
+  const res = await authFetch(`${API_BASE}/api/user/decks/${id}/unlock-export`, {
+    method: "POST",
+  });
+  return jsonOrThrow<DeckExportUnlock>(res);
 }
 
 export async function deleteDeckFromDB(
