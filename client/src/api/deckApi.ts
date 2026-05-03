@@ -76,6 +76,9 @@ const CANONICAL_SECTION_ORDER = [
   "swot",
   "key_drivers_kpis",
   "sector_invariants",
+  "investment_thesis_variant_view",
+  "risks_underwriting",
+  "valuation_summary",
   "investment_thesis",
   "catalysts_timeline",
   "valuation",
@@ -152,9 +155,30 @@ const CANONICAL_SECTION_METADATA: Record<
     default: false,
   },
   investment_thesis: {
-    name: "Investment Thesis & Variant View",
+    name: "Generated Thesis Framework",
     description:
-      "User-defined thesis, market consensus vs variant view, and thesis pillars",
+      "AI-assisted thesis, market consensus vs variant view, and supporting pillars",
+    default: false,
+    requires_user_input: true,
+  },
+  investment_thesis_variant_view: {
+    name: "User Thesis & Variant View",
+    description:
+      "Strictly uses the user's thesis sentence, market vs. we believe inputs, pillars, and flip conditions",
+    default: false,
+    requires_user_input: true,
+  },
+  risks_underwriting: {
+    name: "Risks & Underwriting",
+    description:
+      "Ranked user-provided risks with leading indicators, mitigants, and thesis break conditions",
+    default: false,
+    requires_user_input: true,
+  },
+  valuation_summary: {
+    name: "Valuation Summary",
+    description:
+      "Deterministic summary of selected valuation methods, peer set, user targets, and DCF output",
     default: false,
     requires_user_input: true,
   },

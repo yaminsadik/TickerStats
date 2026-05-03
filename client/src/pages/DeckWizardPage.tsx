@@ -93,7 +93,60 @@ const STEPS: { id: WizardStep; label: string }[] = [
   { id: "save", label: "Save" },
 ];
 
-const EXPECTED_SECTION_COUNT = 14;
+const EXPECTED_SECTION_COUNT = 17;
+
+const SECTION_PLANS_BY_LENGTH: Record<DeckLength, string[]> = {
+  short: [
+    "company_snapshot",
+    "overview",
+    "business_model_segments",
+    "industry_competitive_landscape",
+    "historical_performance_current_setup",
+    "swot",
+  ],
+  standard: [
+    "company_snapshot",
+    "overview",
+    "history",
+    "business_model_segments",
+    "industry_competitive_landscape",
+    "historical_performance_current_setup",
+    "management_ownership_governance",
+    "capital_structure_financial_health",
+    "swot",
+  ],
+  deep: [
+    "company_snapshot",
+    "overview",
+    "history",
+    "business_model_segments",
+    "industry_competitive_landscape",
+    "historical_performance_current_setup",
+    "management_ownership_governance",
+    "capital_structure_financial_health",
+    "swot",
+    "key_drivers_kpis",
+    "sector_invariants",
+  ],
+};
+
+function hasText(value?: string | null): boolean {
+  return Boolean(value?.trim());
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function addIfAvailable(
+  sectionIds: string[],
+  availableIds: Set<string>,
+  sectionId: string,
+) {
+  if (availableIds.has(sectionId) && !sectionIds.includes(sectionId)) {
+    sectionIds.push(sectionId);
+  }
+}
 
 function hasMeaningfulGeneratedContent(data: GenerateDeckResponse): boolean {
   const sections = data.results?.length ? data.results : (data.sections ?? []);
@@ -240,6 +293,7 @@ export default function DeckWizardPage() {
     model: "gemini-3.1-pro-preview",
     quality: "high",
   });
+  const [sectionsTouched, setSectionsTouched] = useState(false);
 
   // Comparable companies state
   const [compTickers, setCompTickers] = useState<string[]>(initialComparables);
@@ -283,6 +337,141 @@ export default function DeckWizardPage() {
     return Math.max(0, EXPECTED_SECTION_COUNT - availableSections.length);
   }, [availableSections]);
 
+  const effectiveThesis = useMemo<ThesisInput>(() => {
+    const pillars = uniqueStrings([
+      ...(thesis.pillars ?? []),
+      pillarDraft.trim(),
+    ]).slice(0, 5);
+    const whatChangesMind = uniqueStrings([
+      ...(thesis.what_changes_mind ?? []),
+      wcmDraft.trim(),
+    ]).slice(0, 2);
+
+    return {
+      thesis_sentence: thesis.thesis_sentence?.trim() ?? "",
+      market_believes: thesis.market_believes?.trim() ?? "",
+      we_believe: thesis.we_believe?.trim() ?? "",
+      pillars,
+      what_changes_mind: whatChangesMind,
+    };
+  }, [thesis, pillarDraft, wcmDraft]);
+
+  const hasThesisInput = useMemo(
+    () =>
+      hasText(effectiveThesis.thesis_sentence) ||
+      hasText(effectiveThesis.market_believes) ||
+      hasText(effectiveThesis.we_believe) ||
+      Boolean(effectiveThesis.pillars?.length) ||
+      Boolean(effectiveThesis.what_changes_mind?.length),
+    [effectiveThesis],
+  );
+
+  const validCatalysts = useMemo(
+    () => catalysts.filter((c) => c.name.trim()),
+    [catalysts],
+  );
+
+  const validRisks = useMemo(
+    () => risks.filter((r) => r.risk.trim()),
+    [risks],
+  );
+
+  const effectiveValuationInput = useMemo<ValuationMethodInput>(() => {
+    const peerTickers = uniqueStrings([
+      ...(valuationInput.peer_tickers ?? []),
+      ...compTickers,
+    ].map((ticker) => ticker.trim().toUpperCase()))
+      .filter((ticker) => ticker !== basics.ticker.trim().toUpperCase());
+    const methods = uniqueStrings([
+      ...(valuationInput.methods ?? []),
+      ...(peerTickers.length > 0 ? ["relative"] : []),
+    ]);
+
+    return {
+      ...valuationInput,
+      methods,
+      peer_tickers: peerTickers,
+      target_multiple_range: valuationInput.target_multiple_range?.trim() ?? "",
+      dcf_assumptions: valuationInput.dcf_assumptions?.trim() ?? "",
+      price_target: valuationInput.price_target?.trim() ?? "",
+    };
+  }, [valuationInput, compTickers, basics.ticker]);
+
+  const hasValuationInput = useMemo(
+    () =>
+      Boolean(effectiveValuationInput.methods?.length) ||
+      Boolean(effectiveValuationInput.peer_tickers?.length) ||
+      hasText(effectiveValuationInput.target_multiple_range) ||
+      hasText(effectiveValuationInput.dcf_assumptions) ||
+      hasText(effectiveValuationInput.price_target),
+    [effectiveValuationInput],
+  );
+
+  const hasDataBlocks = useMemo(
+    () =>
+      Object.values(dataBlocks).some(
+        (value) => typeof value === "string" && hasText(value),
+      ),
+    [dataBlocks],
+  );
+
+  const hasConstraints = useMemo(
+    () =>
+      hasText(userConstraints.liquidity_floor) ||
+      hasText(userConstraints.leverage_ceiling) ||
+      hasText(userConstraints.esg_constraints) ||
+      Boolean(userConstraints.exclude_peers?.length),
+    [userConstraints],
+  );
+
+  const plannedSectionIds = useMemo(() => {
+    if (!availableSections) return [];
+    const availableIds = new Set(availableSections.map((s) => s.id));
+    const deckLength = basics.deckLength ?? "standard";
+    const sectionIds = (SECTION_PLANS_BY_LENGTH[deckLength] ?? [])
+      .filter((id) => availableIds.has(id));
+
+    if (hasThesisInput) {
+      addIfAvailable(sectionIds, availableIds, "investment_thesis_variant_view");
+    }
+    if (validCatalysts.length > 0) {
+      addIfAvailable(sectionIds, availableIds, "catalysts_timeline");
+    }
+    if (hasValuationInput) {
+      addIfAvailable(sectionIds, availableIds, "valuation_summary");
+    }
+    if (validRisks.length > 0) {
+      addIfAvailable(sectionIds, availableIds, "risks_underwriting");
+    }
+
+    if (hasText(dataBlocks.kpi_table)) {
+      addIfAvailable(sectionIds, availableIds, "key_drivers_kpis");
+    }
+    if (hasText(dataBlocks.segment_mix)) {
+      addIfAvailable(sectionIds, availableIds, "business_model_segments");
+    }
+    if (hasText(dataBlocks.debt_maturities) || hasConstraints) {
+      addIfAvailable(sectionIds, availableIds, "capital_structure_financial_health");
+    }
+    if (hasText(dataBlocks.ownership_notes)) {
+      addIfAvailable(sectionIds, availableIds, "management_ownership_governance");
+    }
+    if (hasText(dataBlocks.filing_excerpts)) {
+      addIfAvailable(sectionIds, availableIds, "industry_competitive_landscape");
+    }
+
+    return sectionIds;
+  }, [
+    availableSections,
+    basics.deckLength,
+    hasThesisInput,
+    validCatalysts.length,
+    hasValuationInput,
+    validRisks.length,
+    dataBlocks,
+    hasConstraints,
+  ]);
+
   // Prune stale section IDs if backend-supported section list changes.
   useEffect(() => {
     if (!availableSections) return;
@@ -293,6 +482,16 @@ export default function DeckWizardPage() {
       return { ...prev, sections: filtered };
     });
   }, [availableSections]);
+
+  // Seed section selections from deck length and user-provided inputs until the
+  // user manually edits the section list.
+  useEffect(() => {
+    if (!availableSections || sectionsTouched) return;
+    setConfig((prev) => {
+      if (prev.sections.join("|") === plannedSectionIds.join("|")) return prev;
+      return { ...prev, sections: plannedSectionIds };
+    });
+  }, [availableSections, sectionsTouched, plannedSectionIds]);
 
   // Derived model info
   const modelOptions = useMemo(() => {
@@ -416,6 +615,13 @@ export default function DeckWizardPage() {
     }
   };
 
+  const commitPendingThesisDrafts = () => {
+    setThesis(effectiveThesis);
+    setPillarDraft("");
+    setWcmDraft("");
+    return effectiveThesis;
+  };
+
   // Validate current step
   const isStepValid = useCallback((): boolean => {
     switch (currentStep) {
@@ -441,9 +647,9 @@ export default function DeckWizardPage() {
     if (!isStepValid()) return;
     if (!draft) {
       const intakeData: DeckDraftIntake = {
-        thesis,
+        thesis: effectiveThesis,
         catalysts,
-        valuationInput,
+        valuationInput: effectiveValuationInput,
         risks,
         dataBlocks,
         userConstraints,
@@ -457,11 +663,12 @@ export default function DeckWizardPage() {
   };
 
   const handleThesisNext = () => {
+    const nextThesis = commitPendingThesisDrafts();
     if (draft) {
       updateDraftIntake(draft.id, {
-        thesis,
+        thesis: nextThesis,
         catalysts,
-        valuationInput,
+        valuationInput: effectiveValuationInput,
         risks,
         dataBlocks,
         userConstraints,
@@ -490,9 +697,9 @@ export default function DeckWizardPage() {
     if (draft) {
       updateDraftConfig(draft.id, config);
       updateDraftIntake(draft.id, {
-        thesis,
+        thesis: effectiveThesis,
         catalysts,
-        valuationInput,
+        valuationInput: effectiveValuationInput,
         risks,
         dataBlocks,
         userConstraints,
@@ -506,39 +713,16 @@ export default function DeckWizardPage() {
       config.quality,
     );
 
-    // Build thesis only if user provided any field
-    const hasThesis =
-      thesis.thesis_sentence?.trim() ||
-      thesis.market_believes?.trim() ||
-      thesis.we_believe?.trim() ||
-      (thesis.pillars && thesis.pillars.length > 0);
-
-    // Build valuation only if user selected methods
-    const hasValuation =
-      valuationInput.methods && valuationInput.methods.length > 0;
-
-    // Filter empty catalyst/risk entries
-    const validCatalysts = catalysts.filter((c) => c.name.trim());
-    const validRisks = risks.filter((r) => r.risk.trim());
-
-    // Build data_blocks only if any field is non-empty
-    const hasDataBlocks = Object.values(dataBlocks).some(
-      (v) => typeof v === "string" && v.trim(),
-    );
-
-    // Build user_constraints only if any field is non-empty
-    const hasConstraints =
-      userConstraints.liquidity_floor?.trim() ||
-      userConstraints.leverage_ceiling?.trim() ||
-      userConstraints.esg_constraints?.trim() ||
-      (userConstraints.exclude_peers && userConstraints.exclude_peers.length > 0);
+    const sectionIds = config.sections.length > 0
+      ? config.sections
+      : plannedSectionIds;
 
     generateMutation.mutate({
       ticker: basics.ticker,
       ...(basics.companyName.trim() && { company_name: basics.companyName }),
       ...(basics.sector.trim() && { sector: basics.sector }),
       fund_constraints: fundConstraints,
-      sections: config.sections.length > 0 ? config.sections : undefined,
+      sections: sectionIds,
       provider: providerToUse,
       model: modelToUse,
       plan_tier: tier,
@@ -551,9 +735,9 @@ export default function DeckWizardPage() {
       ...(basics.position && { position: basics.position }),
       ...(basics.deckLength && { deck_length: basics.deckLength }),
       ...(basics.dataTrustMode && { data_trust_mode: basics.dataTrustMode }),
-      ...(hasThesis && { thesis }),
+      ...(hasThesisInput && { thesis: effectiveThesis }),
       ...(validCatalysts.length > 0 && { catalysts: validCatalysts }),
-      ...(hasValuation && { valuation_input: valuationInput }),
+      ...(hasValuationInput && { valuation_input: effectiveValuationInput }),
       ...(validRisks.length > 0 && { risks: validRisks }),
       ...(hasDataBlocks && { data_blocks: dataBlocks }),
       ...(hasConstraints && { user_constraints: userConstraints }),
@@ -569,6 +753,7 @@ export default function DeckWizardPage() {
 
   // Toggle section selection
   const toggleSection = (sectionId: string) => {
+    setSectionsTouched(true);
     setConfig((prev) => ({
       ...prev,
       sections: prev.sections.includes(sectionId)
@@ -1548,39 +1733,36 @@ export default function DeckWizardPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() =>
+                onClick={() => {
+                  setSectionsTouched(true);
                   setConfig((prev) => ({
                     ...prev,
                     sections: availableSections?.map((s) => s.id) || [],
-                  }))
-                }
+                  }));
+                }}
               >
                 Select All
               </Button>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() =>
+                onClick={() => {
+                  setSectionsTouched(false);
                   setConfig((prev) => ({
                     ...prev,
-                    sections: (() => {
-                      const defaults =
-                        availableSections
-                          ?.filter((s) => s.default)
-                          .map((s) => s.id) || [];
-                      return defaults.length > 0
-                        ? defaults
-                        : availableSections?.map((s) => s.id) || [];
-                    })(),
-                  }))
-                }
+                    sections: plannedSectionIds,
+                  }));
+                }}
               >
                 Reset to Defaults
               </Button>
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => setConfig((prev) => ({ ...prev, sections: [] }))}
+                onClick={() => {
+                  setSectionsTouched(true);
+                  setConfig((prev) => ({ ...prev, sections: [] }));
+                }}
               >
                 Clear All
               </Button>

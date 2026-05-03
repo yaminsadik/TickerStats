@@ -6,6 +6,8 @@ This module intentionally keeps only cross-section prompts still used by the
 orchestrator.
 """
 
+from __future__ import annotations
+
 INVESTMENT_DECK_DESIGN_PROMPT = """## INVESTMENT PITCH DECK DESIGN SKILL
 Think like an investment banking associate preparing slides for an investment
 committee. Each slide should make one clear argument and give the presenter

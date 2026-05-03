@@ -364,15 +364,13 @@ class TestGeminiProvider:
         assert module_schema["properties"]["notes"]["type"] == "STRING"
         assert "name" in module_schema["required"]
     
-    @patch("google.generativeai.GenerativeModel")
-    @patch("google.generativeai.configure")
-    def test_generate_json_with_response_schema(self, mock_configure, mock_model_class):
+    @patch("app.deck.services.llm_gemini.GeminiProvider._get_client")
+    def test_generate_json_with_response_schema(self, mock_get_client):
         """Test that generate_json uses response_schema for Structured Outputs."""
         from app.deck.services.llm_gemini import GeminiProvider
         
-        # Mock the model and response
-        mock_model = MagicMock()
-        mock_model_class.return_value = mock_model
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
         
         mock_response = MagicMock()
         candidate = MagicMock()
@@ -384,7 +382,7 @@ class TestGeminiProvider:
         mock_response.usage_metadata.candidates_token_count = 50
         mock_response.usage_metadata.total_token_count = 150
         
-        mock_model.generate_content.return_value = mock_response
+        mock_client.models.generate_content.return_value = mock_response
         
         provider = GeminiProvider("test-key")
         response = provider.generate_json(
@@ -393,21 +391,22 @@ class TestGeminiProvider:
             json_schema={"type": "object", "properties": {"section_id": {"type": "string"}}},
         )
         
-        # Verify GenerationConfig was called with response_schema
-        call_kwargs = mock_model_class.call_args.kwargs
-        assert "generation_config" in call_kwargs
-        assert call_kwargs["generation_config"]["max_output_tokens"] == 16384
+        # Verify Gemini config was called with Structured Outputs
+        call_kwargs = mock_client.models.generate_content.call_args.kwargs
+        assert "config" in call_kwargs
+        assert call_kwargs["config"]["max_output_tokens"] == 16384
+        assert call_kwargs["config"]["response_mime_type"] == "application/json"
+        assert "response_json_schema" in call_kwargs["config"]
         
         assert response.content == {"section_id": "overview", "slides": []}
         assert response.provider == "gemini"
 
-    @patch("google.generativeai.GenerativeModel")
-    @patch("google.generativeai.configure")
-    def test_generate_json_includes_thinking_config(self, mock_configure, mock_model_class):
+    @patch("app.deck.services.llm_gemini.GeminiProvider._get_client")
+    def test_generate_json_includes_thinking_config(self, mock_get_client):
         from app.deck.services.llm_gemini import GeminiProvider
 
-        mock_model = MagicMock()
-        mock_model_class.return_value = mock_model
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
 
         mock_response = MagicMock()
         candidate = MagicMock()
@@ -418,7 +417,7 @@ class TestGeminiProvider:
         mock_response.usage_metadata.prompt_token_count = 10
         mock_response.usage_metadata.candidates_token_count = 5
         mock_response.usage_metadata.total_token_count = 15
-        mock_model.generate_content.return_value = mock_response
+        mock_client.models.generate_content.return_value = mock_response
 
         provider = GeminiProvider("test-key")
         provider.generate_json(
@@ -428,20 +427,22 @@ class TestGeminiProvider:
             options=LLMOptions(extra={"thinking_level": "high"}),
         )
 
-        call_kwargs = mock_model_class.call_args.kwargs
-        assert "generation_config" in call_kwargs
-        generation_config = call_kwargs["generation_config"]
-        assert generation_config["thinking_config"]["thinking_level"] == "high"
+        call_kwargs = mock_client.models.generate_content.call_args.kwargs
+        assert "config" in call_kwargs
+        thinking_config = call_kwargs["config"]["thinking_config"]
+        assert "thinking_level" not in thinking_config
+        assert thinking_config["thinking_budget"] == -1
+        assert thinking_config["include_thoughts"] is False
 
-    @patch("google.generativeai.GenerativeModel")
-    @patch("google.generativeai.configure")
-    def test_generate_json_retries_on_max_tokens(self, mock_configure, mock_model_class):
+        assert provider._build_thinking_config("low")["thinking_budget"] == 0
+
+    @patch("app.deck.services.llm_gemini.GeminiProvider._get_client")
+    def test_generate_json_retries_on_max_tokens(self, mock_get_client):
         """Gemini should retry once with a larger token budget after MAX_TOKENS."""
         from app.deck.services.llm_gemini import GeminiProvider
 
-        first_model = MagicMock()
-        second_model = MagicMock()
-        mock_model_class.side_effect = [first_model, second_model]
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
 
         first_candidate = MagicMock()
         first_candidate.finish_reason = 2  # MAX_TOKENS
@@ -452,7 +453,6 @@ class TestGeminiProvider:
         first_response.usage_metadata.prompt_token_count = 10
         first_response.usage_metadata.candidates_token_count = 10
         first_response.usage_metadata.total_token_count = 20
-        first_model.generate_content.return_value = first_response
 
         second_candidate = MagicMock()
         second_candidate.finish_reason = 1
@@ -463,7 +463,7 @@ class TestGeminiProvider:
         second_response.usage_metadata.prompt_token_count = 10
         second_response.usage_metadata.candidates_token_count = 5
         second_response.usage_metadata.total_token_count = 15
-        second_model.generate_content.return_value = second_response
+        mock_client.models.generate_content.side_effect = [first_response, second_response]
 
         provider = GeminiProvider("test-key")
         response = provider.generate_json(
@@ -474,9 +474,9 @@ class TestGeminiProvider:
         )
 
         assert response.content == {"section_id": "overview", "slides": []}
-        assert mock_model_class.call_count == 2
-        first_cfg = mock_model_class.call_args_list[0].kwargs["generation_config"]
-        second_cfg = mock_model_class.call_args_list[1].kwargs["generation_config"]
+        assert mock_client.models.generate_content.call_count == 2
+        first_cfg = mock_client.models.generate_content.call_args_list[0].kwargs["config"]
+        second_cfg = mock_client.models.generate_content.call_args_list[1].kwargs["config"]
         assert second_cfg["max_output_tokens"] > first_cfg["max_output_tokens"]
 
 

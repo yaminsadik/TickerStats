@@ -5,6 +5,8 @@ intended to run against Vertex AI so usage bills through the configured Google
 Cloud project instead of the Gemini Developer API / AI Studio quota path.
 """
 
+from __future__ import annotations
+
 import copy
 import json
 import time
@@ -334,6 +336,38 @@ class GeminiProvider(LLMProvider):
         except Exception:
             pass
         return 65_536
+
+    def _build_thinking_config(self, thinking_level: str | None) -> dict[str, Any] | None:
+        """Build a Gemini thinking config compatible with the installed SDK.
+
+        Recent google-genai versions expose ``thinking_budget`` instead of the
+        older/proposed ``thinking_level`` field. Introspect the SDK model so a
+        provider package update cannot break generation by sending stale config.
+        """
+        if not thinking_level:
+            return None
+
+        try:
+            from google.genai import types
+
+            fields = set(getattr(types.ThinkingConfig, "model_fields", {}).keys())
+        except Exception:
+            fields = set()
+
+        level = str(thinking_level).lower()
+
+        if "thinking_level" in fields:
+            return {"thinking_level": level.upper()}
+
+        if "thinking_budget" in fields:
+            # 0 disables explicit thinking budget for lowest-cost requests;
+            # -1 lets Gemini choose a model-appropriate budget for deeper runs.
+            return {
+                "thinking_budget": 0 if level == "low" else -1,
+                "include_thoughts": False,
+            }
+
+        return None
     
     def generate_json(
         self,
@@ -391,11 +425,11 @@ class GeminiProvider(LLMProvider):
                     "response_json_schema": gemini_schema,  # Native Structured Outputs
                 }
 
-                # Inject thinking config so the level actually reaches the API
-                if active_thinking_level:
-                    generation_config["thinking_config"] = {
-                        "thinking_level": active_thinking_level.upper(),
-                    }
+                # Inject thinking config so reasoning intent reaches the API
+                # without relying on SDK fields that may not exist.
+                thinking_config = self._build_thinking_config(active_thinking_level)
+                if thinking_config:
+                    generation_config["thinking_config"] = thinking_config
 
                 logger.info("Calling Gemini API with Structured Outputs", extra={
                     "model": model_name,

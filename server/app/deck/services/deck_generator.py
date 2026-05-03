@@ -258,6 +258,9 @@ class DeckGenerator:
                 requested_sections=request.sections,
                 company_profile=company_profile,
                 request=request,
+                comps_data=comps_data,
+                dcf_data=dcf_data,
+                comp_tickers=comp_tickers,
             )
 
             # Build list of (provider_instance, model_name) to try
@@ -284,6 +287,12 @@ class DeckGenerator:
             last_error: Optional[Exception] = None
             for attempt_idx, (cur_provider, cur_model, cur_extra) in enumerate(attempts):
                 try:
+                    numeric_gate_inputs: dict[str, Any] = {}
+                    if comps_data:
+                        numeric_gate_inputs["comps_table"] = comps_data
+                    if dcf_data:
+                        numeric_gate_inputs["dcf_valuation"] = dcf_data
+
                     result = self._generate_section(
                         provider=cur_provider,
                         section_id=section_id,
@@ -298,7 +307,7 @@ class DeckGenerator:
                         constraints_hash=constraints_hash,
                         model=cur_model,
                         options_extra=cur_extra,
-                        computed_inputs=comps_data,
+                        computed_inputs=numeric_gate_inputs,
                         section_inputs=section_inputs,
                     )
                     if attempt_idx > 0:
@@ -538,12 +547,21 @@ class DeckGenerator:
         requested_sections: list[str],
         company_profile: Optional[dict[str, Any]] = None,
         request: Optional[Any] = None,
+        comps_data: Optional[dict[str, Any]] = None,
+        dcf_data: Optional[dict[str, Any]] = None,
+        comp_tickers: Optional[list[str]] = None,
     ) -> dict[str, Any]:
         """Assemble all inputs used by section prompt builders."""
         profile = company_profile or {}
         profile_name = profile.get("name") or company_name
         profile_sector = profile.get("sector") or sector
         profile_description = profile.get("description") or ""
+        computed_inputs: dict[str, Any] = {}
+        if comps_data:
+            computed_inputs["comps_table"] = comps_data
+        if dcf_data:
+            computed_inputs["dcf_valuation"] = dcf_data
+
         inputs = {
             "ticker": ticker,
             "company_name": profile_name,
@@ -564,9 +582,15 @@ class DeckGenerator:
             "comps_summary": comps_summary,
             "dcf_summary": dcf_summary,
             "requested_sections": requested_sections,
+            "comp_tickers": comp_tickers or [],
+            "computed_inputs": computed_inputs,
+            "comps_table": comps_data,
+            "dcf_valuation": dcf_data,
         }
         # Intake redesign fields
         if request is not None:
+            inputs["include_dcf"] = bool(getattr(request, "include_dcf", True))
+            inputs["include_dcf_output"] = bool(getattr(request, "include_dcf", True))
             inputs["data_trust_mode"] = (
                 request.data_trust_mode.value
                 if getattr(request, "data_trust_mode", None)
@@ -592,11 +616,33 @@ class DeckGenerator:
                 if getattr(request, "catalysts", None)
                 else []
             )
-            inputs["valuation"] = (
+            valuation = (
                 request.valuation_input.model_dump()
                 if getattr(request, "valuation_input", None)
                 else None
             )
+            if comp_tickers:
+                clean_peers = [
+                    ticker_value.upper().strip()
+                    for ticker_value in comp_tickers
+                    if isinstance(ticker_value, str) and ticker_value.strip()
+                ]
+                if valuation is None:
+                    valuation = {
+                        "methods": ["relative"],
+                        "peer_tickers": clean_peers,
+                        "target_multiple_range": None,
+                        "dcf_assumptions": None,
+                        "price_target": None,
+                    }
+                else:
+                    if not valuation.get("peer_tickers"):
+                        valuation["peer_tickers"] = clean_peers
+                    methods = list(valuation.get("methods") or [])
+                    if valuation.get("peer_tickers") and "relative" not in methods:
+                        methods.append("relative")
+                    valuation["methods"] = methods
+            inputs["valuation"] = valuation
             inputs["risks"] = (
                 [r.model_dump() for r in request.risks]
                 if getattr(request, "risks", None)
