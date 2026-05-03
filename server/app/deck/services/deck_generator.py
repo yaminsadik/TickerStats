@@ -506,9 +506,7 @@ class DeckGenerator:
             effort = "high" if level == "high" else ("low" if level == "low" else "medium")
             return {"model": model, "reasoning_effort": effort}
 
-        # Gemini thinking controls vary by model family.
-        # - Gemini Pro models: support low/high.
-        # - Gemini 3 Flash: supports low/medium/high (plus minimal, not exposed here).
+        # Gemini Pro models support low/high thinking levels.
         if provider == "gemini":
             if "pro" in model_lc:
                 thinking_level = "high" if level in {"medium", "high"} else "low"

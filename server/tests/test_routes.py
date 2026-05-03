@@ -174,7 +174,7 @@ class TestGenerateEndpoint:
             company_name="Accenture",
             provider_used=ProviderInfo(
                 provider="gemini",
-                model="gemini-3-flash-preview",
+                model="gemini-3.1-pro-preview",
                 reasoning_level="medium",
             ),
             results=[

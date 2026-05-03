@@ -39,9 +39,9 @@ class GeminiProvider(LLMProvider):
     
     PROVIDER_NAME = "gemini"
     
-    # Default models by reasoning level - Vertex AI Gemini 2.5 family
+    # Default models by reasoning level - Vertex AI Gemini 3.1 family
     DEFAULT_MODELS = {
-        "low": "gemini-3-flash-preview",
+        "low": "gemini-3.1-pro-preview",
         "medium": "gemini-3.1-pro-preview",
         "high": "gemini-3.1-pro-preview",
     }
@@ -85,7 +85,7 @@ class GeminiProvider(LLMProvider):
         return self._client
     
     def get_default_model(self) -> str:
-        return settings.VERTEX_GEMINI_DEFAULT_MODEL or "gemini-3-flash-preview"
+        return settings.VERTEX_GEMINI_DEFAULT_MODEL or "gemini-3.1-pro-preview"
     
     def _map_reasoning_level(self, level: str) -> dict:
         """Map reasoning level to Gemini-specific parameters."""

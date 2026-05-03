@@ -694,6 +694,5 @@ export const TIERS = {
 } as const;
 
 export const MODELS = [
-  "Gemini 3 Flash",
-  "Gemini 3 Pro",
+  "Gemini 3.1 Pro",
 ] as const;

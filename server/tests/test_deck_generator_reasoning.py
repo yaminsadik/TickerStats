@@ -26,13 +26,13 @@ class TestProviderReasoningMapping:
         )
         assert extra["thinking_level"] == "high"
 
-    def test_gemini_flash_keeps_medium(self):
+    def test_gemini_31_pro_maps_low_to_low(self):
         extra = self.generator._build_provider_options_extra(
             provider_name="gemini",
-            model="gemini-3-flash-preview",
-            reasoning_level="medium",
+            model="gemini-3.1-pro-preview",
+            reasoning_level="low",
         )
-        assert extra["thinking_level"] == "medium"
+        assert extra["thinking_level"] == "low"
 
     def test_deepseek_uses_model_only(self):
         extra = self.generator._build_provider_options_extra(
@@ -55,4 +55,3 @@ class TestProviderReasoningMapping:
         )
         assert low_extra["thinking_enabled"] is False
         assert high_extra["thinking_enabled"] is True
-

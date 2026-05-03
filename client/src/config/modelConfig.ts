@@ -20,12 +20,11 @@ export type ModelOption = {
 // ---------------------------------------------------------------------------
 
 export const FREE_MODEL_OPTIONS: ModelOption[] = [
-  { value: "gemini-3-flash-preview", provider: "gemini", label: "Gemini 3 Flash Preview", short: "Gemini 3 Flash" },
+  { value: "gemini-3.1-pro-preview", provider: "gemini", label: "Gemini 3.1 Pro Preview", short: "Gemini 3.1 Pro" },
 ];
 
 export const PRO_MODEL_OPTIONS: ModelOption[] = [
   { value: "gemini-3.1-pro-preview", provider: "gemini", label: "Gemini 3.1 Pro Preview", short: "Gemini 3.1 Pro" },
-  { value: "gemini-3-flash-preview", provider: "gemini", label: "Gemini 3 Flash Preview", short: "Gemini 3 Flash" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -64,8 +63,7 @@ export const QUALITY_OPTIONS_GEMINI_FLASH = QUALITY_OPTIONS_DEFAULT;
 type BadgeSet = { free: string[]; pro: string[] };
 
 const MODEL_BADGES: Record<string, BadgeSet> = {
-  "gemini-3-flash-preview": { free: ["Low cost"], pro: ["Efficient"] },
-  "gemini-3.1-pro-preview": { free: ["Preview"], pro: ["Preview"] },
+  "gemini-3.1-pro-preview": { free: ["Pro model"], pro: ["Preview"] },
 };
 
 export function getModelBadges(modelId: string, tier: string): string[] {
@@ -75,8 +73,7 @@ export function getModelBadges(modelId: string, tier: string): string[] {
 }
 
 export const MODEL_RECOMMENDED: Record<string, "free" | "pro" | null> = {
-  "gemini-3-flash-preview": "free",
-  "gemini-3.1-pro-preview": "pro",
+  "gemini-3.1-pro-preview": "free",
 };
 
 // ---------------------------------------------------------------------------

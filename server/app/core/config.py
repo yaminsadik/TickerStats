@@ -85,7 +85,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("GOOGLE_CLOUD_LOCATION"),
     )
     VERTEX_GEMINI_DEFAULT_MODEL: str = Field(
-        default="gemini-3-flash-preview",
+        default="gemini-3.1-pro-preview",
         validation_alias=AliasChoices("VERTEX_GEMINI_DEFAULT_MODEL"),
     )
 

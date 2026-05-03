@@ -61,6 +61,7 @@ export interface DeckDraft {
 const DEFAULT_MODEL_BY_PROVIDER: Record<DeckDraftConfig['provider'], string> = {
   gemini: 'gemini-3.1-pro-preview',
 };
+const SUPPORTED_MODELS = new Set(['gemini-3.1-pro-preview']);
 
 function normalizeProvider(value: unknown): DeckDraftConfig['provider'] {
   void value;
@@ -79,7 +80,10 @@ function normalizeQuality(value: unknown, model?: string): DeckDraftConfig['qual
 
 function normalizeDraftConfig(raw?: Partial<DeckDraftConfig>): DeckDraftConfig {
   const provider = normalizeProvider(raw?.provider);
-  const model = raw?.model || DEFAULT_MODEL_BY_PROVIDER[provider];
+  const rawModel = typeof raw?.model === 'string' ? raw.model : undefined;
+  const model = rawModel && SUPPORTED_MODELS.has(rawModel)
+    ? rawModel
+    : DEFAULT_MODEL_BY_PROVIDER[provider];
   return {
     sections: Array.isArray(raw?.sections) ? raw.sections : [],
     provider,

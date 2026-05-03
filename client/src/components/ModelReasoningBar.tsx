@@ -3,7 +3,7 @@
  * an AI model and reasoning effort.  Two small popover-trigger buttons
  * sit in a horizontal row:
  *
- *   [ 🟢 GM  Gemini 3 Flash ▾ ]   [ 🧠 Balanced ▾ ]
+ *   [ 🟢 GM  Gemini 3.1 Pro ▾ ]   [ 🧠 Deep ▾ ]
  *
  * Clicking either opens a dropdown popover with the full list.
  */

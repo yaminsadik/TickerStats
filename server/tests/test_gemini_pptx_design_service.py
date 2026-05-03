@@ -47,7 +47,7 @@ class _FakeProvider:
             content={
                 "version": "gemini-pptx-design-v1",
                 "provider": "gemini",
-                "model": "gemini-3-flash-preview",
+                "model": "gemini-3.1-pro-preview",
                 "cached": False,
                 "theme": {
                     "name": "institutional_navy",
@@ -82,7 +82,7 @@ class _FakeProvider:
                 "latency_ms": 10,
             },
             raw_response="{}",
-            model="gemini-3-flash-preview",
+            model="gemini-3.1-pro-preview",
             provider="gemini",
             usage={"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150},
         )
@@ -101,7 +101,7 @@ def test_gemini_design_service_uses_cache_and_backfills_missing_slides(tmp_path,
     )
     service = GeminiPptxDesignService(
         api_key="test-key",
-        model="gemini-3-flash-preview",
+        model="gemini-3.1-pro-preview",
         cache_dir=str(tmp_path),
     )
 
@@ -119,7 +119,7 @@ def test_gemini_design_service_requires_api_key(tmp_path):
     with pytest.raises(GeminiPptxDesignError, match="Gemini export requires"):
         GeminiPptxDesignService(
             api_key="",
-            model="gemini-3-flash-preview",
+            model="gemini-3.1-pro-preview",
             cache_dir=str(tmp_path),
         )
 
@@ -127,7 +127,7 @@ def test_gemini_design_service_requires_api_key(tmp_path):
 def test_compact_deck_adds_comps_section_when_comps_data_exists(tmp_path):
     service = GeminiPptxDesignService(
         api_key="test-key",
-        model="gemini-3-flash-preview",
+        model="gemini-3.1-pro-preview",
         cache_dir=str(tmp_path),
     )
     deck = {
@@ -155,7 +155,7 @@ def test_compact_deck_adds_comps_section_when_comps_data_exists(tmp_path):
 def test_dedupe_preserves_multi_ref_two_column_blocks(tmp_path):
     service = GeminiPptxDesignService(
         api_key="test-key",
-        model="gemini-3-flash-preview",
+        model="gemini-3.1-pro-preview",
         cache_dir=str(tmp_path),
     )
     slide_design = {

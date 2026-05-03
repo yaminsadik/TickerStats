@@ -297,7 +297,7 @@ export default function DeckWizardPage() {
   // Derived model info
   const modelOptions = useMemo(() => {
     if (tier === "pro" || tier === "enterprise") {
-      return [...PRO_MODEL_OPTIONS, ...FREE_MODEL_OPTIONS];
+      return PRO_MODEL_OPTIONS;
     }
     return FREE_MODEL_OPTIONS;
   }, [tier]);
@@ -318,8 +318,7 @@ export default function DeckWizardPage() {
   }, [qualityOptions, config.quality]);
 
   // Keep selected model/provider valid for current tier.
-  // Skip until profile is resolved; tier defaults to "free" while loading and
-  // would incorrectly downgrade Pro users from 3.1 Pro to Flash.
+  // Skip until profile is resolved; tier defaults to "free" while loading.
   useEffect(() => {
     if (profileLoading) return;
     const current = modelOptions.find(

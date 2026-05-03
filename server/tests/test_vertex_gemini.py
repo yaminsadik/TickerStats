@@ -31,7 +31,7 @@ class _FakeClient:
 
 def test_gemini_provider_uses_genai_structured_json(monkeypatch):
     fake_client = _FakeClient()
-    provider = GeminiProvider(api_key="", default_model="gemini-3-flash-preview")
+    provider = GeminiProvider(api_key="", default_model="gemini-3.1-pro-preview")
     monkeypatch.setattr(provider, "_get_client", lambda: fake_client)
     monkeypatch.setattr(provider, "_use_vertex", lambda: True)
 
@@ -43,14 +43,14 @@ def test_gemini_provider_uses_genai_structured_json(monkeypatch):
             "properties": {"status": {"type": "string"}},
             "required": ["status"],
         },
-        options=LLMOptions(reasoning_level="low", extra={"model": "gemini-3-flash-preview"}),
+        options=LLMOptions(reasoning_level="low", extra={"model": "gemini-3.1-pro-preview"}),
     )
 
     assert response.content == {"status": "ok"}
-    assert response.model == "gemini-3-flash-preview"
+    assert response.model == "gemini-3.1-pro-preview"
     assert response.provider == "gemini"
     assert response.usage["total_tokens"] == 14
-    assert fake_client.models.last_call["model"] == "gemini-3-flash-preview"
+    assert fake_client.models.last_call["model"] == "gemini-3.1-pro-preview"
     assert fake_client.models.last_call["config"]["response_mime_type"] == "application/json"
     assert "response_json_schema" in fake_client.models.last_call["config"]
 
@@ -77,4 +77,4 @@ def test_vertex_mode_marks_gemini_available_without_api_key(monkeypatch):
     )
 
     assert decision.provider == "gemini"
-    assert decision.model == "gemini-3-flash-preview"
+    assert decision.model == "gemini-3.1-pro-preview"

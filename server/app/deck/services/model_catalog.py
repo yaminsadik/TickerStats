@@ -27,8 +27,8 @@ THINKING_LEVEL = "thinking_level"  # Gemini 3: "MINIMAL"|"LOW"|"MEDIUM"|"HIGH"
 @dataclass(frozen=True)
 class ModelDef:
     provider: str                       # active provider is "gemini"
-    model_id: str                       # API model name, e.g. "gemini-3-flash-preview"
-    display_name: str                   # UI label, e.g. "Gemini 2.5 Flash"
+    model_id: str                       # API model name, e.g. "gemini-3.1-pro-preview"
+    display_name: str                   # UI label, e.g. "Gemini 3.1 Pro"
     tiers: tuple[str, ...]              # ("free",) or ("pro",) or ("free","pro")
     thinking_supported: bool            # can this model think?
     thinking_config_type: Optional[str] # one of the THINKING_* constants above, or None
@@ -40,39 +40,21 @@ class ModelDef:
 
 
 # ============================================================================
-# FREE TIER MODEL
-# ============================================================================
-
-GEMINI_3_FLASH_PREVIEW = ModelDef(
-    provider="gemini",
-    model_id="gemini-3-flash-preview",
-    display_name="Gemini 3 Flash Preview",
-    tiers=("free", "pro"),
-    thinking_supported=True,
-    thinking_config_type=THINKING_LEVEL,
-    input_price_per_m=0.075,
-    output_price_per_m=0.30,
-    context_window=1_000_000,
-    max_output=65_536,
-    is_default={"free": True},
-)
-
-# ============================================================================
-# PRO TIER MODEL
+# ACTIVE MODEL
 # ============================================================================
 
 GEMINI_3_1_PRO_PREVIEW = ModelDef(
     provider="gemini",
     model_id="gemini-3.1-pro-preview",
     display_name="Gemini 3.1 Pro Preview",
-    tiers=("pro",),
+    tiers=("free", "pro"),
     thinking_supported=True,
     thinking_config_type=THINKING_LEVEL,
     input_price_per_m=2.00,
     output_price_per_m=8.00,
     context_window=1_000_000,
     max_output=65_536,
-    is_default={"pro": True},
+    is_default={"free": True, "pro": True},
 )
 
 # ============================================================================
@@ -80,7 +62,6 @@ GEMINI_3_1_PRO_PREVIEW = ModelDef(
 # ============================================================================
 
 MODEL_CATALOG: list[ModelDef] = [
-    GEMINI_3_FLASH_PREVIEW,
     GEMINI_3_1_PRO_PREVIEW,
 ]
 
@@ -111,10 +92,10 @@ def is_model_available_for_tier(model_def: ModelDef, tier: str) -> bool:
 def get_models_for_tier(tier: str) -> list[ModelDef]:
     """Return all models available to a given tier.
 
-    Enterprise users inherit pro-tier access, which includes both pro
-    and free models. Returned order for paid tiers is:
-    1) pro models
-    2) free models
+    Enterprise users inherit pro-tier access. Returned order for paid tiers is
+    still stable if additional models are added later:
+    1) pro-only models
+    2) shared free/pro models
     """
     effective = _effective_tier(tier)
     models = [m for m in MODEL_CATALOG if is_model_available_for_tier(m, tier)]

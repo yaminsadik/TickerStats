@@ -98,7 +98,7 @@ def sample_generate_request():
         },
         "sections": ["overview"],
         "provider": "gemini",
-        "model": "gemini-3-flash-preview",
+        "model": "gemini-3.1-pro-preview",
         "reasoning_level": "medium",
         "include_comps": False,
     }
