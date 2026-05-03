@@ -697,31 +697,43 @@ class DeckGenerateResponse(BaseModel):
     request_id: str = Field(..., description="Unique request identifier for tracing")
 
 
-class ClaudeExportFormat(str, Enum):
-    """Supported Claude Skills export formats."""
-    PPTX = "pptx"
-    PDF = "pdf"
-    BOTH = "both"
+class PptxDesignLayout(str, Enum):
+    """Layout families understood by the local PPTX renderer."""
+    CARDS = "cards"
+    TWO_COLUMN = "two_column"
+    TIMELINE = "timeline"
+    SWOT = "swot"
+    VALUATION = "valuation"
+    BLUEPRINT = "blueprint"
 
 
-class DeckClaudeExportRequest(BaseModel):
-    """Request schema for Claude Skills-powered deck export."""
+class PptxBlockType(str, Enum):
+    """Block primitives rendered by the local PPTX blueprint renderer."""
+    HERO_CALLOUT = "hero_callout"
+    METRIC_TILE = "metric_tile"
+    BULLET_CARD = "bullet_card"
+    TEXT_BOX = "text_box"
+    TIMELINE_ITEM = "timeline_item"
+    TWO_COLUMN_PANEL = "two_column_panel"
+    RISK_BOX = "risk_box"
+    VALUATION_CALLOUT = "valuation_callout"
+    SECTION_BADGE = "section_badge"
+
+
+class DeckPptxDesignSpecRequest(BaseModel):
+    """Request schema for Gemini-assisted local PPTX styling."""
     deck: dict[str, Any] = Field(
         ...,
         description="Canonical DeckGenerateResponse JSON, or compatible saved draft content.",
     )
-    export_format: ClaudeExportFormat = Field(
-        default=ClaudeExportFormat.PPTX,
-        description="Document format to generate.",
-    )
     title: Optional[str] = Field(
         None,
-        description="Optional export title used for the generated filename and cover slide.",
+        description="Optional export title used for design context.",
         max_length=200,
     )
 
     @model_validator(mode="after")
-    def validate_deck_payload(self) -> "DeckClaudeExportRequest":
+    def validate_deck_payload(self) -> "DeckPptxDesignSpecRequest":
         sections = self.deck.get("results") or self.deck.get("sections") or []
         if not isinstance(sections, list) or not sections:
             raise ValueError("deck must include a non-empty results or sections array")
@@ -739,6 +751,127 @@ class DeckClaudeExportRequest(BaseModel):
             raise ValueError("deck must include at least one slide")
 
         return self
+
+
+class PptxDesignTheme(BaseModel):
+    """Theme overrides consumed by the local PPTX renderer."""
+    name: str = Field(default="institutional_navy", max_length=80)
+    navy: str = Field(default="172554", pattern=r"^[0-9A-Fa-f]{6}$")
+    blue: str = Field(default="1E3A8A", pattern=r"^[0-9A-Fa-f]{6}$")
+    accent: str = Field(default="38BDF8", pattern=r"^[0-9A-Fa-f]{6}$")
+    bg: str = Field(default="F8FAFC", pattern=r"^[0-9A-Fa-f]{6}$")
+    card: str = Field(default="FFFFFF", pattern=r"^[0-9A-Fa-f]{6}$")
+    ink: str = Field(default="0F172A", pattern=r"^[0-9A-Fa-f]{6}$")
+    text: str = Field(default="334155", pattern=r"^[0-9A-Fa-f]{6}$")
+    muted: str = Field(default="64748B", pattern=r"^[0-9A-Fa-f]{6}$")
+    border: str = Field(default="CBD5E1", pattern=r"^[0-9A-Fa-f]{6}$")
+    head_font_face: str = Field(default="Aptos Display", max_length=80)
+    body_font_face: str = Field(default="Aptos", max_length=80)
+
+    @field_validator(
+        "navy",
+        "blue",
+        "accent",
+        "bg",
+        "card",
+        "ink",
+        "text",
+        "muted",
+        "border",
+        mode="before",
+    )
+    @classmethod
+    def normalize_hex_color(cls, value):
+        if isinstance(value, str):
+            return value.strip().removeprefix("#")
+        return value
+
+
+class PptxSlideDesign(BaseModel):
+    """Per-slide layout guidance from Gemini."""
+    section_id: str = Field(..., max_length=120)
+    slide_index: int = Field(..., ge=0)
+    slide_id: Optional[str] = Field(default=None, max_length=160)
+    layout: PptxDesignLayout = Field(default=PptxDesignLayout.CARDS)
+    emphasis: str = Field(default="balanced", max_length=80)
+    accent_color: str = Field(default="38BDF8", pattern=r"^[0-9A-Fa-f]{6}$")
+    rationale: str = Field(default="", max_length=240)
+    blocks: list["PptxLayoutBlock"] = Field(default_factory=list, max_length=12)
+
+    @field_validator("accent_color", mode="before")
+    @classmethod
+    def normalize_accent_color(cls, value):
+        if isinstance(value, str):
+            return value.strip().removeprefix("#")
+        return value
+
+
+class PptxBlockStyle(BaseModel):
+    """Optional IB-style visual tokens for a block."""
+    fill: str = Field(default="white", max_length=40)
+    text_color: str = Field(default="text", max_length=40)
+    header_color: str = Field(default="navy", max_length=40)
+    border: str = Field(default="hairline_gray", max_length=40)
+    alignment: str = Field(default="left", max_length=20)
+
+
+class PptxLayoutBlock(BaseModel):
+    """A positioned slide element using deck text by reference."""
+    type: PptxBlockType = Field(default=PptxBlockType.BULLET_CARD)
+    x: float = Field(..., ge=0, le=13.0)
+    y: float = Field(..., ge=1.1, le=6.85)
+    w: float = Field(..., ge=0.5, le=12.6)
+    h: float = Field(..., ge=0.25, le=5.9)
+    text_source: str = Field(
+        default="bullet_0",
+        description="Use title or bullet_N. The renderer resolves content from the source deck.",
+        max_length=40,
+    )
+    text_refs: list[str] = Field(
+        default_factory=list,
+        description="Ordered references such as title or bullet_N. Preferred over text_source.",
+        max_length=6,
+    )
+    static_text: list[str] = Field(
+        default_factory=list,
+        description="Design-only labels such as BUY, TARGET, Market believes. No new financial facts.",
+        max_length=6,
+    )
+    label: str = Field(default="", max_length=80)
+    title: str = Field(default="", max_length=120)
+    body: str = Field(
+        default="",
+        description="Optional design-only label/body. Must not introduce new financial facts.",
+        max_length=240,
+    )
+    accent_color: str = Field(default="38BDF8", pattern=r"^[0-9A-Fa-f]{6}$")
+    style: PptxBlockStyle = Field(default_factory=PptxBlockStyle)
+
+    @field_validator("accent_color", mode="before")
+    @classmethod
+    def normalize_block_accent_color(cls, value):
+        if isinstance(value, str):
+            return value.strip().removeprefix("#")
+        return value
+
+
+class PptxDesignUsage(BaseModel):
+    """Token usage metadata for the design-spec call."""
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+
+
+class DeckPptxDesignSpecResponse(BaseModel):
+    """Gemini-generated design spec for local PPTX rendering."""
+    version: str = Field(default="gemini-pptx-design-v1")
+    provider: str = Field(default="gemini")
+    model: str = Field(..., max_length=120)
+    cached: bool = False
+    theme: PptxDesignTheme = Field(default_factory=PptxDesignTheme)
+    slides: list[PptxSlideDesign] = Field(default_factory=list)
+    usage: PptxDesignUsage = Field(default_factory=PptxDesignUsage)
+    latency_ms: int = 0
 
 
 # =============================================================================

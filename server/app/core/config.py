@@ -53,34 +53,22 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("ENVIRONMENT"),
     )
 
-    # Claude Skills export
-    ANTHROPIC_API_KEY: str = Field(
-        default="",
-        validation_alias=AliasChoices("ANTHROPIC_API_KEY"),
+    # Gemini-assisted PPTX export
+    GEMINI_EXPORT_MODEL: str = Field(
+        default="gemini-3.1-pro-preview",
+        validation_alias=AliasChoices("GEMINI_EXPORT_MODEL"),
     )
-    CLAUDE_EXPORT_MODEL: str = Field(
-        default="claude-sonnet-4-5",
-        validation_alias=AliasChoices("CLAUDE_EXPORT_MODEL"),
+    GEMINI_EXPORT_CACHE_DIR: str = Field(
+        default="/tmp/tickerstats_gemini_exports",
+        validation_alias=AliasChoices("GEMINI_EXPORT_CACHE_DIR"),
     )
-    CLAUDE_EXPORT_CACHE_DIR: str = Field(
-        default="/tmp/tickerstats_deck_exports",
-        validation_alias=AliasChoices("CLAUDE_EXPORT_CACHE_DIR"),
+    GEMINI_EXPORT_MAX_TOKENS: int = Field(
+        default=8192,
+        validation_alias=AliasChoices("GEMINI_EXPORT_MAX_TOKENS"),
     )
-    CLAUDE_EXPORT_MAX_SLIDES: int = Field(
-        default=30,
-        validation_alias=AliasChoices("CLAUDE_EXPORT_MAX_SLIDES"),
-    )
-    CLAUDE_EXPORT_MAX_TOKENS: int = Field(
-        default=16000,
-        validation_alias=AliasChoices("CLAUDE_EXPORT_MAX_TOKENS"),
-    )
-    CLAUDE_EXPORT_TIMEOUT_SECONDS: float = Field(
-        default=360.0,
-        validation_alias=AliasChoices("CLAUDE_EXPORT_TIMEOUT_SECONDS"),
-    )
-    CLAUDE_EXPORT_ALLOW_FREE: bool = Field(
-        default=False,
-        validation_alias=AliasChoices("CLAUDE_EXPORT_ALLOW_FREE"),
+    GEMINI_EXPORT_TIMEOUT_SECONDS: int = Field(
+        default=120,
+        validation_alias=AliasChoices("GEMINI_EXPORT_TIMEOUT_SECONDS"),
     )
 
     # Google Gemini on Vertex AI

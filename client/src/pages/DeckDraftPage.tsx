@@ -23,8 +23,8 @@ import {
   SectionSkeleton,
   type DeckExportData,
 } from "../components/ui";
-import { exportDeckToPDF } from "../utils/deckExport";
-import { exportDeckWithClaude } from "../utils/claudeDeckExport";
+import { exportDeckToPDF, exportDeckToPPTX } from "../utils/deckExport";
+import { fetchPptxDesignSpec } from "../utils/geminiDeckExport";
 import { useAuthenticatedFetch } from "../hooks/useAuthenticatedApi";
 import { useUserProfile } from "../hooks/useUserProfile";
 import {
@@ -220,18 +220,20 @@ export default function DeckDraftPage() {
     setExportingFormat("pdf");
     setExportNotice({
       variant: "info",
-      message: "Creating PDF with Claude. This can take a few minutes; please keep this page open.",
+      message: "Creating local PDF export.",
     });
     try {
-      await exportDeckWithClaude(authenticatedFetch, exportData, "pdf", filename);
+      await exportDeckToPDF(exportData, filename);
       setExportNotice(null);
     } catch (error) {
-      console.warn("Claude PDF export failed; using local fallback.", error);
+      const message =
+        error instanceof Error ? error.message : "PDF export failed.";
+      console.warn("PDF export failed.", error);
       setExportNotice({
         variant: "warning",
-        message: "Claude PDF export failed, so a local fallback PDF was downloaded.",
+        title: "PDF export failed",
+        message,
       });
-      await exportDeckToPDF(exportData, filename);
     } finally {
       setExportingFormat(null);
     }
@@ -245,19 +247,34 @@ export default function DeckDraftPage() {
     setExportingFormat("pptx");
     setExportNotice({
       variant: "info",
-      message: "Creating PPTX with Claude. This can take a few minutes; please keep this page open.",
+      message: "Creating PPTX with Gemini styling and the local renderer.",
     });
     try {
-      await exportDeckWithClaude(authenticatedFetch, exportData, "pptx", filename);
-      setExportNotice(null);
+      try {
+        const designSpec = await fetchPptxDesignSpec(
+          authenticatedFetch,
+          exportData,
+          filename,
+        );
+        await exportDeckToPPTX(exportData, filename, { designSpec });
+        setExportNotice(null);
+      } catch (designError) {
+        console.warn("Gemini PPTX design spec failed; using standard PPTX layout.", designError);
+        await exportDeckToPPTX(exportData, filename);
+        setExportNotice({
+          variant: "warning",
+          title: "Exported with standard layout",
+          message: "Gemini styling was unavailable, so the PPTX was exported with the standard local renderer.",
+        });
+      }
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Claude PPTX export failed.";
-      console.warn("Claude PPTX export failed; no local fallback downloaded.", error);
+        error instanceof Error ? error.message : "PPTX export failed.";
+      console.warn("PPTX export failed.", error);
       setExportNotice({
         variant: "warning",
-        title: "Claude export failed",
-        message: `${message} No local PPTX fallback was downloaded.`,
+        title: "PPTX export failed",
+        message,
       });
     } finally {
       setExportingFormat(null);

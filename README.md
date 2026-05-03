@@ -2,7 +2,7 @@
 
 TickerStats is a full-stack investment research platform for student investment clubs. It combines real-time public-market data, relative valuation tables, deterministic DCF analysis, watchlists, saved searches, subscription-aware user accounts, and AI-assisted pitch deck generation.
 
-The app is split into a React/Vite client and a FastAPI backend. Market data is sourced primarily from `yfinance`; authentication is handled with Auth0; persistence uses PostgreSQL; billing uses Stripe; and deck generation can use supported LLM providers such as Gemini, OpenAI, or Anthropic depending on environment configuration.
+The app is split into a React/Vite client and a FastAPI backend. Market data is sourced primarily from `yfinance`; authentication is handled with Auth0; persistence uses PostgreSQL; billing uses Stripe; and deck generation/export styling is powered by Gemini/Vertex plus the local PPTX renderer.
 
 ## Features
 

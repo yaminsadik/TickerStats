@@ -485,22 +485,6 @@ class DeckGenerator:
                 "thinking_enabled": level in {"medium", "high"},
             }
 
-        # Anthropic uses extended thinking with budget tokens.
-        if provider == "anthropic":
-            if level == "high":
-                return {
-                    "model": model,
-                    "thinking_enabled": True,
-                    "thinking_budget_tokens": 10_000,
-                }
-            if level == "medium":
-                return {
-                    "model": model,
-                    "thinking_enabled": True,
-                    "thinking_budget_tokens": 4_000,
-                }
-            return {"model": model, "thinking_enabled": False}
-
         return {"model": model}
 
     def _assemble_section_inputs(

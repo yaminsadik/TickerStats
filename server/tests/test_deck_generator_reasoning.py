@@ -56,17 +56,3 @@ class TestProviderReasoningMapping:
         assert low_extra["thinking_enabled"] is False
         assert high_extra["thinking_enabled"] is True
 
-    def test_anthropic_budget_by_level(self):
-        medium_extra = self.generator._build_provider_options_extra(
-            provider_name="anthropic",
-            model="claude-sonnet-4-5",
-            reasoning_level="medium",
-        )
-        high_extra = self.generator._build_provider_options_extra(
-            provider_name="anthropic",
-            model="claude-sonnet-4-5",
-            reasoning_level="high",
-        )
-        assert medium_extra["thinking_enabled"] is True
-        assert medium_extra["thinking_budget_tokens"] == 4_000
-        assert high_extra["thinking_budget_tokens"] == 10_000

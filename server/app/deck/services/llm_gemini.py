@@ -422,8 +422,26 @@ class GeminiProvider(LLMProvider):
 
                 raw_content = self._extract_response_text(response, candidate)
                 if not raw_content.strip():
+                    if attempt < (max_internal_attempts - 1):
+                        next_tokens = min(
+                            model_output_cap,
+                            max(current_max_tokens * 2, current_max_tokens + 4096),
+                        )
+                        logger.warning(
+                            "Gemini returned empty content; retrying structured-output request",
+                            extra={
+                                "finish_reason": finish_reason,
+                                "current_max_tokens": current_max_tokens,
+                                "next_max_tokens": next_tokens,
+                            },
+                        )
+                        current_max_tokens = next_tokens
+                        if active_thinking_level in {"high", "medium"}:
+                            active_thinking_level = "low"
+                        continue
                     raise InvalidResponseError(
-                        "Gemini returned empty content despite structured-output request"
+                        "Gemini returned empty content despite structured-output request "
+                        f"(finish_reason={finish_reason or 'unknown'})"
                     )
 
                 # Parse JSON (should rarely fail with structured outputs).
@@ -518,6 +536,9 @@ class GeminiProvider(LLMProvider):
             )
             
         except Exception as e:
+            if isinstance(e, LLMError):
+                raise
+
             error_str = str(e).lower()
             
             # Map to specific error types

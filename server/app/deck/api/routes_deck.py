@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, status
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from app.core.auth import verifier
@@ -20,9 +20,9 @@ from app.core.middleware import request_id_var
 from app.deck.api.schemas import (
     SECTION_METADATA,
     AnalysisDepth,
-    DeckClaudeExportRequest,
     DeckGenerateRequest,
     DeckPlanRequest,
+    DeckPptxDesignSpecRequest,
     ModelMode,
     PlanTier,
     Provider,
@@ -99,7 +99,6 @@ def get_api_keys(request: Request) -> dict[str, str | None]:
 
     return {
         "gemini": gemini_key,
-        "anthropic": settings.ANTHROPIC_API_KEY or os.getenv("ANTHROPIC_API_KEY"),
     }
 
 
@@ -224,22 +223,6 @@ def _estimate_cost_usd(model: str, input_tokens: int, output_tokens: int) -> flo
     return round(
         (input_tokens / 1_000_000) * model_def.input_price_per_m
         + (output_tokens / 1_000_000) * model_def.output_price_per_m,
-        6,
-    )
-
-
-def _estimate_anthropic_export_cost_usd(model: str, input_tokens: int, output_tokens: int) -> float:
-    """Best-effort Claude export cost estimate until export models join the catalog."""
-    model_key = (model or "").lower()
-    if "sonnet" in model_key:
-        input_price_per_m = 3.0
-        output_price_per_m = 15.0
-    else:
-        input_price_per_m = 0.0
-        output_price_per_m = 0.0
-    return round(
-        (input_tokens / 1_000_000) * input_price_per_m
-        + (output_tokens / 1_000_000) * output_price_per_m,
         6,
     )
 
@@ -491,15 +474,15 @@ async def generate_deck(request: Request):
     return response
 
 
-@router.post("/deck/export/claude")
-async def export_deck_with_claude(request: Request):
-    """Export generated deck JSON to PPTX/PDF using Claude Skills."""
-    from app.deck.services.claude_export_service import (
-        ClaudeDeckExportService,
-        ClaudeExportError,
+@router.post("/deck/export/pptx-design-spec")
+async def create_pptx_design_spec(request: Request):
+    """Generate Gemini layout guidance for local PPTX rendering."""
+    from app.deck.services.gemini_pptx_design_service import (
+        GeminiPptxDesignError,
+        GeminiPptxDesignService,
     )
 
-    export_request = await _parse_model(DeckClaudeExportRequest, request)
+    export_request = await _parse_model(DeckPptxDesignSpecRequest, request)
 
     token = _get_bearer_token(request)
     if not token:
@@ -525,8 +508,7 @@ async def export_deck_with_claude(request: Request):
 
     session = SessionLocal()
     try:
-        user = _upsert_user_sync(session, user_id, payload)
-        plan_tier = get_plan_tier(user)
+        _upsert_user_sync(session, user_id, payload)
         session.commit()
     except Exception as exc:
         session.rollback()
@@ -537,54 +519,50 @@ async def export_deck_with_claude(request: Request):
     finally:
         session.close()
 
-    if plan_tier == PlanTier.FREE.value and not settings.CLAUDE_EXPORT_ALLOW_FREE:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "Claude export requires a Pro plan.",
-                "request_id": _request_id(request),
-            },
-        )
-
-    api_key = settings.ANTHROPIC_API_KEY or os.getenv("ANTHROPIC_API_KEY")
+    api_keys = get_api_keys(request)
+    api_key = api_keys.get("gemini")
     if not api_key:
+        message = (
+            "Gemini Vertex AI configuration required. Set GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION."
+            if settings.GOOGLE_GENAI_USE_VERTEXAI
+            else "Gemini export requires GEMINI_API_KEY or GOOGLE_API_KEY."
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": message, "request_id": _request_id(request)},
+        )
+    if settings.GOOGLE_GENAI_USE_VERTEXAI and not _is_vertex_gemini_configured():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
-                "error": "Claude export requires ANTHROPIC_API_KEY on the server.",
+                "error": "Gemini Vertex AI requires GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION.",
                 "request_id": _request_id(request),
             },
         )
 
-    service = ClaudeDeckExportService(
+    service = GeminiPptxDesignService(
         api_key=api_key,
-        model=settings.CLAUDE_EXPORT_MODEL,
-        cache_dir=settings.CLAUDE_EXPORT_CACHE_DIR,
-        max_slides=settings.CLAUDE_EXPORT_MAX_SLIDES,
-        max_tokens=settings.CLAUDE_EXPORT_MAX_TOKENS,
-        timeout_seconds=settings.CLAUDE_EXPORT_TIMEOUT_SECONDS,
+        model=settings.GEMINI_EXPORT_MODEL,
+        cache_dir=settings.GEMINI_EXPORT_CACHE_DIR,
+        max_tokens=settings.GEMINI_EXPORT_MAX_TOKENS,
+        timeout_seconds=settings.GEMINI_EXPORT_TIMEOUT_SECONDS,
     )
 
     try:
         result = await asyncio.to_thread(
-            service.export,
+            service.create_spec,
             deck=export_request.deck,
-            export_format=export_request.export_format,
             title=export_request.title,
         )
-    except ClaudeExportError as exc:
-        message = str(exc)
-        status_code = status.HTTP_400_BAD_REQUEST
-        if "API error" in message or "request failed" in message or "download failed" in message:
-            status_code = status.HTTP_502_BAD_GATEWAY
+    except GeminiPptxDesignError as exc:
         logger.warning(
-            "Claude deck export failed: %s",
-            message,
+            "Gemini PPTX design spec failed: %s",
+            str(exc),
             extra={"request_id": _request_id(request)},
         )
         raise HTTPException(
-            status_code=status_code,
-            detail={"error": message, "request_id": _request_id(request)},
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"error": str(exc), "request_id": _request_id(request)},
         )
 
     if not result.cached:
@@ -592,13 +570,13 @@ async def export_deck_with_claude(request: Request):
         try:
             session.add(LLMUsageLog(
                 user_id=user_id,
-                provider="anthropic",
+                provider="gemini",
                 model=result.model[:50],
                 thinking_enabled=False,
                 input_tokens=result.input_tokens,
                 output_tokens=result.output_tokens,
                 reasoning_tokens=0,
-                estimated_cost_usd=_estimate_anthropic_export_cost_usd(
+                estimated_cost_usd=_estimate_cost_usd(
                     result.model,
                     result.input_tokens,
                     result.output_tokens,
@@ -607,17 +585,18 @@ async def export_deck_with_claude(request: Request):
             ))
             session.commit()
         except Exception as exc:
-            logger.warning("Failed to record Claude export usage metadata: %s", exc)
+            logger.warning("Failed to record Gemini export usage metadata: %s", exc)
             session.rollback()
         finally:
             session.close()
 
-    headers = {
-        "Content-Disposition": f'attachment; filename="{result.filename}"',
-        "X-Claude-Export-Cached": "true" if result.cached else "false",
-        "X-Claude-Export-Model": result.model,
-    }
-    return Response(content=result.content, media_type=result.media_type, headers=headers)
+    return JSONResponse(
+        content=result.spec,
+        headers={
+            "X-Gemini-Export-Cached": "true" if result.cached else "false",
+            "X-Gemini-Export-Model": result.model,
+        },
+    )
 
 
 @router.post("/deck/plan")

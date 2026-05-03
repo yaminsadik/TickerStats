@@ -76,10 +76,6 @@ class TestGetProvider:
         provider = get_provider("zai", "test-key")
         assert provider.PROVIDER_NAME == "zai"
     
-    def test_get_anthropic_provider(self):
-        provider = get_provider("anthropic", "test-key")
-        assert provider.PROVIDER_NAME == "anthropic"
-    
     def test_invalid_provider(self):
         with pytest.raises(ValueError) as exc_info:
             get_provider("invalid", "test-key")
@@ -624,73 +620,6 @@ class TestGLMProvider:
 
         call_kwargs = mock_client.chat.completions.create.call_args.kwargs
         assert call_kwargs["extra_body"]["thinking"]["type"] == "enabled"
-
-
-class TestAnthropicProvider:
-    """Tests for Anthropic provider with mocked API client."""
-
-    def test_default_model(self):
-        from app.deck.services.llm_anthropic import AnthropicProvider
-
-        provider = AnthropicProvider("test-key")
-        assert provider.get_default_model() == "claude-sonnet-4-5"
-
-    @patch("app.deck.services.llm_anthropic.AnthropicProvider._get_client")
-    def test_tool_use_structured_output(self, mock_get_client):
-        from app.deck.services.llm_anthropic import AnthropicProvider
-
-        mock_client = MagicMock()
-        # Simulate tool_use response block
-        tool_block = MagicMock()
-        tool_block.type = "tool_use"
-        tool_block.name = "deck_section"
-        tool_block.input = {"section_id": "overview", "slides": []}
-
-        mock_response = MagicMock()
-        mock_response.content = [tool_block]
-        mock_response.usage = MagicMock()
-        mock_response.usage.input_tokens = 100
-        mock_response.usage.output_tokens = 50
-        mock_client.messages.create.return_value = mock_response
-        mock_get_client.return_value = mock_client
-
-        provider = AnthropicProvider("test-key")
-        response = provider.generate_json(
-            "test", "test",
-            {"type": "object", "properties": {"section_id": {"type": "string"}, "slides": {"type": "array"}}},
-        )
-
-        assert response.content == {"section_id": "overview", "slides": []}
-        assert response.provider == "anthropic"
-
-    @patch("app.deck.services.llm_anthropic.AnthropicProvider._get_client")
-    def test_extended_thinking_config(self, mock_get_client):
-        from app.deck.services.llm_anthropic import AnthropicProvider
-
-        mock_client = MagicMock()
-        tool_block = MagicMock()
-        tool_block.type = "tool_use"
-        tool_block.name = "deck_section"
-        tool_block.input = {"section_id": "test", "slides": []}
-        mock_response = MagicMock()
-        mock_response.content = [tool_block]
-        mock_response.usage = MagicMock()
-        mock_response.usage.input_tokens = 100
-        mock_response.usage.output_tokens = 80
-        mock_client.messages.create.return_value = mock_response
-        mock_get_client.return_value = mock_client
-
-        provider = AnthropicProvider("test-key")
-        options = LLMOptions(extra={"thinking_enabled": True, "thinking_budget_tokens": 5000})
-        provider.generate_json(
-            "test", "test",
-            {"type": "object", "properties": {"section_id": {"type": "string"}, "slides": {"type": "array"}}},
-            options=options,
-        )
-
-        call_kwargs = mock_client.messages.create.call_args.kwargs
-        assert call_kwargs["thinking"]["type"] == "enabled"
-        assert call_kwargs["thinking"]["budget_tokens"] == 5000
 
 
 class TestProviderRetry:

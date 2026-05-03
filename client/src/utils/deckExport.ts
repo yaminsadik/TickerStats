@@ -31,7 +31,81 @@ interface NormalizedSection {
 type NormalizedSlide = NormalizedSection["slides"][number];
 type Bullet = NormalizedSlide["bullets"][number];
 
-const PPT = {
+export type PptxDesignLayout =
+  | "cards"
+  | "two_column"
+  | "timeline"
+  | "swot"
+  | "valuation"
+  | "blueprint";
+
+type PptxBlockType =
+  | "hero_callout"
+  | "metric_tile"
+  | "bullet_card"
+  | "text_box"
+  | "timeline_item"
+  | "two_column_panel"
+  | "risk_box"
+  | "valuation_callout"
+  | "section_badge";
+
+interface PptxLayoutBlock {
+  type: PptxBlockType;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  text_source?: string;
+  text_refs?: string[];
+  static_text?: string[];
+  label?: string;
+  title?: string;
+  body?: string;
+  accent_color?: string;
+  style?: {
+    fill?: string;
+    text_color?: string;
+    header_color?: string;
+    border?: string;
+    alignment?: "left" | "center" | "right";
+  };
+}
+
+export interface PptxDesignSpec {
+  version?: string;
+  provider?: string;
+  model?: string;
+  cached?: boolean;
+  theme?: Partial<{
+    name: string;
+    navy: string;
+    blue: string;
+    accent: string;
+    bg: string;
+    card: string;
+    ink: string;
+    text: string;
+    muted: string;
+    border: string;
+    head_font_face: string;
+    body_font_face: string;
+  }>;
+  slides?: Array<{
+    section_id: string;
+    slide_index: number;
+    slide_id?: string | null;
+    layout: PptxDesignLayout;
+    emphasis?: string;
+    accent_color?: string;
+    rationale?: string;
+    blocks?: PptxLayoutBlock[];
+  }>;
+}
+
+type PptxSlideDesign = NonNullable<PptxDesignSpec["slides"]>[number];
+
+const DEFAULT_PPT = {
   w: 13.33,
   h: 7.5,
   navy: "172554",
@@ -48,6 +122,8 @@ const PPT = {
   amber: "D97706",
   purple: "7C3AED",
 };
+
+let PPT = DEFAULT_PPT;
 
 const PDF = {
   navy: [23, 37, 84] as [number, number, number],
@@ -103,6 +179,40 @@ function stripPrefix(text: string) {
   );
 }
 
+function cleanHex(value: string | undefined, fallback: string) {
+  const cleaned = (value || "").replace(/^#/, "").trim();
+  return /^[0-9A-Fa-f]{6}$/.test(cleaned) ? cleaned.toUpperCase() : fallback;
+}
+
+function mergePptTheme(spec?: PptxDesignSpec) {
+  const theme = spec?.theme || {};
+  return {
+    ...DEFAULT_PPT,
+    navy: cleanHex(theme.navy, DEFAULT_PPT.navy),
+    blue: cleanHex(theme.blue, DEFAULT_PPT.blue),
+    accent: cleanHex(theme.accent, DEFAULT_PPT.accent),
+    bg: cleanHex(theme.bg, DEFAULT_PPT.bg),
+    card: cleanHex(theme.card, DEFAULT_PPT.card),
+    ink: cleanHex(theme.ink, DEFAULT_PPT.ink),
+    text: cleanHex(theme.text, DEFAULT_PPT.text),
+    muted: cleanHex(theme.muted, DEFAULT_PPT.muted),
+    border: cleanHex(theme.border, DEFAULT_PPT.border),
+  };
+}
+
+function getSlideDesign(
+  spec: PptxDesignSpec | undefined,
+  section: NormalizedSection,
+  slide: NormalizedSlide,
+  slideIndex: number,
+): PptxSlideDesign | undefined {
+  return spec?.slides?.find((item) => {
+    if (item.section_id !== section.section_id) return false;
+    if (item.slide_id && slide.slide_id && item.slide_id === slide.slide_id) return true;
+    return item.slide_index === slideIndex;
+  });
+}
+
 function slideKind(section: NormalizedSection, slide: NormalizedSlide) {
   const style = slide.layout_hints?.style?.toLowerCase() || "";
   const visual = slide.layout_hints?.suggested_visual?.toLowerCase() || "";
@@ -133,6 +243,64 @@ function slideKind(section: NormalizedSection, slide: NormalizedSlide) {
 function splitForColumns(bullets: Bullet[]) {
   const midpoint = Math.ceil(bullets.length / 2);
   return [bullets.slice(0, midpoint), bullets.slice(midpoint)];
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function blockBounds(block: PptxLayoutBlock) {
+  const x = clamp(Number(block.x) || 0.65, 0.35, 12.45);
+  const y = clamp(Number(block.y) || 1.55, 1.42, 6.7);
+  const w = clamp(Number(block.w) || 3.6, 0.7, PPT.w - x - 0.3);
+  const h = clamp(Number(block.h) || 1.0, 0.3, PPT.h - y - 0.45);
+  return { x, y, w, h };
+}
+
+function sourceText(deckSlide: NormalizedSlide, source?: string) {
+  const key = (source || "bullet_0").toLowerCase();
+  if (key === "title") return deckSlide.title;
+  const match = key.match(/^bullet_(\d+)$/);
+  if (match) {
+    const bullet = deckSlide.bullets?.[Number(match[1])];
+    return bullet ? stripPrefix(bullet.text) : "";
+  }
+  return "";
+}
+
+function resolveTextRefs(deckSlide: NormalizedSlide, refs?: string[]) {
+  return (refs || [])
+    .map((ref) => sourceText(deckSlide, ref))
+    .filter(Boolean);
+}
+
+function tokenColor(token: string | undefined, fallback = PPT.text) {
+  const key = (token || "").toLowerCase();
+  const colors: Record<string, string> = {
+    navy: PPT.navy,
+    accent: PPT.accent,
+    mid_gray: PPT.muted,
+    light_gray: "F4F5F7",
+    white: "FFFFFF",
+    positive: PPT.green,
+    negative: PPT.red,
+    text: PPT.text,
+    ink: PPT.ink,
+    border: PPT.border,
+  };
+  if (colors[key]) return colors[key];
+  return cleanHex(token, fallback);
+}
+
+function fillFor(block: PptxLayoutBlock, fallback = PPT.card) {
+  return tokenColor(block.style?.fill, fallback);
+}
+
+function borderFor(block: PptxLayoutBlock, fallback = PPT.border) {
+  const border = block.style?.border || "hairline_gray";
+  if (border === "none") return { color: fallback, transparency: 100, width: 0 };
+  if (border === "hairline_navy") return { color: PPT.navy, width: 0.75 };
+  return { color: PPT.border, width: 0.75 };
 }
 
 function parseTimelineItem(text: string) {
@@ -292,7 +460,7 @@ function addPptNotes(slide: any, notes?: string) {
   if (notes) slide.addNotes(notes);
 }
 
-function renderPptCards(slide: any, deckSlide: NormalizedSlide) {
+function renderPptCards(slide: any, deckSlide: NormalizedSlide, accent = PPT.accent) {
   const bullets = deckSlide.bullets || [];
   if (bullets.length === 0) return;
 
@@ -303,7 +471,7 @@ function renderPptCards(slide: any, deckSlide: NormalizedSlide) {
     w: 12.15,
     h: 1.18,
     rectRadius: 0.1,
-    line: { color: "BFDBFE", width: 0.8 },
+    line: { color: accent, width: 0.8 },
     fill: { color: "EFF6FF" },
   });
   slide.addText(shortText(stripPrefix(first.text), 185), {
@@ -331,7 +499,7 @@ function renderPptCards(slide: any, deckSlide: NormalizedSlide) {
       3.25,
       cardW,
       1.72,
-      [PPT.green, PPT.purple, PPT.amber][index % 3],
+      [accent, PPT.green, PPT.purple, PPT.amber][index % 4],
     );
   });
 }
@@ -529,22 +697,213 @@ function renderPptValuation(slide: any, deckSlide: NormalizedSlide) {
   });
 }
 
+function renderPptBlueprint(slide: any, deckSlide: NormalizedSlide, design: PptxSlideDesign) {
+  const blocks = design.blocks || [];
+  if (blocks.length === 0) return false;
+
+  blocks.forEach((block, index) => {
+    const { x, y, w, h } = blockBounds(block);
+    const accent = cleanHex(block.accent_color || design.accent_color, PPT.accent);
+    const refTexts = resolveTextRefs(deckSlide, block.text_refs);
+    const staticText = (block.static_text || []).filter(Boolean);
+    const text = shortText(
+      block.body || refTexts.join(" / ") || sourceText(deckSlide, block.text_source),
+      220,
+    );
+    const label = shortText(block.label || block.title || staticText[0] || "", 64);
+    const textColor = tokenColor(block.style?.text_color, PPT.text);
+    const headerColor = tokenColor(block.style?.header_color, accent);
+    const align = block.style?.alignment || "left";
+
+    if (block.type === "hero_callout" || block.type === "valuation_callout") {
+      slide.addShape("roundRect", {
+        x,
+        y,
+        w,
+        h,
+        rectRadius: 0.12,
+        line: borderFor(block, accent),
+        fill: { color: fillFor(block, block.type === "valuation_callout" ? "EFF6FF" : PPT.card) },
+        shadow: { type: "outer", color: "CBD5E1", opacity: 0.18, blur: 1, angle: 45, distance: 1 },
+      });
+      slide.addShape("rect", {
+        x,
+        y,
+        w: 0.1,
+        h,
+        line: { color: accent, transparency: 100 },
+        fill: { color: accent },
+      });
+      if (label) {
+        slide.addText(label.toUpperCase(), {
+          x: x + 0.32,
+          y: y + 0.18,
+          w: w - 0.55,
+          h: 0.22,
+          fontSize: 7,
+          bold: true,
+          color: headerColor,
+          margin: 0,
+          charSpace: 0.8,
+          align,
+        });
+      }
+      slide.addText(text, {
+        x: x + 0.32,
+        y: y + (label ? 0.5 : 0.22),
+        w: w - 0.55,
+        h: h - (label ? 0.65 : 0.35),
+        fontSize: block.type === "valuation_callout" ? 15 : 14,
+        bold: true,
+        color: block.style?.fill === "navy" || block.style?.fill === "accent" ? "FFFFFF" : PPT.ink,
+        margin: 0,
+        fit: "shrink",
+        valign: "mid",
+        align,
+      });
+      return;
+    }
+
+    if (block.type === "metric_tile") {
+      slide.addShape("roundRect", {
+        x,
+        y,
+        w,
+        h,
+        rectRadius: 0.1,
+        line: borderFor(block, accent),
+        fill: { color: fillFor(block, "F8FAFC") },
+      });
+      slide.addText(label || `KPI ${index + 1}`, {
+        x: x + 0.18,
+        y: y + 0.14,
+        w: w - 0.36,
+        h: 0.22,
+        fontSize: 6.8,
+        bold: true,
+        color: headerColor,
+        margin: 0,
+        fit: "shrink",
+        align,
+      });
+      slide.addText(text, {
+        x: x + 0.18,
+        y: y + 0.42,
+        w: w - 0.36,
+        h: h - 0.52,
+        fontSize: 10.5,
+        bold: true,
+        color: textColor,
+        margin: 0,
+        fit: "shrink",
+        align,
+      });
+      return;
+    }
+
+    if (block.type === "timeline_item") {
+      slide.addShape("ellipse", {
+        x,
+        y,
+        w: 0.18,
+        h: 0.18,
+        line: { color: accent, width: 1 },
+        fill: { color: accent },
+      });
+      slide.addText(label || `Step ${index + 1}`, {
+        x: x + 0.28,
+        y: y - 0.04,
+        w: w - 0.28,
+        h: 0.24,
+        fontSize: 8,
+        bold: true,
+        color: headerColor,
+        margin: 0,
+        fit: "shrink",
+        align,
+      });
+      slide.addText(text, {
+        x: x + 0.28,
+        y: y + 0.28,
+        w: w - 0.28,
+        h: h - 0.26,
+        fontSize: 8.4,
+        color: textColor,
+        margin: 0,
+        fit: "shrink",
+        align,
+      });
+      return;
+    }
+
+    const isRisk = block.type === "risk_box";
+    const isPanel = block.type === "two_column_panel";
+    const fill = fillFor(block, isRisk ? "FEF2F2" : isPanel ? "F8FAFC" : PPT.card);
+    slide.addShape("roundRect", {
+      x,
+      y,
+      w,
+      h,
+      rectRadius: 0.08,
+      line: borderFor(block, isRisk ? PPT.red : PPT.border),
+      fill: { color: fill },
+      shadow: { type: "outer", color: "CBD5E1", opacity: 0.12, blur: 1, angle: 45, distance: 1 },
+    });
+    if (label) {
+      slide.addText(label, {
+        x: x + 0.22,
+        y: y + 0.16,
+        w: w - 0.44,
+        h: 0.24,
+        fontSize: 8,
+        bold: true,
+        color: isRisk ? PPT.red : headerColor,
+        margin: 0,
+        fit: "shrink",
+        align,
+      });
+    }
+    slide.addText(text, {
+      x: x + 0.22,
+      y: y + (label ? 0.48 : 0.2),
+      w: w - 0.44,
+      h: h - (label ? 0.62 : 0.34),
+      fontSize: block.type === "section_badge" ? 12 : 9.8,
+      bold: block.type === "section_badge",
+      color: textColor,
+      margin: 0.02,
+      fit: "shrink",
+      valign: "mid",
+      align,
+    });
+  });
+
+  return true;
+}
+
 function renderPptSlide(
   pptx: any,
   pptSlide: any,
   section: NormalizedSection,
   slide: NormalizedSlide,
   slideNo: number,
+  design?: PptxSlideDesign,
 ) {
   addPptHeader(pptx, pptSlide, toTitleCase(section.section_id), slideNo);
   addPptTitle(pptSlide, slide.title);
 
-  const kind = slideKind(section, slide);
-  if (kind === "timeline") renderPptTimeline(pptSlide, slide);
-  else if (kind === "swot") renderPptSwot(pptSlide, slide);
-  else if (kind === "two_column") renderPptTwoColumn(pptSlide, slide);
-  else if (kind === "valuation") renderPptValuation(pptSlide, slide);
-  else renderPptCards(pptSlide, slide);
+  const kind = design?.layout || slideKind(section, slide);
+  const accent = cleanHex(design?.accent_color, PPT.accent);
+  const renderedBlueprint = Boolean(
+    design?.blocks?.length && renderPptBlueprint(pptSlide, slide, design),
+  );
+  if (!renderedBlueprint) {
+    if (kind === "timeline") renderPptTimeline(pptSlide, slide);
+    else if (kind === "swot") renderPptSwot(pptSlide, slide);
+    else if (kind === "two_column") renderPptTwoColumn(pptSlide, slide);
+    else if (kind === "valuation") renderPptValuation(pptSlide, slide);
+    else renderPptCards(pptSlide, slide, accent);
+  }
 
   pptSlide.addText("TickerStats", {
     x: 0.58,
@@ -758,16 +1117,18 @@ export async function exportDeckToPDF(
 export async function exportDeckToPPTX(
   data: DeckExportData,
   filename: string,
+  options: { designSpec?: PptxDesignSpec } = {},
 ) {
   const PptxGenJS = (await import("pptxgenjs")).default;
+  PPT = mergePptTheme(options.designSpec);
 
   const pptx = new PptxGenJS();
   pptx.layout = "LAYOUT_WIDE"; // 13.33 x 7.5 inches
   pptx.author = "TickerStats";
   pptx.subject = "Investment pitch deck";
   pptx.theme = {
-    headFontFace: "Aptos Display",
-    bodyFontFace: "Aptos",
+    headFontFace: options.designSpec?.theme?.head_font_face || "Aptos Display",
+    bodyFontFace: options.designSpec?.theme?.body_font_face || "Aptos",
   };
 
   const sections = normalizeSections(data);
@@ -897,9 +1258,16 @@ export async function exportDeckToPPTX(
       fit: "shrink",
     });
 
-    for (const slide of section.slides || []) {
+    for (const [index, slide] of (section.slides || []).entries()) {
       const pptSlide = pptx.addSlide();
-      renderPptSlide(pptx, pptSlide, section, slide, slideNo);
+      renderPptSlide(
+        pptx,
+        pptSlide,
+        section,
+        slide,
+        slideNo,
+        getSlideDesign(options.designSpec, section, slide, index),
+      );
       slideNo += 1;
     }
   }

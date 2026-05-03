@@ -10,16 +10,15 @@ import {
   Trash2,
   ChevronDown,
   ChevronRight,
-  FileCode,
   FileText,
   Loader2,
   Presentation,
 } from "lucide-react";
-import { Button, Card, Badge, Alert, JsonViewerModal, Spinner } from "../components/ui";
+import { Button, Card, Badge, Alert, Spinner } from "../components/ui";
 import { RelativeTable } from "../components/RelativeTable";
 import { useSignalSettings } from "../hooks/useSignalSettings";
-import { exportDeckToPDF } from "../utils/deckExport";
-import { exportDeckWithClaude } from "../utils/claudeDeckExport";
+import { exportDeckToPDF, exportDeckToPPTX } from "../utils/deckExport";
+import { fetchPptxDesignSpec } from "../utils/geminiDeckExport";
 import { SNAPSHOT_FIELDS } from "../types/api";
 import type { RelativeTableResponse, RowData } from "../types/api";
 import { useUserProfile } from "../hooks/useUserProfile";
@@ -85,7 +84,6 @@ export default function DeckViewPage() {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(),
   );
-  const [showJsonViewer, setShowJsonViewer] = useState(false);
   const [exportingFormat, setExportingFormat] = useState<"pdf" | "pptx" | null>(
     null,
   );
@@ -140,23 +138,20 @@ export default function DeckViewPage() {
     setExportingFormat("pdf");
     setExportNotice({
       variant: "info",
-      message: "Creating PDF with Claude. This can take a few minutes; please keep this page open.",
+      message: "Creating local PDF export.",
     });
     try {
-      await exportDeckWithClaude(
-        authenticatedFetch,
-        deck.content as any,
-        "pdf",
-        filename,
-      );
+      await exportDeckToPDF(deck.content as any, filename);
       setExportNotice(null);
     } catch (error) {
-      console.warn("Claude PDF export failed; using local fallback.", error);
+      const message =
+        error instanceof Error ? error.message : "PDF export failed.";
+      console.warn("PDF export failed.", error);
       setExportNotice({
         variant: "warning",
-        message: "Claude PDF export failed, so a local fallback PDF was downloaded.",
+        title: "PDF export failed",
+        message,
       });
-      await exportDeckToPDF(deck.content as any, filename);
     } finally {
       setExportingFormat(null);
     }
@@ -168,24 +163,34 @@ export default function DeckViewPage() {
     setExportingFormat("pptx");
     setExportNotice({
       variant: "info",
-      message: "Creating PPTX with Claude. This can take a few minutes; please keep this page open.",
+      message: "Creating PPTX with Gemini styling and the local renderer.",
     });
     try {
-      await exportDeckWithClaude(
-        authenticatedFetch,
-        deck.content as any,
-        "pptx",
-        filename,
-      );
-      setExportNotice(null);
+      try {
+        const designSpec = await fetchPptxDesignSpec(
+          authenticatedFetch,
+          deck.content as any,
+          filename,
+        );
+        await exportDeckToPPTX(deck.content as any, filename, { designSpec });
+        setExportNotice(null);
+      } catch (designError) {
+        console.warn("Gemini PPTX design spec failed; using standard PPTX layout.", designError);
+        await exportDeckToPPTX(deck.content as any, filename);
+        setExportNotice({
+          variant: "warning",
+          title: "Exported with standard layout",
+          message: "Gemini styling was unavailable, so the PPTX was exported with the standard local renderer.",
+        });
+      }
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Claude PPTX export failed.";
-      console.warn("Claude PPTX export failed; no local fallback downloaded.", error);
+        error instanceof Error ? error.message : "PPTX export failed.";
+      console.warn("PPTX export failed.", error);
       setExportNotice({
         variant: "warning",
-        title: "Claude export failed",
-        message: `${message} No local PPTX fallback was downloaded.`,
+        title: "PPTX export failed",
+        message,
       });
     } finally {
       setExportingFormat(null);
@@ -241,16 +246,6 @@ export default function DeckViewPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setShowJsonViewer(true)}
-            disabled={!canExport}
-            title={!canExport ? "Upgrade to Pro to export decks" : undefined}
-          >
-            <FileCode className="w-4 h-4 mr-1" />
-            JSON
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
             onClick={handleExportPDF}
             disabled={!canExport || exportingFormat !== null}
             title={!canExport ? "Upgrade to Pro to export decks" : undefined}
@@ -297,7 +292,7 @@ export default function DeckViewPage() {
       {generationErrors.length > 0 && (
         <Alert variant="warning" title="Deck generated with missing sections">
           <p className="mb-2">
-            Some sections failed during JSON generation, so Claude can only export the sections that exist in this deck.
+            Some sections failed during deck generation, so exports can only include the sections that exist in this deck.
           </p>
           <ul className="list-disc list-inside space-y-1">
             {generationErrors.slice(0, 5).map((error, i) => (
@@ -367,27 +362,6 @@ export default function DeckViewPage() {
           )}
         </Card>
       ))}
-
-      {showJsonViewer && (
-        <JsonViewerModal
-          isOpen={showJsonViewer}
-          onClose={() => setShowJsonViewer(false)}
-          exportData={deck.content as any}
-          deckName={deck.title}
-          ticker={deck.ticker}
-          _onDownload={() => {
-            const blob = new Blob([JSON.stringify(deck.content, null, 2)], {
-              type: "application/json",
-            });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `${deck.ticker}_deck.json`;
-            a.click();
-            URL.revokeObjectURL(url);
-          }}
-        />
-      )}
     </div>
   );
 }

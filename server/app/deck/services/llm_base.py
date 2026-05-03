@@ -249,7 +249,7 @@ def get_provider(
     Factory function to get an LLM provider instance.
     
     Args:
-        provider_name: "openai", "gemini", "deepseek", "zai", or "anthropic"
+        provider_name: "openai", "gemini", "deepseek", or "zai"
         api_key: API key for the provider
         model: Optional specific model
         
@@ -260,14 +260,12 @@ def get_provider(
     from app.deck.services.llm_gemini import GeminiProvider
     from app.deck.services.llm_deepseek import DeepSeekProvider
     from app.deck.services.llm_glm import GLMProvider
-    from app.deck.services.llm_anthropic import AnthropicProvider
     
     providers = {
         "openai": OpenAIProvider,
         "gemini": GeminiProvider,
         "deepseek": DeepSeekProvider,
         "zai": GLMProvider,
-        "anthropic": AnthropicProvider,
     }
     
     provider_class = providers.get(provider_name.lower())
