@@ -464,7 +464,7 @@ export default function DeckDraftPage() {
       {generationErrors.length > 0 && (
         <Alert variant="warning" title="Deck generated with missing sections" className="mb-6">
           <p className="mb-2">
-            Some sections failed during JSON generation, so Claude can only export the sections that exist in this draft.
+            Some sections failed during JSON generation, so export can only include the sections that exist in this draft.
           </p>
           <ul className="list-disc list-inside space-y-1">
             {generationErrors.slice(0, 5).map((error, i) => (
