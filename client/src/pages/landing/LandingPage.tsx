@@ -148,6 +148,11 @@ export default function LandingPage() {
       : hasPaidExportAccess
         ? "Go to app"
         : "Buy export credit";
+  const usagePackCTALabel = isCreatingCheckout
+    ? "Redirecting..."
+    : !isAuthenticated
+      ? "Sign up to buy add-ons"
+      : "Buy usage pack ($2.99)";
 
   const handleExportCTA = useCallback(() => {
     if (isResolvingTier || isCreatingCheckout) return;
@@ -175,6 +180,20 @@ export default function LandingPage() {
     loginWithRedirect,
     navigate,
   ]);
+
+  const handleUsagePackCTA = useCallback(() => {
+    if (isCreatingCheckout) return;
+
+    if (!isAuthenticated) {
+      loginWithRedirect({
+        authorizationParams: { screen_hint: "signup" },
+        appState: { returnTo: "/profile" },
+      });
+      return;
+    }
+
+    createCheckout("usage_pack");
+  }, [createCheckout, isAuthenticated, isCreatingCheckout, loginWithRedirect]);
 
   // ── Scroll reveal refs ──
   const demos = useScrollReveal<HTMLElement>();
@@ -685,11 +704,11 @@ export default function LandingPage() {
               Simple, transparent pricing
             </h2>
             <p className="text-lg text-slate-400 mb-12 text-center max-w-2xl mx-auto">
-              Generate for free, pay only when you export a finished deck.
+              Generate your first deck free, then pay only when you export.
             </p>
 
-            {/* Pricing cards: Free + export + contact */}
-            <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto mb-12 print:break-inside-avoid">
+            {/* Pricing cards: Free + export + usage pack */}
+            <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto mb-6 items-stretch print:break-inside-avoid">
               {/* Free tier */}
               <PricingCard
                 name={TIERS.free.name}
@@ -710,34 +729,37 @@ export default function LandingPage() {
                 cta={isResolvingTier ? "Checking account..." : exportCTALabel}
                 onClick={handleExportCTA}
                 disabled={isResolvingTier || isCreatingCheckout}
+                badge="Most Popular"
                 highlighted
               />
 
-              {/* Contact / Need more */}
-              <div className="rounded-xl p-8 bg-slate-900 border border-slate-800 flex flex-col">
-                <h3 className="text-xl font-bold text-white mb-2">
-                  Need more?
-                </h3>
-                <p className="text-sm text-slate-400 mb-6 flex-1">
-                  Need a larger limit or a custom workflow? Reach out and we'll
-                  figure it out together.
-                </p>
+              {/* Usage Pack */}
+              <PricingCard
+                name={TIERS.usage.name}
+                price={TIERS.usage.price}
+                period={TIERS.usage.period}
+                features={TIERS.usage.features}
+                cta={usagePackCTALabel}
+                onClick={handleUsagePackCTA}
+                disabled={isCreatingCheckout}
+                highlighted={false}
+              />
+            </div>
+
+            {/* Contact + model note */}
+            <div className="text-center mb-12 space-y-2">
+              <p className="text-sm text-slate-400">
+                Need a higher limit or custom workflow?{" "}
                 <button
+                  type="button"
                   onClick={() => navigate("/contact")}
-                  className="w-full py-3 rounded-lg font-semibold transition-colors bg-slate-800 text-white hover:bg-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  className="text-blue-400 hover:text-blue-300 underline-offset-2 hover:underline transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
                 >
                   Contact us
                 </button>
-              </div>
-            </div>
-
-            {/* Model note */}
-            <div className="text-center mb-12">
+              </p>
               <p className="text-xs text-slate-500">
-                Models: Auto (Best Available) selects from {MODELS.join(", ")}.
-                <br />
-                Model availability may change. TickerStats automatically selects
-                the best available model for your deck.
+                Models: Auto (Best Available) currently runs on {MODELS.join(", ")}.
               </p>
             </div>
 
@@ -893,6 +915,7 @@ function PricingCard({
   onClick,
   disabled = false,
   highlighted = false,
+  badge,
 }: {
   name: string;
   price: string;
@@ -902,25 +925,34 @@ function PricingCard({
   onClick: () => void;
   disabled?: boolean;
   highlighted?: boolean;
+  badge?: string;
 }) {
   return (
     <div
-      className={`rounded-xl p-8 flex flex-col transition-shadow print:break-inside-avoid ${
+      className={`relative rounded-xl p-8 flex flex-col h-full transition-shadow print:break-inside-avoid ${
         highlighted
-          ? "bg-gradient-to-b from-blue-600 to-blue-700 border-2 border-blue-500 shadow-xl shadow-blue-600/20 md:scale-105"
+          ? "bg-gradient-to-b from-blue-600 to-blue-700 ring-2 ring-blue-400 shadow-xl shadow-blue-600/30"
           : "bg-slate-900 border border-slate-800"
       }`}
     >
-      {highlighted && (
-        <span className="text-[10px] uppercase tracking-wider font-bold text-blue-200 mb-2">
-          Pay Per Deck
+      {badge && (
+        <span
+          className={`absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full text-[10px] uppercase tracking-wider font-bold ${
+            highlighted
+              ? "bg-white text-blue-700"
+              : "bg-blue-500 text-white"
+          }`}
+        >
+          {badge}
         </span>
       )}
       <h3 className="text-xl font-bold text-white mb-2">{name}</h3>
-      <div className="mb-6">
-        <span className="text-4xl font-bold text-white">{price}</span>
+      <div className="mb-6 flex items-baseline gap-1.5">
+        <span className="text-4xl font-bold text-white leading-none">
+          {price}
+        </span>
         <span
-          className={`text-sm ml-1 ${
+          className={`text-sm ${
             highlighted ? "text-blue-100" : "text-slate-400"
           }`}
         >
@@ -962,12 +994,10 @@ function PricingCard({
         type="button"
         onClick={onClick}
         disabled={disabled}
-        className={`w-full py-3 rounded-lg font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
-          disabled ? "opacity-70 cursor-not-allowed" : ""
-        } ${
+        className={`w-full py-3 rounded-lg font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed ${
           highlighted
-            ? "bg-white text-blue-600 hover:bg-blue-50"
-            : "bg-slate-800 text-white hover:bg-slate-700"
+            ? "bg-white text-blue-600 hover:bg-blue-50 disabled:bg-blue-50/70 disabled:text-blue-400"
+            : "bg-slate-800 text-white hover:bg-slate-700 disabled:bg-slate-800/70 disabled:text-slate-400"
         }`}
       >
         {cta}

@@ -680,7 +680,7 @@ export const TIERS = {
   pro: {
     name: "Export Credits",
     price: "$4.99",
-    period: "/ 2 decks",
+    period: "for 2 decks",
     comparesPerMonth: Infinity,
     decksPerMonth: 2,
     features: [
@@ -689,6 +689,20 @@ export const TIERS = {
       { text: "DCF valuation", included: true },
       { text: "Pay only when your deck is ready", included: true },
       { text: "No monthly subscription", included: true },
+    ],
+  },
+  usage: {
+    name: "Usage Pack",
+    price: "$2.99",
+    period: "one-time",
+    comparesPerMonth: 10,
+    decksPerMonth: 2,
+    features: [
+      { text: "10 extra company compares", included: true },
+      { text: "2 extra deck generations", included: true },
+      { text: "Stacks on top of Free tier", included: true },
+      { text: "Auto model selection", included: true },
+      { text: "PDF/PPTX deck export", included: false },
     ],
   },
 } as const;
