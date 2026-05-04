@@ -16,6 +16,8 @@ from app.models import LLMUsageLog, User
 FREE_COMPARE_LIMIT = 5
 FREE_DECK_LIMIT = 1
 PRO_DECK_LIMIT = 100
+USAGE_PACK_COMPARE_CREDITS = 10
+USAGE_PACK_DECK_CREDITS = 2
 FAIRNESS_WINDOW_MINUTES = 15
 
 
@@ -28,18 +30,36 @@ def get_plan_tier(user: User) -> str:
     return tier
 
 
-def get_compare_limit(plan_tier: str) -> Optional[int]:
+def _clean_extra_credits(value: Optional[int]) -> int:
+    return max(int(value or 0), 0)
+
+
+def get_compare_limit(plan_tier: str, extra_credits: int = 0) -> Optional[int]:
     if plan_tier == "free":
-        return FREE_COMPARE_LIMIT
+        return FREE_COMPARE_LIMIT + _clean_extra_credits(extra_credits)
     return None
 
 
-def get_deck_limit(plan_tier: str) -> Optional[int]:
+def get_deck_limit(plan_tier: str, extra_credits: int = 0) -> Optional[int]:
     if plan_tier == "free":
-        return FREE_DECK_LIMIT
+        return FREE_DECK_LIMIT + _clean_extra_credits(extra_credits)
     if plan_tier == "pro":
-        return PRO_DECK_LIMIT
+        return PRO_DECK_LIMIT + _clean_extra_credits(extra_credits)
     return None
+
+
+def get_user_compare_limit(user: User) -> Optional[int]:
+    return get_compare_limit(
+        get_plan_tier(user),
+        _clean_extra_credits(getattr(user, "extra_compare_credits", 0)),
+    )
+
+
+def get_user_deck_limit(user: User) -> Optional[int]:
+    return get_deck_limit(
+        get_plan_tier(user),
+        _clean_extra_credits(getattr(user, "extra_deck_credits", 0)),
+    )
 
 
 def month_start(dt: datetime) -> datetime:
@@ -53,6 +73,8 @@ def reset_monthly_usage(user: User, now: datetime) -> bool:
         user.usage_month_start = current_start
         user.deck_count_month = 0
         user.compare_count_month = 0
+        user.extra_deck_credits = 0
+        user.extra_compare_credits = 0
         user.last_compare_hash = None
         user.last_compare_at = None
         return True
@@ -92,8 +114,7 @@ async def check_compare_limit_async(
 ) -> Tuple[bool, bool, Optional[int]]:
     """Return (allowed, should_increment, limit)."""
     reset_monthly_usage(user, now)
-    plan_tier = get_plan_tier(user)
-    limit = get_compare_limit(plan_tier)
+    limit = get_user_compare_limit(user)
     if limit is None:
         return True, False, None
     if should_skip_compare_increment(user, compare_hash, now):
@@ -112,8 +133,7 @@ async def apply_compare_increment_async(user: User, now: datetime, compare_hash:
 def check_deck_limit_sync(user: User, now: datetime) -> Tuple[bool, Optional[int]]:
     """Return (allowed, limit)."""
     reset_monthly_usage(user, now)
-    plan_tier = get_plan_tier(user)
-    limit = get_deck_limit(plan_tier)
+    limit = get_user_deck_limit(user)
     if limit is None:
         return True, None
     if user.deck_count_month >= limit:

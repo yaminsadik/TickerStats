@@ -25,6 +25,8 @@ export const userProfileSchema = z.object({
   deck_limit: z.number().nullable(),
   can_export: z.boolean(),
   deck_export_credits: z.number().default(0),
+  extra_compare_credits: z.number().default(0),
+  extra_deck_credits: z.number().default(0),
 });
 
 export type UserProfileParsed = z.infer<typeof userProfileSchema>;

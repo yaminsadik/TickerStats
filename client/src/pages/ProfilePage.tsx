@@ -7,17 +7,40 @@ import { useAuth0 } from "@auth0/auth0-react";
 import {
   Mail,
   Calendar,
-  Crown,
   Shield,
-  Star,
   FileText,
   Search,
+  BarChart3,
+  Download,
   Loader2,
   ExternalLink,
 } from "lucide-react";
 import { Card, Button, Alert } from "../components/ui";
 import { useProfileQuery } from "../queries/useProfileQuery";
 import { useSubscriptionMutations } from "../queries/useSubscriptionMutations";
+
+const DECK_EXPORT_CREDITS_PER_PURCHASE = 2;
+const USAGE_PACK_COMPARE_CREDITS = 10;
+const USAGE_PACK_DECK_CREDITS = 2;
+const USAGE_PACK_PRICE = "$2.99";
+
+function pluralize(count: number, singular: string, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function formatRemaining(
+  used: number,
+  limit: number | null,
+  unit: string,
+  period?: string,
+) {
+  if (limit == null || limit >= 999) {
+    return period ? `Unlimited ${period}` : "Unlimited";
+  }
+
+  const remaining = Math.max(limit - used, 0);
+  return `${pluralize(remaining, unit)} left${period ? ` ${period}` : ""}`;
+}
 
 export default function ProfilePage() {
   const navigate = useNavigate();
@@ -33,6 +56,9 @@ export default function ProfilePage() {
   } = useSubscriptionMutations();
 
   const [avatarFailed, setAvatarFailed] = useState(false);
+  const [pendingCheckout, setPendingCheckout] = useState<
+    "deck_export" | "usage_pack" | null
+  >(null);
 
   if (loading) {
     return (
@@ -60,10 +86,22 @@ export default function ProfilePage() {
       .slice(0, 2)
       .map((part: string) => part[0]?.toUpperCase())
       .join("") || "U";
-  const tierColors: Record<string, string> = {
-    free: "bg-slate-600 text-slate-200",
-    pro: "bg-yellow-600 text-yellow-100",
-    enterprise: "bg-purple-600 text-purple-100",
+  const exportCreditsLabel = profile.can_export
+    ? "Included"
+    : pluralize(profile.deck_export_credits, "credit");
+  const exportCreditsHelp = profile.can_export
+    ? "PDF/PPTX exports are included"
+    : profile.deck_export_credits > 0
+      ? "Use credits to unlock PDF/PPTX exports"
+      : "No credits purchased yet";
+  const shouldShowHigherLimitsCta =
+    profile.plan_tier === "free" &&
+    (profile.compare_limit !== null || profile.deck_limit !== null);
+  const activeExtraUses =
+    profile.extra_compare_credits > 0 || profile.extra_deck_credits > 0;
+  const startCheckout = (item: "deck_export" | "usage_pack") => {
+    setPendingCheckout(item);
+    createCheckout(item);
   };
 
   return (
@@ -94,20 +132,8 @@ export default function ProfilePage() {
               <h2 className="text-xl font-semibold text-white">
                 {displayName}
               </h2>
-              <span
-                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase ${
-                  tierColors[profile.subscription_tier] || tierColors.free
-                }`}
-              >
-                {profile.subscription_tier === "free" ? (
-                  <Star className="w-3 h-3" />
-                ) : (
-                  <Crown className="w-3 h-3" />
-                )}
-                {profile.subscription_tier}
-              </span>
               {profile.is_admin && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-600 text-red-100">
+                <span className="inline-flex items-center gap-1 rounded-md border border-red-600/60 bg-red-950/50 px-2.5 py-1 text-xs font-medium text-red-200">
                   <Shield className="w-3 h-3" />
                   Admin
                 </span>
@@ -138,29 +164,38 @@ export default function ProfilePage() {
 
       {/* Billing Card */}
       <Card className="p-6 space-y-4">
-        <h3 className="text-lg font-semibold text-white flex items-center gap-2">
-          <Crown className="w-5 h-5 text-yellow-500" />
-          Exports & Billing
-        </h3>
+        <div>
+          <h3 className="text-lg font-semibold text-white">
+            Exports & Add-ons
+          </h3>
+          <p className="mt-1 text-sm text-slate-400">
+            One-time purchases for exports and extra monthly research usage.
+          </p>
+        </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="bg-slate-800/50 rounded-lg p-4">
             <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">
-              Account
+              Export credits available
             </p>
-            <p className="text-lg font-semibold text-white capitalize">
-              {profile.subscription_tier}
+            <p className="text-lg font-semibold text-white">
+              {profile.can_export ? "Included" : profile.deck_export_credits}
             </p>
           </div>
 
-          <div className="bg-slate-800/50 rounded-lg p-4">
-            <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">
-              Export Credits
-            </p>
-            <p className="text-lg font-semibold text-white">
-              {profile.deck_export_credits}
-            </p>
-          </div>
+          {shouldShowHigherLimitsCta && (
+            <div className="bg-slate-800/50 rounded-lg p-4">
+              <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">
+                Extra uses this month
+              </p>
+              <p className="text-lg font-semibold text-white">
+                {pluralize(profile.extra_compare_credits, "compare")}
+              </p>
+              <p className="mt-1 text-xs text-slate-400">
+                {pluralize(profile.extra_deck_credits, "deck generation")}
+              </p>
+            </div>
+          )}
 
           {profile.subscription_expires_at && (
             <div className="bg-slate-800/50 rounded-lg p-4">
@@ -174,43 +209,97 @@ export default function ProfilePage() {
           )}
         </div>
 
-        {profile.subscription_tier === "free" && (
-          <div className="bg-gradient-to-r from-blue-900/40 to-purple-900/40 border border-blue-800/50 rounded-lg p-4">
-            <h4 className="text-sm font-semibold text-white mb-2">
-              2 Deck Exports for $4.99
-            </h4>
-            <ul className="text-sm text-slate-300 space-y-1 mb-3">
-              <li>✓ Unlock PDF and PPTX export for 2 finished decks</li>
-              <li>✓ No subscription or renewal</li>
-              <li>
-                ✓ Free preview stays available before you pay
-              </li>
-            </ul>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => createCheckout("deck_export")}
-              disabled={isCreatingCheckout}
-            >
-              {isCreatingCheckout ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                  Loading...
-                </>
-              ) : (
-                <>
-                  <ExternalLink className="w-4 h-4 mr-1" />
-                  Buy 2 Export Credits
-                </>
-              )}
-            </Button>
+        {(profile.subscription_tier === "free" && !profile.can_export) ||
+        shouldShowHigherLimitsCta ? (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {profile.subscription_tier === "free" && !profile.can_export && (
+              <div className="flex flex-col rounded-lg border border-slate-700 bg-slate-800/40 p-4">
+                <div className="flex-1">
+                  <Download className="mb-3 h-5 w-5 text-emerald-400" />
+                  <h4 className="text-sm font-semibold text-white">
+                    Export credits
+                  </h4>
+                  <p className="mt-1 text-sm text-slate-300">
+                    Add {DECK_EXPORT_CREDITS_PER_PURCHASE} credits to unlock
+                    PDF or PPTX exports for finished decks.
+                  </p>
+                </div>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => startCheckout("deck_export")}
+                  disabled={isCreatingCheckout}
+                  className="mt-4 w-full"
+                >
+                  {isCreatingCheckout && pendingCheckout === "deck_export" ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                      Loading...
+                    </>
+                  ) : (
+                    <>
+                      <ExternalLink className="w-4 h-4 mr-1" />
+                      Add 2 Credits for $4.99
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
+
+            {shouldShowHigherLimitsCta && (
+              <div className="flex flex-col rounded-lg border border-slate-700 bg-slate-800/40 p-4">
+                <div className="flex-1">
+                  <BarChart3 className="mb-3 h-5 w-5 text-cyan-400" />
+                  <h4 className="text-sm font-semibold text-white">
+                    Usage pack
+                  </h4>
+                  <p className="mt-1 text-sm text-slate-300">
+                    Add {USAGE_PACK_COMPARE_CREDITS} company compares and{" "}
+                    {USAGE_PACK_DECK_CREDITS} deck generations for this month.
+                  </p>
+                  {activeExtraUses && (
+                    <p className="mt-2 text-xs text-slate-500">
+                      Extra uses are already active on this account.
+                    </p>
+                  )}
+                </div>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => startCheckout("usage_pack")}
+                  disabled={isCreatingCheckout}
+                  className="mt-4 w-full"
+                >
+                  {isCreatingCheckout && pendingCheckout === "usage_pack" ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                      Loading...
+                    </>
+                  ) : (
+                    <>
+                      <ExternalLink className="w-4 h-4 mr-1" />
+                      Add More Uses for {USAGE_PACK_PRICE}
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
+
             {checkoutError && (
-              <Alert variant="error" className="mt-3">
+              <Alert variant="error" className="md:col-span-2">
                 {checkoutError}
               </Alert>
             )}
           </div>
+        ) : null}
+
+        {profile.subscription_tier === "free" && !profile.can_export && (
+          <p className="text-xs text-slate-500">
+            Previewing generated decks stays available without buying export
+            credits.
+          </p>
         )}
+
         {profile.subscription_tier !== "free" && (
           <>
             <Button
@@ -243,61 +332,76 @@ export default function ProfilePage() {
 
       {/* Usage Card */}
       <Card className="p-5 sm:p-6 space-y-5">
-        <h3 className="text-lg font-semibold text-white">Usage</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-5">
-          <div className="bg-slate-800/50 rounded-lg p-4 sm:p-5 text-center">
-            <Search className="w-5 h-5 text-blue-400 mx-auto mb-1" />
-            <p className="text-2xl font-bold text-white">
-              {profile.saved_searches_count}
-              <span className="text-sm text-slate-400 font-normal">
-                {" "}
-                /{" "}
-                {profile.saved_searches_limit === 999
-                  ? "∞"
-                  : profile.saved_searches_limit}
-              </span>
+        <div>
+          <h3 className="text-lg font-semibold text-white">Usage</h3>
+          <p className="mt-1 text-sm text-slate-400">
+            Monthly activity, saved slots, and export credits for your account.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5">
+          <div className="rounded-lg border border-slate-800 bg-slate-800/45 p-4 sm:p-5">
+            <Search className="w-5 h-5 text-blue-400 mb-4" />
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Saved searches
             </p>
-            <p className="text-xs text-slate-400 mt-1">Saved Searches</p>
+            <p className="mt-2 text-2xl font-bold text-white">
+              {profile.saved_searches_count} used
+            </p>
+            <p className="mt-1 text-sm text-slate-400">
+              {formatRemaining(
+                profile.saved_searches_count,
+                profile.saved_searches_limit,
+                "slot",
+              )}
+            </p>
           </div>
 
-          <div className="bg-slate-800/50 rounded-lg p-4 sm:p-5 text-center">
-            <FileText className="w-5 h-5 text-indigo-400 mx-auto mb-1" />
-            <p className="text-2xl font-bold text-white">
-              {profile.deck_count_month}
-              <span className="text-sm text-slate-400 font-normal">
-                {" "}
-                / {profile.deck_limit == null ? "∞" : profile.deck_limit}
-              </span>
+          <div className="rounded-lg border border-slate-800 bg-slate-800/45 p-4 sm:p-5">
+            <FileText className="w-5 h-5 text-indigo-400 mb-4" />
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Deck generations
             </p>
-            <p className="text-xs text-slate-400 mt-1">Deck Generations</p>
+            <p className="mt-2 text-2xl font-bold text-white">
+              {profile.deck_count_month} used
+            </p>
+            <p className="mt-1 text-sm text-slate-400">
+              {formatRemaining(
+                profile.deck_count_month,
+                profile.deck_limit,
+                "generation",
+                "this month",
+              )}
+            </p>
           </div>
 
-          <div className="bg-slate-800/50 rounded-lg p-4 sm:p-5 text-center">
-            <Search className="w-5 h-5 text-purple-400 mx-auto mb-1" />
-            <p className="text-2xl font-bold text-white">
-              {profile.compare_count_month}
-              <span className="text-sm text-slate-400 font-normal">
-                {" "}
-                / {profile.compare_limit == null ? "∞" : profile.compare_limit}
-              </span>
+          <div className="rounded-lg border border-slate-800 bg-slate-800/45 p-4 sm:p-5">
+            <BarChart3 className="w-5 h-5 text-cyan-400 mb-4" />
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Company compares
             </p>
-            <p className="text-xs text-slate-400 mt-1">Compare / month</p>
+            <p className="mt-2 text-2xl font-bold text-white">
+              {profile.compare_count_month} used
+            </p>
+            <p className="mt-1 text-sm text-slate-400">
+              {formatRemaining(
+                profile.compare_count_month,
+                profile.compare_limit,
+                "compare",
+                "this month",
+              )}
+            </p>
           </div>
 
-          <div className="bg-slate-800/50 rounded-lg p-4 sm:p-5 text-center">
-            <FileText className="w-5 h-5 text-green-400 mx-auto mb-1" />
-            <p className="text-xl font-bold text-white">
-              {profile.can_export ? "All" : "2 / $4.99"}
+          <div className="rounded-lg border border-slate-800 bg-slate-800/45 p-4 sm:p-5">
+            <Download className="w-5 h-5 text-emerald-400 mb-4" />
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Export credits
             </p>
-            <p className="text-xs text-slate-400 mt-1">Deck Exports</p>
-          </div>
-
-          <div className="bg-slate-800/50 rounded-lg p-4 sm:p-5 text-center">
-            <Star className="w-5 h-5 text-yellow-400 mx-auto mb-1" />
-            <p className="text-xl font-bold text-white capitalize leading-tight [overflow-wrap:anywhere]">
-              {profile.plan_tier || profile.subscription_tier}
+            <p className="mt-2 text-2xl font-bold text-white">
+              {exportCreditsLabel}
             </p>
-            <p className="text-xs text-slate-400 mt-1">Plan</p>
+            <p className="mt-1 text-sm text-slate-400">{exportCreditsHelp}</p>
           </div>
         </div>
       </Card>

@@ -8,7 +8,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.models import Deck, DeckExportUnlock, User
+from app.models import Deck, DeckExportUnlock, UsagePackPurchase, User
+from app.services.usage_limits import (
+    USAGE_PACK_COMPARE_CREDITS,
+    USAGE_PACK_DECK_CREDITS,
+    reset_monthly_usage,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +35,11 @@ def _price_ids() -> Dict[str, str]:
 def _deck_export_price_id() -> str:
     """Return the configured one-time deck export Price ID."""
     return settings.STRIPE_PRICE_ID_DECK_EXPORT
+
+
+def _usage_pack_price_id() -> str:
+    """Return the configured one-time usage pack Price ID."""
+    return settings.STRIPE_PRICE_ID_USAGE_PACK
 
 
 class StripeService:
@@ -97,6 +107,35 @@ class StripeService:
             success_url=success_url,
             cancel_url=cancel_url,
             metadata=metadata,
+            allow_promotion_codes=True,
+            billing_address_collection="auto",
+        )
+
+    @staticmethod
+    def _create_usage_pack_checkout_session_payload(
+        customer_id: str,
+        price_id: str,
+        user: User,
+    ):
+        """Create a Stripe checkout session request payload for extra monthly usage."""
+        return stripe.checkout.Session.create(
+            customer=customer_id,
+            mode="payment",
+            payment_method_types=["card"],
+            line_items=[
+                {
+                    "price": price_id,
+                    "quantity": 1,
+                }
+            ],
+            success_url=f"{FRONTEND_URL}/profile?usage_pack=success",
+            cancel_url=f"{FRONTEND_URL}/profile?usage_pack=cancelled",
+            metadata={
+                "auth0_user_id": user.auth0_user_id,
+                "product": "usage_pack",
+                "compare_credits": str(USAGE_PACK_COMPARE_CREDITS),
+                "deck_credits": str(USAGE_PACK_DECK_CREDITS),
+            },
             allow_promotion_codes=True,
             billing_address_collection="auto",
         )
@@ -293,6 +332,65 @@ class StripeService:
         }
 
     @staticmethod
+    async def create_usage_pack_checkout_session(
+        user: User,
+        db: AsyncSession,
+    ) -> Dict[str, str]:
+        """
+        Create a one-time Stripe Checkout session for extra monthly usage.
+
+        The completed payment grants extra company compares and deck generations
+        for the user's current usage month.
+        """
+        if not settings.STRIPE_SECRET_KEY:
+            raise ValueError("Stripe secret key is not configured")
+
+        price_id = _usage_pack_price_id()
+        if not price_id:
+            raise ValueError("Price ID not configured for usage pack")
+
+        try:
+            customer_id = await StripeService._ensure_stripe_customer_id(user, db)
+            try:
+                session = StripeService._create_usage_pack_checkout_session_payload(
+                    customer_id=customer_id,
+                    price_id=price_id,
+                    user=user,
+                )
+            except stripe.error.InvalidRequestError as exc:
+                if not StripeService._is_missing_customer_error(exc):
+                    raise
+                logger.warning(
+                    f"Stripe customer disappeared during usage pack checkout for user "
+                    f"{user.auth0_user_id}: {customer_id}. Recreating customer and retrying."
+                )
+                user.stripe_customer_id = None
+                await db.commit()
+                customer_id = await StripeService._ensure_stripe_customer_id(user, db)
+                session = StripeService._create_usage_pack_checkout_session_payload(
+                    customer_id=customer_id,
+                    price_id=price_id,
+                    user=user,
+                )
+        except stripe.error.StripeError as exc:
+            logger.error(
+                f"Stripe API error creating usage pack checkout for user "
+                f"{user.auth0_user_id}: {exc}"
+            )
+            message = getattr(exc, "user_message", None) or str(exc)
+            raise ValueError(f"Stripe checkout error: {message}") from exc
+
+        logger.info(
+            f"Created usage pack checkout session {session.id} for user "
+            f"{user.auth0_user_id}"
+        )
+
+        return {
+            "url": session.url,
+            "session_id": session.id,
+        }
+
+    @staticmethod
     async def create_portal_session(
         user: User,
         db: AsyncSession,
@@ -412,6 +510,9 @@ class StripeService:
         if metadata.get("product") == "deck_export":
             await StripeService._handle_deck_export_checkout_completed(session, db)
             return
+        if metadata.get("product") == "usage_pack":
+            await StripeService._handle_usage_pack_checkout_completed(session, db)
+            return
 
         # Get user
         result = await db.execute(
@@ -513,6 +614,64 @@ class StripeService:
         logger.info(
             f"Added {DECK_EXPORT_CREDITS_PER_PURCHASE} deck export credits "
             f"for user {auth0_user_id}"
+        )
+
+    @staticmethod
+    async def _handle_usage_pack_checkout_completed(
+        session: Dict[str, Any],
+        db: AsyncSession,
+    ):
+        """Handle a completed one-time usage pack checkout."""
+        customer_id = session.get("customer")
+        session_id = session.get("id")
+        metadata = session.get("metadata", {})
+        auth0_user_id = metadata.get("auth0_user_id")
+
+        if not auth0_user_id:
+            logger.error("No auth0_user_id in usage pack checkout metadata")
+            return
+        if not session_id:
+            logger.error("No session id in usage pack checkout")
+            return
+
+        existing = await db.execute(
+            select(UsagePackPurchase).where(
+                UsagePackPurchase.stripe_checkout_session_id == session_id
+            )
+        )
+        if existing.scalar_one_or_none():
+            logger.info(f"Usage pack checkout already processed: {session_id}")
+            return
+
+        result = await db.execute(
+            select(User).where(User.auth0_user_id == auth0_user_id)
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            logger.error(f"User not found for usage pack checkout: {auth0_user_id}")
+            return
+
+        user.stripe_customer_id = customer_id
+        reset_monthly_usage(user, datetime.utcnow())
+        user.extra_compare_credits = (
+            (user.extra_compare_credits or 0) + USAGE_PACK_COMPARE_CREDITS
+        )
+        user.extra_deck_credits = (
+            (user.extra_deck_credits or 0) + USAGE_PACK_DECK_CREDITS
+        )
+        db.add(
+            UsagePackPurchase(
+                user_id=auth0_user_id,
+                stripe_checkout_session_id=session_id,
+                compare_credits_granted=USAGE_PACK_COMPARE_CREDITS,
+                deck_credits_granted=USAGE_PACK_DECK_CREDITS,
+            )
+        )
+        await db.commit()
+        logger.info(
+            f"Added usage pack credits for user {auth0_user_id}: "
+            f"compare={user.extra_compare_credits or 0}, "
+            f"deck={user.extra_deck_credits or 0}"
         )
 
     @staticmethod

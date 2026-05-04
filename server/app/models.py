@@ -32,6 +32,8 @@ class User(Base):
     usage_month_start = Column(DateTime, nullable=True)
     deck_count_month = Column(Integer, nullable=False, default=0)
     compare_count_month = Column(Integer, nullable=False, default=0)
+    extra_deck_credits = Column(Integer, nullable=False, default=0)
+    extra_compare_credits = Column(Integer, nullable=False, default=0)
     last_compare_hash = Column(String(64), nullable=True)
     last_compare_at = Column(DateTime, nullable=True)
 
@@ -44,6 +46,11 @@ class User(Base):
     decks = relationship("Deck", back_populates="user", cascade="all, delete-orphan")
     deck_export_unlocks = relationship(
         "DeckExportUnlock",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    usage_pack_purchases = relationship(
+        "UsagePackPurchase",
         back_populates="user",
         cascade="all, delete-orphan",
     )
@@ -164,6 +171,27 @@ class DeckExportUnlock(Base):
 
     def __repr__(self):
         return f"<DeckExportUnlock(user={self.user_id}, deck_id={self.deck_id})>"
+
+
+class UsagePackPurchase(Base):
+    """A one-time usage pack purchase for extra monthly compares/decks."""
+    __tablename__ = "usage_pack_purchases"
+
+    __table_args__ = (
+        Index("ix_usage_pack_user_created", "user_id", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(255), ForeignKey("users.auth0_user_id", ondelete="CASCADE"), nullable=False)
+    stripe_checkout_session_id = Column(String(255), nullable=False, unique=True)
+    compare_credits_granted = Column(Integer, nullable=False, default=0)
+    deck_credits_granted = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship("User", back_populates="usage_pack_purchases")
+
+    def __repr__(self):
+        return f"<UsagePackPurchase(user={self.user_id}, session={self.stripe_checkout_session_id})>"
 
 
 class LLMUsageLog(Base):

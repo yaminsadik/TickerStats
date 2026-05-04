@@ -20,7 +20,7 @@ webhook_router = APIRouter(prefix="/api/v1/webhooks", tags=["stripe"])
 class CreateCheckoutSessionRequest(BaseModel):
     """Request to create a Stripe checkout session."""
     tier: Optional[Literal["pro", "enterprise"]] = None
-    product: Optional[Literal["deck_export"]] = None
+    product: Optional[Literal["deck_export", "usage_pack"]] = None
     deck_id: Optional[int] = None
 
 
@@ -52,6 +52,11 @@ async def create_checkout_session(
                 user=current_user,
                 db=db,
                 deck_id=request.deck_id,
+            )
+        elif request.product == "usage_pack":
+            result = await StripeService.create_usage_pack_checkout_session(
+                user=current_user,
+                db=db,
             )
         elif request.tier:
             result = await StripeService.create_checkout_session(

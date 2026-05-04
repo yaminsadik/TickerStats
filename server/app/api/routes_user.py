@@ -17,8 +17,8 @@ from app.core.middleware import request_id_var
 from app.models import User, Watchlist, SavedAnalysis, Deck, DeckExportUnlock, AdminAuditLog
 from app.services.usage_limits import (
     get_plan_tier,
-    get_compare_limit,
-    get_deck_limit,
+    get_user_compare_limit,
+    get_user_deck_limit,
     get_daily_thinking_limit,
     get_daily_thinking_uses_async,
     get_monthly_model_cost_async,
@@ -147,6 +147,8 @@ class ProfileResponse(BaseModel):
     deck_limit: Optional[int] = None
     can_export: bool = False
     deck_export_credits: int = 0
+    extra_compare_credits: int = 0
+    extra_deck_credits: int = 0
     # LLM usage quotas
     daily_thinking_uses: int = 0
     daily_thinking_limit: Optional[int] = None
@@ -675,8 +677,8 @@ async def get_profile(
     is_paid = current_user.is_paid
     has_global_export_access = _has_global_export_access(current_user)
     plan_tier = get_plan_tier(current_user)
-    compare_limit = get_compare_limit(plan_tier)
-    deck_limit = get_deck_limit(plan_tier)
+    compare_limit = get_user_compare_limit(current_user)
+    deck_limit = get_user_deck_limit(current_user)
     thinking_uses = await get_daily_thinking_uses_async(db, current_user.auth0_user_id)
     thinking_limit = get_daily_thinking_limit(plan_tier)
     model_cost = await get_monthly_model_cost_async(db, current_user.auth0_user_id)
@@ -703,6 +705,8 @@ async def get_profile(
         deck_limit=deck_limit,
         can_export=has_global_export_access,
         deck_export_credits=current_user.deck_export_credits or 0,
+        extra_compare_credits=current_user.extra_compare_credits or 0,
+        extra_deck_credits=current_user.extra_deck_credits or 0,
         daily_thinking_uses=thinking_uses,
         daily_thinking_limit=thinking_limit,
         monthly_model_cost_usd=model_cost,
@@ -743,8 +747,8 @@ async def update_profile(
     is_paid = current_user.is_paid
     has_global_export_access = _has_global_export_access(current_user)
     plan_tier = get_plan_tier(current_user)
-    compare_limit = get_compare_limit(plan_tier)
-    deck_limit = get_deck_limit(plan_tier)
+    compare_limit = get_user_compare_limit(current_user)
+    deck_limit = get_user_deck_limit(current_user)
     thinking_uses = await get_daily_thinking_uses_async(db, current_user.auth0_user_id)
     thinking_limit = get_daily_thinking_limit(plan_tier)
     model_cost = await get_monthly_model_cost_async(db, current_user.auth0_user_id)
@@ -772,6 +776,8 @@ async def update_profile(
         deck_limit=deck_limit,
         can_export=has_global_export_access,
         deck_export_credits=current_user.deck_export_credits or 0,
+        extra_compare_credits=current_user.extra_compare_credits or 0,
+        extra_deck_credits=current_user.extra_deck_credits or 0,
         daily_thinking_uses=thinking_uses,
         daily_thinking_limit=thinking_limit,
         monthly_model_cost_usd=model_cost,

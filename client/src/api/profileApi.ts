@@ -40,6 +40,8 @@ export interface UserProfile {
   deck_limit: number | null;
   can_export: boolean;
   deck_export_credits: number;
+  extra_compare_credits: number;
+  extra_deck_credits: number;
   daily_thinking_uses: number;
   daily_thinking_limit: number | null;
   monthly_model_cost_usd: number;

@@ -355,12 +355,12 @@ export default function BrowsePage() {
                   <div className="flex items-center gap-2 mb-2">
                     <Lock className="w-5 h-5 text-amber-400" />
                     <h3 className="text-sm font-semibold text-amber-300">
-                      Free Plan Limit Reached
+                      Saved Search Limit Reached
                     </h3>
                   </div>
                   <p className="text-sm text-amber-200/80">
-                    You've used all {savedSearchesLimit} saved searches on the
-                    free plan. Paid accounts can save more searches.
+                    You've used all {savedSearchesLimit} saved search slots.
+                    Delete an old saved search to make room for a new one.
                   </p>
                 </div>
                 <div className="flex gap-2 justify-end pt-2">
@@ -374,8 +374,8 @@ export default function BrowsePage() {
                   >
                     Close
                   </Button>
-                  <Button size="sm" onClick={() => navigate("/profile")}>
-                    Billing
+                  <Button size="sm" onClick={() => navigate("/saved-searches")}>
+                    Manage Searches
                   </Button>
                 </div>
               </div>
@@ -401,7 +401,7 @@ export default function BrowsePage() {
                 {tier === "free" && (
                   <p className="text-xs text-slate-500">
                     {savedSearchesCount}/{savedSearchesLimit} saved searches
-                    used (free plan)
+                    used
                   </p>
                 )}
                 {saveSearchMutation.isError && (
@@ -649,8 +649,7 @@ export default function BrowsePage() {
           />
           {compareLimit !== null && (
             <div className="mt-2 text-xs text-slate-500">
-              Compare usage: {compareCount}/{compareLimit} this month (free
-              plan)
+              Compare usage: {compareCount}/{compareLimit} this month
             </div>
           )}
         </div>
@@ -824,8 +823,8 @@ export default function BrowsePage() {
             </Button>
           </div>
           <div className="text-sm text-slate-500">
-            <p className="mb-2">
-              💡 <strong>Popular searches:</strong>
+            <p className="mb-2 text-xs uppercase tracking-wider font-semibold text-slate-400">
+              Popular searches
             </p>
             <div className="flex flex-wrap gap-2 justify-center">
               <button

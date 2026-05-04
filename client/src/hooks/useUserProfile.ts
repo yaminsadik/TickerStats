@@ -26,8 +26,10 @@ export function useUserProfile() {
     savedSearchesLimit: profile?.saved_searches_limit ?? 3,
     compareCount: profile?.compare_count_month ?? 0,
     compareLimit: profile?.compare_limit ?? null,
+    extraCompareCredits: profile?.extra_compare_credits ?? 0,
     deckCount: profile?.deck_count_month ?? 0,
     deckLimit: profile?.deck_limit ?? null,
+    extraDeckCredits: profile?.extra_deck_credits ?? 0,
     tier: profile?.plan_tier ?? profile?.subscription_tier ?? "free",
     isAdmin: profile?.is_admin ?? false,
   };
