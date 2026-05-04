@@ -88,6 +88,21 @@ class Settings(BaseSettings):
         default="gemini-3.1-pro-preview",
         validation_alias=AliasChoices("VERTEX_GEMINI_DEFAULT_MODEL"),
     )
+    GOOGLE_APPLICATION_CREDENTIALS: str = Field(
+        default="",
+        validation_alias=AliasChoices("GOOGLE_APPLICATION_CREDENTIALS"),
+    )
+    GOOGLE_APPLICATION_CREDENTIALS_JSON: str = Field(
+        default="",
+        validation_alias=AliasChoices("GOOGLE_APPLICATION_CREDENTIALS_JSON"),
+    )
+    GOOGLE_APPLICATION_CREDENTIALS_JSON_BASE64: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "GOOGLE_APPLICATION_CREDENTIALS_JSON_BASE64",
+            "GOOGLE_APPLICATION_CREDENTIALS_BASE64",
+        ),
+    )
 
     # Stripe
     STRIPE_SECRET_KEY: str = Field(

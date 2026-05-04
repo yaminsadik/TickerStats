@@ -1,9 +1,13 @@
+import json
+import sys
+import types
 from types import SimpleNamespace
 
 from app.core.config import settings
 from app.deck.api.routes_deck import VERTEX_GEMINI_KEY_SENTINEL, get_api_keys
-from app.deck.services.llm_gemini import GeminiProvider
+from app.deck.services.llm_gemini import GeminiProvider, VERTEX_CLOUD_PLATFORM_SCOPE
 from app.deck.services.llm_base import LLMOptions
+from app.deck.services.llm_base import AuthenticationError
 from app.deck.services.model_policy import resolve_model
 
 
@@ -27,6 +31,31 @@ class _FakeModels:
 class _FakeClient:
     def __init__(self):
         self.models = _FakeModels()
+
+
+def _install_fake_google_genai(monkeypatch, client_factory):
+    fake_google = types.ModuleType("google")
+    fake_genai = SimpleNamespace(Client=client_factory)
+    fake_google.genai = fake_genai
+
+    monkeypatch.setitem(sys.modules, "google", fake_google)
+    monkeypatch.setitem(sys.modules, "google.genai", fake_genai)
+
+
+def _install_fake_google_service_account(monkeypatch, credentials_factory):
+    class _FakeCredentials:
+        from_service_account_info = staticmethod(credentials_factory)
+
+    fake_service_account = SimpleNamespace(Credentials=_FakeCredentials)
+    fake_oauth2 = types.ModuleType("google.oauth2")
+    fake_oauth2.service_account = fake_service_account
+
+    fake_google = sys.modules.get("google")
+    if fake_google is not None:
+        fake_google.oauth2 = fake_oauth2
+
+    monkeypatch.setitem(sys.modules, "google.oauth2", fake_oauth2)
+    monkeypatch.setitem(sys.modules, "google.oauth2.service_account", fake_service_account)
 
 
 def test_gemini_provider_uses_genai_structured_json(monkeypatch):
@@ -78,3 +107,76 @@ def test_vertex_mode_marks_gemini_available_without_api_key(monkeypatch):
 
     assert decision.provider == "gemini"
     assert decision.model == "gemini-3.1-pro-preview"
+
+
+def test_vertex_client_uses_service_account_json_env(monkeypatch):
+    captured = {}
+    fake_credentials = object()
+
+    def client_factory(**kwargs):
+        captured["client_kwargs"] = kwargs
+        return _FakeClient()
+
+    def credentials_factory(info, scopes=None):
+        captured["credentials_info"] = info
+        captured["credentials_scopes"] = scopes
+        return fake_credentials
+
+    _install_fake_google_genai(monkeypatch, client_factory)
+    _install_fake_google_service_account(monkeypatch, credentials_factory)
+
+    monkeypatch.setattr(settings, "GOOGLE_GENAI_USE_VERTEXAI", True)
+    monkeypatch.setattr(settings, "GOOGLE_CLOUD_PROJECT", "tickerstats-test")
+    monkeypatch.setattr(settings, "GOOGLE_CLOUD_LOCATION", "us-central1")
+    monkeypatch.setattr(settings, "GOOGLE_APPLICATION_CREDENTIALS", "/missing/file.json")
+    monkeypatch.setattr(
+        settings,
+        "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+        json.dumps(
+            {
+                "type": "service_account",
+                "project_id": "tickerstats-test",
+                "private_key_id": "test-key-id",
+                "private_key": "redacted",
+                "client_email": "svc@example.iam.gserviceaccount.com",
+                "token_uri": "https://oauth2.googleapis.com/token",
+            }
+        ),
+    )
+    monkeypatch.setattr(settings, "GOOGLE_APPLICATION_CREDENTIALS_JSON_BASE64", "")
+
+    provider = GeminiProvider(api_key="", default_model="gemini-3.1-pro-preview")
+    client = provider._get_client()
+
+    assert isinstance(client, _FakeClient)
+    assert captured["credentials_info"]["type"] == "service_account"
+    assert captured["credentials_scopes"] == [VERTEX_CLOUD_PLATFORM_SCOPE]
+    assert captured["client_kwargs"]["credentials"] is fake_credentials
+    assert captured["client_kwargs"]["project"] == "tickerstats-test"
+    assert captured["client_kwargs"]["location"] == "us-central1"
+
+
+def test_vertex_client_reports_missing_credentials_file(monkeypatch):
+    def client_factory(**kwargs):
+        raise AssertionError("Client should not be created with a missing ADC file")
+
+    _install_fake_google_genai(monkeypatch, client_factory)
+
+    monkeypatch.setattr(settings, "GOOGLE_GENAI_USE_VERTEXAI", True)
+    monkeypatch.setattr(settings, "GOOGLE_CLOUD_PROJECT", "tickerstats-test")
+    monkeypatch.setattr(settings, "GOOGLE_CLOUD_LOCATION", "us-central1")
+    monkeypatch.setattr(settings, "GOOGLE_APPLICATION_CREDENTIALS", "/missing/file.json")
+    monkeypatch.setattr(settings, "GOOGLE_APPLICATION_CREDENTIALS_JSON", "")
+    monkeypatch.setattr(settings, "GOOGLE_APPLICATION_CREDENTIALS_JSON_BASE64", "")
+
+    provider = GeminiProvider(api_key="", default_model="gemini-3.1-pro-preview")
+
+    try:
+        provider._get_client()
+    except AuthenticationError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("Expected AuthenticationError")
+
+    assert "GOOGLE_APPLICATION_CREDENTIALS points to" in message
+    assert "GOOGLE_APPLICATION_CREDENTIALS_JSON_BASE64" in message

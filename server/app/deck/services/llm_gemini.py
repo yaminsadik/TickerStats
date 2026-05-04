@@ -7,9 +7,12 @@ Cloud project instead of the Gemini Developer API / AI Studio quota path.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import copy
 import json
 import time
+from pathlib import Path
 from typing import Any, Optional
 
 from app.core.config import settings
@@ -27,6 +30,8 @@ from app.deck.utils.logging import get_logger
 from app.deck.utils.validation import sanitize_llm_output
 
 logger = get_logger(__name__)
+
+VERTEX_CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 
 
 class GeminiProvider(LLMProvider):
@@ -55,6 +60,82 @@ class GeminiProvider(LLMProvider):
     def _use_vertex(self) -> bool:
         return bool(settings.GOOGLE_GENAI_USE_VERTEXAI)
 
+    def _load_service_account_info_from_env(self) -> dict[str, Any] | None:
+        """Load service-account JSON from env for hosts that cannot mount files."""
+        raw_json = (settings.GOOGLE_APPLICATION_CREDENTIALS_JSON or "").strip()
+        raw_base64 = (settings.GOOGLE_APPLICATION_CREDENTIALS_JSON_BASE64 or "").strip()
+
+        if raw_json and raw_base64:
+            raise AuthenticationError(
+                "Set only one of GOOGLE_APPLICATION_CREDENTIALS_JSON or "
+                "GOOGLE_APPLICATION_CREDENTIALS_JSON_BASE64."
+            )
+
+        if raw_base64:
+            try:
+                normalized_base64 = "".join(raw_base64.split())
+                raw_json = base64.b64decode(
+                    normalized_base64,
+                    validate=True,
+                ).decode("utf-8")
+            except (binascii.Error, UnicodeDecodeError, ValueError) as exc:
+                raise AuthenticationError(
+                    "Invalid GOOGLE_APPLICATION_CREDENTIALS_JSON_BASE64: expected "
+                    "base64-encoded service-account JSON."
+                ) from exc
+
+        if not raw_json:
+            return None
+
+        try:
+            info = json.loads(raw_json)
+        except json.JSONDecodeError as exc:
+            raise AuthenticationError(
+                "Invalid GOOGLE_APPLICATION_CREDENTIALS_JSON: expected service-account JSON."
+            ) from exc
+
+        if not isinstance(info, dict) or info.get("type") != "service_account":
+            raise AuthenticationError(
+                "Google Vertex credentials must be a service-account JSON object."
+            )
+
+        return info
+
+    def _get_vertex_credentials_from_env(self) -> Any | None:
+        info = self._load_service_account_info_from_env()
+        if info is None:
+            return None
+
+        try:
+            from google.oauth2 import service_account
+        except ImportError as exc:
+            raise LLMError(
+                "google-auth package not installed. Run: pip install google-auth"
+            ) from exc
+
+        try:
+            return service_account.Credentials.from_service_account_info(
+                info,
+                scopes=[VERTEX_CLOUD_PLATFORM_SCOPE],
+            )
+        except Exception as exc:
+            raise AuthenticationError(
+                "Invalid Google service-account credentials in environment."
+            ) from exc
+
+    def _ensure_adc_file_exists_when_configured(self) -> None:
+        credentials_path = (settings.GOOGLE_APPLICATION_CREDENTIALS or "").strip()
+        if not credentials_path:
+            return
+
+        path = Path(credentials_path).expanduser()
+        if not path.exists():
+            raise AuthenticationError(
+                f"GOOGLE_APPLICATION_CREDENTIALS points to '{credentials_path}', "
+                "but that file was not found. Mount the file at that path or set "
+                "GOOGLE_APPLICATION_CREDENTIALS_JSON_BASE64 with the service-account JSON."
+            )
+
     def _get_client(self):
         """Create the Gen AI client for Vertex AI or legacy API-key mode."""
         if self._client is not None:
@@ -72,11 +153,19 @@ class GeminiProvider(LLMProvider):
                 raise AuthenticationError(
                     "Vertex Gemini requires GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION"
                 )
-            self._client = genai.Client(
-                vertexai=True,
-                project=settings.GOOGLE_CLOUD_PROJECT,
-                location=settings.GOOGLE_CLOUD_LOCATION,
-            )
+            credentials = self._get_vertex_credentials_from_env()
+            if credentials is None:
+                self._ensure_adc_file_exists_when_configured()
+
+            client_kwargs: dict[str, Any] = {
+                "vertexai": True,
+                "project": settings.GOOGLE_CLOUD_PROJECT,
+                "location": settings.GOOGLE_CLOUD_LOCATION,
+            }
+            if credentials is not None:
+                client_kwargs["credentials"] = credentials
+
+            self._client = genai.Client(**client_kwargs)
         else:
             if not self.api_key:
                 raise AuthenticationError(

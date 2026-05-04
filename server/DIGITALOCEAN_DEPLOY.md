@@ -66,7 +66,19 @@ curl http://localhost:5000/health
 
    # CORS (if needed)
    ALLOWED_ORIGINS=https://your-frontend-domain.com
+
+   # Gemini on Vertex AI
+   GOOGLE_GENAI_USE_VERTEXAI=true
+   GOOGLE_CLOUD_PROJECT=your-gcp-project-id
+   GOOGLE_CLOUD_LOCATION=us-central1
+   VERTEX_GEMINI_DEFAULT_MODEL=gemini-3.1-pro-preview
+   GEMINI_EXPORT_MODEL=gemini-3.1-pro-preview
+   GOOGLE_APPLICATION_CREDENTIALS_JSON_BASE64=base64-encoded-service-account-json
    ```
+
+   For App Platform, prefer `GOOGLE_APPLICATION_CREDENTIALS_JSON_BASE64`.
+   Do not set `GOOGLE_APPLICATION_CREDENTIALS=/app/secrets/...` unless you
+   also mount a file at that exact path.
 
 4. **Configure Resources**
    - **Instance Size**: Basic (512MB RAM) or Professional (1GB+ recommended)
@@ -246,6 +258,11 @@ doctl apps update YOUR_APP_ID --spec app-spec.yaml
 | `DEBUG`            | No       | `false` | Enable debug mode                             |
 | `LOG_LEVEL`        | No       | `info`  | Logging level (debug, info, warning, error)   |
 | `ALLOWED_ORIGINS`  | No       | `*`     | CORS allowed origins (comma-separated)        |
+| `GOOGLE_GENAI_USE_VERTEXAI` | No | `false` | Use Vertex AI for Gemini deck generation |
+| `GOOGLE_CLOUD_PROJECT` | If Vertex | - | Google Cloud project for Vertex AI quota |
+| `GOOGLE_CLOUD_LOCATION` | If Vertex | `us-central1` | Vertex AI region |
+| `GOOGLE_APPLICATION_CREDENTIALS_JSON_BASE64` | If Vertex without platform ADC | - | Base64-encoded service-account JSON secret |
+| `GOOGLE_APPLICATION_CREDENTIALS` | No | - | Local file path for ADC; file must exist in the container |
 
 ## Troubleshooting
 
