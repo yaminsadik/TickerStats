@@ -1,3 +1,4 @@
+import { Check } from "lucide-react";
 import Modal from "./ui/Modal";
 
 interface ComparisonExplainerModalProps {
@@ -45,8 +46,9 @@ export default function ComparisonExplainerModal({
               stocks.
             </p>
           </div>
-          <p className="text-slate-300 italic">
-            ✓ Best when: Comparing relative performance within a specific group
+          <p className="text-slate-300 italic inline-flex items-start gap-2">
+            <Check className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+            <span>Best when: Comparing relative performance within a specific group</span>
           </p>
         </div>
 
@@ -77,8 +79,9 @@ export default function ComparisonExplainerModal({
               ratios are.
             </p>
           </div>
-          <p className="text-slate-300 italic">
-            ✓ Best when: Using industry standards or universal benchmarks
+          <p className="text-slate-300 italic inline-flex items-start gap-2">
+            <Check className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
+            <span>Best when: Using industry standards or universal benchmarks</span>
           </p>
         </div>
 
@@ -122,8 +125,8 @@ export default function ComparisonExplainerModal({
 
         <div className="bg-amber-900/20 border border-amber-700/60 rounded-lg p-3">
           <p className="text-xs text-amber-100">
-            <strong>💡 Tip:</strong> You can configure custom thresholds for
-            each metric by clicking the "Configure" button next to the mode
+            <strong>Tip:</strong> You can configure custom thresholds for each
+            metric by clicking the "Configure" button next to the mode
             selector.
           </p>
         </div>

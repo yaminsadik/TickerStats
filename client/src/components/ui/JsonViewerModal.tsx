@@ -437,7 +437,7 @@ function RenderedView({
             <option key={section.section_id} value={section.section_id}>
               {toTitleCase(section.section_id)} ({section.slides?.length ?? 0}{" "}
               slides)
-              {section.needs_verification ? " ⚠️" : ""}
+              {section.needs_verification ? " — needs review" : ""}
             </option>
           ))}
         </select>

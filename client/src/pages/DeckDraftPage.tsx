@@ -13,6 +13,9 @@ import {
   FileCode,
   FileText,
   Presentation,
+  Layers,
+  Cpu,
+  Calendar,
 } from "lucide-react";
 import {
   Button,
@@ -379,15 +382,22 @@ export default function DeckDraftPage() {
               {safeMetadata.ticker}) is ready. Review the sections below and
               regenerate any section if needed.
             </p>
-            <div className="flex items-center gap-4 mt-3 text-sm text-slate-400">
-              <span>📊 {sectionsCount} sections</span>
-              <span>•</span>
-              <span>📄 {slidesCount} slides</span>
-              <span>•</span>
-              <span>🤖 {safeMetadata.provider}</span>
-              <span>•</span>
-              <span>
-                📅 {new Date(safeMetadata.generated_at).toLocaleDateString()}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-sm text-slate-400">
+              <span className="inline-flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5" />
+                {sectionsCount} sections
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <FileText className="w-3.5 h-3.5" />
+                {slidesCount} slides
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <Cpu className="w-3.5 h-3.5" />
+                {safeMetadata.provider}
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5" />
+                {new Date(safeMetadata.generated_at).toLocaleDateString()}
               </span>
             </div>
           </div>
