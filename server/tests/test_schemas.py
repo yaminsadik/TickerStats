@@ -160,6 +160,55 @@ class TestDeckGenerateRequest:
             provider=Provider.GEMINI,
         )
         assert request.reasoning_level == ReasoningLevel.MEDIUM
+
+    def test_guided_workflow_controls_and_analysis(self):
+        request = DeckGenerateRequest(
+            ticker="AAPL",
+            company_name="Apple",
+            sector="Tech",
+            fund_constraints=FundConstraints(
+                time_horizon="12 months",
+                risk_profile="low",
+            ),
+            sections=["overview"],
+            provider=Provider.GEMINI,
+            workflow_mode="guided",
+            section_controls=[
+                {
+                    "section_id": "overview",
+                    "approved": True,
+                    "lock_key_metrics": True,
+                    "locked_metrics": ["Revenue CAGR 12%"],
+                }
+            ],
+            section_analyses=[
+                {
+                    "section_id": "overview",
+                    "key_findings": ["Recurring revenue mix rising"],
+                    "supporting_data_points": ["Subscription revenue now 62% of total"],
+                    "risks_or_gaps": ["International macro softening"],
+                    "recommended_storyline": "Lead with mix shift and margin durability.",
+                }
+            ],
+        )
+        assert request.workflow_mode.value == "guided"
+        assert request.section_controls[0].section_id == "overview"
+        assert request.section_analyses[0].section_id == "overview"
+
+    def test_invalid_section_control_id(self):
+        with pytest.raises(ValidationError):
+            DeckGenerateRequest(
+                ticker="AAPL",
+                company_name="Apple",
+                sector="Tech",
+                fund_constraints=FundConstraints(
+                    time_horizon="12 months",
+                    risk_profile="low",
+                ),
+                sections=["overview"],
+                provider=Provider.GEMINI,
+                section_controls=[{"section_id": "not_a_section"}],
+            )
     
     def test_empty_sections_list(self):
         with pytest.raises(ValidationError):

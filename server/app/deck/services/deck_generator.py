@@ -11,20 +11,27 @@ from datetime import datetime
 from typing import Any, Optional
 
 from app.deck.api.schemas import (
+    AnalystConfidence,
     BulletPoint,
     ComputedInputs,
     DeckGenerateRequest,
     DeckGenerateResponse,
     DeckPlanRequest,
     DeckPlanResponse,
+    DeckSectionsAnalysisResponse,
     GenerationError,
     LayoutHints,
+    NarrativeTone,
     ProviderInfo,
     SectionId,
+    SectionAnalysisControls,
+    SectionAnalysisResult,
     SectionResult,
     Slide,
     SlideFlags,
     SuggestedSection,
+    VisualPreference,
+    WorkflowMode,
     get_section_metadata,
 )
 from app.deck.services.comps_service import comps_service
@@ -32,7 +39,6 @@ from app.deck.services.llm_base import (
     LLMError,
     LLMOptions,
     LLMProvider,
-    LLMResponse,
     get_provider,
 )
 from app.deck.services.prompts import (
@@ -68,6 +74,85 @@ _EMPTY_TEXT_MARKERS = {
 }
 
 _PLACEHOLDER_PATTERN = re.compile(r"\b(not[_\s]+provided|null|none|undefined|tbd)\b", re.IGNORECASE)
+
+SECTION_ANALYSIS_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": [
+        "section_id",
+        "section_name",
+        "key_findings",
+        "supporting_data_points",
+        "risks_or_gaps",
+        "recommended_storyline",
+        "suggested_controls",
+    ],
+    "properties": {
+        "section_id": {"type": "string"},
+        "section_name": {"type": "string", "maxLength": 200},
+        "key_findings": {
+            "type": "array",
+            "items": {"type": "string", "maxLength": 320},
+            "maxItems": 8,
+        },
+        "supporting_data_points": {
+            "type": "array",
+            "items": {"type": "string", "maxLength": 320},
+            "maxItems": 12,
+        },
+        "risks_or_gaps": {
+            "type": "array",
+            "items": {"type": "string", "maxLength": 320},
+            "maxItems": 8,
+        },
+        "recommended_storyline": {"type": "string", "maxLength": 1500},
+        "suggested_visual": {"type": ["string", "null"], "maxLength": 120},
+        "suggested_controls": {
+            "type": "object",
+            "required": [
+                "lock_key_metrics",
+                "locked_metrics",
+                "visual_preference",
+                "include_talking_points",
+                "exclude_talking_points",
+            ],
+            "properties": {
+                "lock_key_metrics": {"type": "boolean"},
+                "locked_metrics": {
+                    "type": "array",
+                    "items": {"type": "string", "maxLength": 160},
+                    "maxItems": 12,
+                },
+                "visual_preference": {
+                    "type": "string",
+                    "enum": [v.value for v in VisualPreference],
+                },
+                "narrative_tone": {
+                    "anyOf": [
+                        {"type": "null"},
+                        {"type": "string", "enum": [v.value for v in NarrativeTone]},
+                    ],
+                },
+                "include_talking_points": {
+                    "type": "array",
+                    "items": {"type": "string", "maxLength": 240},
+                    "maxItems": 10,
+                },
+                "exclude_talking_points": {
+                    "type": "array",
+                    "items": {"type": "string", "maxLength": 240},
+                    "maxItems": 10,
+                },
+                "analyst_notes": {"type": ["string", "null"], "maxLength": 1500},
+                "confidence": {
+                    "anyOf": [
+                        {"type": "null"},
+                        {"type": "string", "enum": [v.value for v in AnalystConfidence]},
+                    ],
+                },
+            },
+        },
+    },
+}
 
 
 def _sanitize_slide_text(value: Any) -> str:
@@ -136,6 +221,270 @@ class DeckGenerator:
     def __init__(self, config: Optional[DeckGeneratorConfig] = None):
         self.config = config or DeckGeneratorConfig()
         self._cache = get_cache()
+
+    def analyze_sections(
+        self,
+        request: DeckGenerateRequest,
+        api_keys: Optional[dict[str, Optional[str]]] = None,
+        openai_api_key: Optional[str] = None,
+        gemini_api_key: Optional[str] = None,
+    ) -> DeckSectionsAnalysisResponse:
+        """
+        Generate per-section analysis briefs for guided workflow.
+
+        This step is intended to give analysts control before slide rendering.
+        """
+        if api_keys is None:
+            api_keys = {
+                "openai": openai_api_key,
+                "gemini": gemini_api_key,
+            }
+
+        request_id = str(uuid.uuid4())[:8]
+        set_request_context(
+            request_id=request_id,
+            ticker=request.ticker,
+            provider=request.provider.value,
+        )
+        logger.info(
+            "Starting section analysis pass",
+            extra={
+                "sections": request.sections,
+                "workflow_mode": request.workflow_mode.value,
+            },
+        )
+        start_time = time.time()
+
+        fallback_chain: list[tuple[str, str]] = []
+        try:
+            from app.deck.services.model_policy import resolve_model
+
+            decision = resolve_model(
+                plan_tier=getattr(request, "plan_tier", "free") or "free",
+                analysis_depth=getattr(request, "analysis_depth", "medium") or "medium",
+                model_mode="specific",
+                requested_model_id=request.model,
+                thinking_requested=request.reasoning_level.value == "high",
+                available_keys=api_keys,
+            )
+            fallback_chain = [(m.provider, m.model_id) for m in decision.fallback_chain]
+        except Exception:
+            pass
+
+        api_key = self._get_api_key(request.provider.value, api_keys)
+        provider = get_provider(
+            request.provider.value,
+            api_key,
+            request.model,
+        )
+
+        data_trust_mode = "user_auto_fetch"
+        if getattr(request, "data_trust_mode", None):
+            data_trust_mode = request.data_trust_mode.value
+
+        comp_tickers = getattr(request, "comp_tickers", None)
+        if not comp_tickers and getattr(request, "valuation_input", None):
+            peer = request.valuation_input.peer_tickers
+            if peer:
+                comp_tickers = peer
+
+        comps_data = None
+        comps_summary = None
+        if request.include_comps and data_trust_mode not in ("user_only", "narrative_only"):
+            try:
+                comps_data = comps_service.get_comps_table(
+                    ticker=request.ticker,
+                    sector=request.sector,
+                    comp_tickers=comp_tickers,
+                )
+                comps_summary = comps_service.format_for_prompt(comps_data)
+            except Exception as exc:
+                logger.warning(f"Failed to fetch comps for analysis pass: {exc}")
+
+        dcf_data = None
+        dcf_summary = None
+        if getattr(request, "include_dcf", True) and data_trust_mode not in ("user_only", "narrative_only"):
+            try:
+                from app.deck.services.dcf_calculator import calculate_dcf
+
+                dcf_result = calculate_dcf(ticker=request.ticker)
+                if not dcf_result.get("error"):
+                    dcf_data = dcf_result
+                    dcf_summary = self._format_dcf_for_prompt(dcf_result)
+                else:
+                    logger.warning(f"DCF calculation error in analysis pass: {dcf_result.get('error')}")
+            except Exception as exc:
+                logger.warning(f"Failed to calculate DCF for analysis pass: {exc}")
+
+        company_profile: dict[str, Any] = {
+            "ticker": request.ticker,
+            "name": request.company_name,
+            "sector": request.sector,
+        }
+        try:
+            from app.deck.utils.ticker_info import get_company_info
+
+            fetched_profile = get_company_info(request.ticker)
+            if fetched_profile:
+                company_profile.update({
+                    "name": fetched_profile.get("company_name") or request.company_name,
+                    "sector": fetched_profile.get("sector") or request.sector,
+                    "industry": fetched_profile.get("industry"),
+                    "description": fetched_profile.get("description"),
+                    "website": fetched_profile.get("website"),
+                })
+        except Exception as exc:
+            logger.warning(f"Failed to fetch company profile in analysis pass: {exc}")
+
+        resolved_company_name = str(
+            company_profile.get("name") or request.company_name or request.ticker
+        )
+        section_inputs = self._assemble_section_inputs(
+            ticker=request.ticker,
+            company_name=resolved_company_name,
+            sector=request.sector,
+            fund_constraints=request.fund_constraints.model_dump(),
+            comps_summary=comps_summary,
+            dcf_summary=dcf_summary,
+            requested_sections=request.sections,
+            company_profile=company_profile,
+            request=request,
+            comps_data=comps_data,
+            dcf_data=dcf_data,
+            comp_tickers=comp_tickers,
+        )
+
+        model_used = provider.get_model(request.model)
+
+        from app.deck.services.llm_base import (
+            AuthenticationError as LLMAuthError,
+            RateLimitError as LLMRateLimitError,
+            TimeoutError as LLMTimeoutError,
+        )
+
+        analyses: list[SectionAnalysisResult] = []
+        errors: list[GenerationError] = []
+
+        def analyze_section_task(section_id: str):
+            primary_extra = self._build_provider_options_extra(
+                provider_name=provider.PROVIDER_NAME,
+                model=model_used,
+                reasoning_level=request.reasoning_level.value,
+            )
+            attempts: list[tuple] = [(provider, model_used, primary_extra)]
+            for fb_provider_name, fb_model_id in fallback_chain:
+                try:
+                    fb_key = self._get_api_key(fb_provider_name, api_keys)
+                    fb_prov = get_provider(fb_provider_name, fb_key, fb_model_id)
+                    fb_model = fb_prov.get_model(fb_model_id)
+                    fb_extra = self._build_provider_options_extra(
+                        provider_name=fb_provider_name,
+                        model=fb_model,
+                        reasoning_level=request.reasoning_level.value,
+                    )
+                    attempts.append((fb_prov, fb_model, fb_extra))
+                except Exception:
+                    continue
+
+            last_error: Optional[Exception] = None
+            for attempt_idx, (cur_provider, cur_model, cur_extra) in enumerate(attempts):
+                try:
+                    result = self._analyze_section(
+                        provider=cur_provider,
+                        section_id=section_id,
+                        section_inputs=section_inputs,
+                        reasoning_level=request.reasoning_level.value,
+                        options_extra=cur_extra,
+                    )
+                    if attempt_idx > 0:
+                        logger.info(
+                            f"Section analysis {section_id} succeeded on fallback "
+                            f"{cur_provider.PROVIDER_NAME}/{cur_model}"
+                        )
+                    return ("success", section_id, result)
+                except (LLMAuthError, LLMRateLimitError, LLMTimeoutError) as exc:
+                    last_error = exc
+                    logger.warning(
+                        f"Provider {cur_provider.PROVIDER_NAME} failed on analysis for "
+                        f"{section_id}: {exc}. Trying next fallback..."
+                    )
+                    continue
+                except LLMError as exc:
+                    last_error = exc
+                    logger.error(f"Failed section analysis for {section_id}: {exc}")
+                    break
+                except Exception as exc:
+                    last_error = exc
+                    logger.error(
+                        f"Unexpected section-analysis error for {section_id}: {exc}",
+                        exc_info=True,
+                    )
+                    break
+
+            err = last_error or Exception("Unknown error")
+            return ("error", section_id, GenerationError(
+                section_id=section_id,
+                error_type=type(err).__name__,
+                message=str(err),
+                retries_attempted=self.config.max_retries,
+            ))
+
+        if self.config.parallel_sections and len(request.sections) > 1:
+            max_workers = min(self.config.max_parallel_workers, len(request.sections))
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_section = {
+                    executor.submit(analyze_section_task, section_id): section_id
+                    for section_id in request.sections
+                }
+                for future in as_completed(future_to_section):
+                    status, section_id, result = future.result()
+                    if status == "success":
+                        analyses.append(result)
+                        logger.info(f"✓ Section analysis {section_id} completed")
+                    else:
+                        errors.append(result)
+                        logger.warning(f"✗ Section analysis {section_id} failed")
+        else:
+            for idx, section_id in enumerate(request.sections):
+                if idx > 0 and self.config.section_delay_seconds > 0:
+                    time.sleep(self.config.section_delay_seconds)
+                status, section_id, result = analyze_section_task(section_id)
+                if status == "success":
+                    analyses.append(result)
+                    logger.info(f"✓ Section analysis {section_id} completed")
+                else:
+                    errors.append(result)
+                    logger.warning(f"✗ Section analysis {section_id} failed")
+
+        analysis_map = {item.section_id: item for item in analyses}
+        ordered_analyses = [analysis_map[s] for s in request.sections if s in analysis_map]
+
+        total_time = time.time() - start_time
+        logger.info(
+            "Section analysis pass complete",
+            extra={
+                "total_time_ms": round(total_time * 1000, 2),
+                "sections_analyzed": len(ordered_analyses),
+                "errors": len(errors),
+            },
+        )
+
+        return DeckSectionsAnalysisResponse(
+            ticker=request.ticker,
+            company_name=resolved_company_name,
+            plan_tier=getattr(request, "plan_tier", None),
+            model_mode=getattr(request, "model_mode", None),
+            analysis_depth=getattr(request, "analysis_depth", None),
+            provider_used=ProviderInfo(
+                provider=request.provider.value,
+                model=model_used,
+                reasoning_level=request.reasoning_level.value,
+            ),
+            analyzed_at=datetime.utcnow().isoformat() + "Z",
+            analyses=ordered_analyses,
+            errors=errors,
+            request_id=request_id,
+        )
     
     def generate_deck(
         self,
@@ -709,6 +1058,21 @@ class DeckGenerator:
                 if getattr(request, "user_constraints", None)
                 else None
             )
+            inputs["workflow_mode"] = (
+                request.workflow_mode.value
+                if getattr(request, "workflow_mode", None)
+                else WorkflowMode.AUTO.value
+            )
+            section_controls = getattr(request, "section_controls", None) or []
+            inputs["section_controls"] = {
+                control.section_id: control.model_dump(mode="json", exclude_none=True)
+                for control in section_controls
+            }
+            section_analyses = getattr(request, "section_analyses", None) or []
+            inputs["section_analyses"] = {
+                analysis.section_id: analysis.model_dump(mode="json", exclude_none=True)
+                for analysis in section_analyses
+            }
         return inputs
 
     def _missing_required_context(
@@ -748,7 +1112,242 @@ class DeckGenerator:
             raise ValueError(
                 f"Missing required context for section '{section_id}': {missing_text}"
             )
-        return spec.build_prompt(inputs), spec.schema, True
+        prompt = spec.build_prompt(inputs)
+        guided_appendix = self._build_guided_appendix(section_id, inputs)
+        if guided_appendix:
+            prompt = f"{prompt}\n\n{guided_appendix}"
+        return prompt, spec.schema, True
+
+    def _build_guided_appendix(
+        self,
+        section_id: str,
+        inputs: dict[str, Any],
+    ) -> str:
+        """
+        Build a guided-mode appendix from analyst-approved section controls.
+        """
+        controls_map = inputs.get("section_controls") or {}
+        analyses_map = inputs.get("section_analyses") or {}
+        control = controls_map.get(section_id) if isinstance(controls_map, dict) else None
+        analysis = analyses_map.get(section_id) if isinstance(analyses_map, dict) else None
+
+        if not control and not analysis:
+            return ""
+        if control and not bool(control.get("approved", True)):
+            return ""
+
+        lines = [
+            "## ANALYST GUIDANCE (HIGHEST PRIORITY)",
+            "Follow this approved guidance while still satisfying the JSON schema.",
+        ]
+
+        if analysis:
+            key_findings = self._normalize_text_list(analysis.get("key_findings"))
+            supporting_points = self._normalize_text_list(analysis.get("supporting_data_points"))
+            risks_or_gaps = self._normalize_text_list(analysis.get("risks_or_gaps"))
+            storyline = str(analysis.get("recommended_storyline") or "").strip()
+            suggested_visual = str(analysis.get("suggested_visual") or "").strip()
+
+            if key_findings:
+                lines.append("Approved key findings:")
+                lines.extend(f"- {item}" for item in key_findings[:8])
+            if supporting_points:
+                lines.append("Supporting data points to reference:")
+                lines.extend(f"- {item}" for item in supporting_points[:12])
+            if risks_or_gaps:
+                lines.append("Known risks / evidence gaps:")
+                lines.extend(f"- {item}" for item in risks_or_gaps[:8])
+            if storyline:
+                lines.append(f"Preferred storyline: {storyline}")
+            if suggested_visual:
+                lines.append(f"Preferred visual direction: {suggested_visual}")
+
+        if control:
+            visual_pref = str(control.get("visual_preference") or "auto").strip()
+            narrative_tone = str(control.get("narrative_tone") or "").strip()
+            lock_metrics = bool(control.get("lock_key_metrics", False))
+            locked_metrics = self._normalize_text_list(control.get("locked_metrics"))
+            include_points = self._normalize_text_list(control.get("include_talking_points"))
+            exclude_points = self._normalize_text_list(control.get("exclude_talking_points"))
+            analyst_notes = str(control.get("analyst_notes") or "").strip()
+            confidence = str(control.get("confidence") or "").strip()
+
+            if visual_pref and visual_pref != "auto":
+                lines.append(
+                    f"Set layout_hints.suggested_visual to align with '{visual_pref}' when possible."
+                )
+            if narrative_tone:
+                lines.append(f"Narrative tone: {narrative_tone}.")
+            if lock_metrics and locked_metrics:
+                lines.append(
+                    "Do not alter, substitute, or omit these locked metrics/statements:"
+                )
+                lines.extend(f"- {item}" for item in locked_metrics[:12])
+            if include_points:
+                lines.append("Required talking points:")
+                lines.extend(f"- {item}" for item in include_points[:10])
+            if exclude_points:
+                lines.append("Avoid these talking points:")
+                lines.extend(f"- {item}" for item in exclude_points[:10])
+            if analyst_notes:
+                lines.append(f"Analyst notes: {analyst_notes}")
+            if confidence:
+                lines.append(
+                    f"Analyst confidence marker: {confidence}. Reflect uncertainty transparently in wording."
+                )
+
+        return "\n".join(lines)
+
+    def _normalize_text_list(self, value: Any) -> list[str]:
+        """Normalize unknown values into a clean list of strings."""
+        if not isinstance(value, list):
+            return []
+        cleaned: list[str] = []
+        for item in value:
+            text = _sanitize_slide_text(item)
+            if text:
+                cleaned.append(text)
+        return cleaned
+
+    def _build_section_analysis_prompt(
+        self,
+        section_id: str,
+        section_inputs: dict[str, Any],
+    ) -> str:
+        """Build the prompt for pre-slide section analysis."""
+        section_meta = get_section_metadata(section_id)
+        section_label = section_meta.get("label", section_id.replace("_", " ").title())
+        section_description = section_meta.get("description", "")
+
+        summary_payload = {
+            "company": {
+                "ticker": section_inputs.get("ticker"),
+                "name": section_inputs.get("company_name"),
+                "sector": section_inputs.get("sector"),
+                "industry": section_inputs.get("industry"),
+                "description": section_inputs.get("description"),
+            },
+            "fund_constraints": section_inputs.get("fund_constraints"),
+            "position": section_inputs.get("position"),
+            "deck_length": section_inputs.get("deck_length"),
+            "data_trust_mode": section_inputs.get("data_trust_mode"),
+            "thesis": section_inputs.get("thesis"),
+            "catalysts": section_inputs.get("catalysts"),
+            "valuation": section_inputs.get("valuation"),
+            "risks": section_inputs.get("risks"),
+            "data_blocks": section_inputs.get("data_blocks"),
+            "user_constraints": section_inputs.get("user_constraints"),
+            "comps_summary": section_inputs.get("comps_summary"),
+            "dcf_summary": section_inputs.get("dcf_summary"),
+        }
+
+        import json
+
+        payload_json = json.dumps(summary_payload, ensure_ascii=True, indent=2)
+
+        return (
+            f"Prepare an analyst briefing for section '{section_id}' ({section_label}).\n"
+            f"Section purpose: {section_description}\n\n"
+            "Use the context below to propose a concise pre-slide analysis. "
+            "Do not invent citations. Mark uncertainty where evidence is weak.\n\n"
+            "Return JSON only with:\n"
+            "- key_findings: the most decision-relevant findings\n"
+            "- supporting_data_points: facts/metrics to validate or anchor narrative\n"
+            "- risks_or_gaps: what could break confidence or needs analyst review\n"
+            "- recommended_storyline: best narrative arc for the eventual slide(s)\n"
+            "- suggested_visual: optional visual suggestion\n"
+            "- suggested_controls: practical defaults the analyst can edit\n\n"
+            "Context JSON:\n"
+            f"{payload_json}"
+        )
+
+    def _transform_section_analysis_response(
+        self,
+        content: dict[str, Any],
+        section_id: str,
+    ) -> SectionAnalysisResult:
+        """Transform raw LLM analysis into a typed section analysis result."""
+        section_meta = get_section_metadata(section_id)
+        section_name = section_meta.get("label", section_id.replace("_", " ").title())
+        suggested_controls = content.get("suggested_controls") or {}
+        visual_raw = str(suggested_controls.get("visual_preference") or VisualPreference.AUTO.value)
+        tone_raw = suggested_controls.get("narrative_tone")
+        confidence_raw = suggested_controls.get("confidence")
+
+        try:
+            visual_preference = VisualPreference(visual_raw)
+        except ValueError:
+            visual_preference = VisualPreference.AUTO
+
+        try:
+            narrative_tone = NarrativeTone(str(tone_raw)) if tone_raw else None
+        except ValueError:
+            narrative_tone = None
+
+        try:
+            confidence = AnalystConfidence(str(confidence_raw)) if confidence_raw else None
+        except ValueError:
+            confidence = None
+
+        return SectionAnalysisResult(
+            section_id=section_id,
+            section_name=section_name,
+            key_findings=self._normalize_text_list(content.get("key_findings")),
+            supporting_data_points=self._normalize_text_list(content.get("supporting_data_points")),
+            risks_or_gaps=self._normalize_text_list(content.get("risks_or_gaps")),
+            recommended_storyline=_sanitize_slide_text(content.get("recommended_storyline"))[:1500],
+            suggested_visual=_sanitize_slide_text(content.get("suggested_visual"))[:120] or None,
+            suggested_controls=SectionAnalysisControls(
+                lock_key_metrics=bool(suggested_controls.get("lock_key_metrics", False)),
+                locked_metrics=self._normalize_text_list(suggested_controls.get("locked_metrics"))[:12],
+                visual_preference=visual_preference,
+                narrative_tone=narrative_tone,
+                include_talking_points=self._normalize_text_list(
+                    suggested_controls.get("include_talking_points")
+                )[:10],
+                exclude_talking_points=self._normalize_text_list(
+                    suggested_controls.get("exclude_talking_points")
+                )[:10],
+                analyst_notes=(
+                    _sanitize_slide_text(suggested_controls.get("analyst_notes"))[:1500]
+                    or None
+                ),
+                confidence=confidence,
+            ),
+        )
+
+    def _analyze_section(
+        self,
+        provider: LLMProvider,
+        section_id: str,
+        section_inputs: dict[str, Any],
+        reasoning_level: str,
+        options_extra: Optional[dict[str, Any]] = None,
+    ) -> SectionAnalysisResult:
+        """Generate analysis brief for a single section."""
+        options = LLMOptions(
+            reasoning_level=reasoning_level,
+            timeout=self.config.timeout,
+            extra=options_extra or {},
+        )
+        prompt = self._build_section_analysis_prompt(section_id, section_inputs)
+
+        response = provider.generate_with_retry(
+            system_prompt=SYSTEM_PROMPT,
+            user_prompt=prompt,
+            json_schema=SECTION_ANALYSIS_JSON_SCHEMA,
+            options=options,
+            max_retries=self.config.max_retries,
+            fix_prompt_builder=get_fix_prompt,
+        )
+        result = self._transform_section_analysis_response(response.content, section_id)
+        result.generation_metadata = {
+            "model": response.model,
+            "latency_ms": response.latency_ms,
+            "retries": response.retries,
+            "tokens": response.usage,
+        }
+        return result
     
     @log_operation("generate_section")
     def _generate_section(

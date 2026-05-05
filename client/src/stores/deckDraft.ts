@@ -43,6 +43,7 @@ export interface DeckDraftConfig {
   provider: 'gemini';
   model?: string;
   quality: 'low' | 'medium' | 'high';
+  workflowMode: 'auto' | 'guided';
 }
 
 export interface DeckDraft {
@@ -89,6 +90,7 @@ function normalizeDraftConfig(raw?: Partial<DeckDraftConfig>): DeckDraftConfig {
     provider,
     model,
     quality: normalizeQuality(raw?.quality, model),
+    workflowMode: raw?.workflowMode === 'guided' ? 'guided' : 'auto',
   };
 }
 

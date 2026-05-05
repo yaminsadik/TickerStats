@@ -212,6 +212,26 @@ class TestGenerateEndpoint:
         assert len(data["results"]) == 1
 
 
+class TestAnalyzeSectionsEndpoint:
+    """Tests for POST /api/v1/deck/sections/analyze."""
+
+    def test_missing_auth(self, client, sample_generate_request):
+        response = client.post(
+            "/api/v1/deck/sections/analyze",
+            json=sample_generate_request,
+            content_type="application/json",
+        )
+        assert response.status_code == 401
+
+    def test_invalid_content_type(self, client, sample_generate_request):
+        response = client.post(
+            "/api/v1/deck/sections/analyze",
+            data=json.dumps(sample_generate_request),
+            content_type="text/plain",
+        )
+        assert response.status_code == 400
+
+
 class TestPlanEndpoint:
     """Tests for POST /api/v1/deck/plan."""
     

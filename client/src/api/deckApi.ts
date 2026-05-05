@@ -286,6 +286,23 @@ export interface GenerateDeckResponse {
 export type Position = 'long' | 'short';
 export type DeckLength = 'short' | 'standard' | 'deep';
 export type DataTrustMode = 'user_only' | 'user_auto_fetch' | 'narrative_only';
+export type WorkflowMode = 'auto' | 'guided';
+export type VisualPreference =
+  | 'auto'
+  | 'bullets'
+  | 'table'
+  | 'timeline'
+  | 'two_column'
+  | 'swot'
+  | 'valuation'
+  | 'chart';
+export type NarrativeTone =
+  | 'balanced'
+  | 'bullish'
+  | 'bearish'
+  | 'risk_focused'
+  | 'catalyst_focused';
+export type AnalystConfidence = 'low' | 'medium' | 'high';
 
 export interface ThesisInput {
   thesis_sentence?: string;
@@ -331,6 +348,55 @@ export interface UserConstraints {
   exclude_peers?: string[];
 }
 
+export interface SectionControl {
+  section_id: string;
+  approved?: boolean;
+  lock_key_metrics?: boolean;
+  locked_metrics?: string[];
+  visual_preference?: VisualPreference;
+  narrative_tone?: NarrativeTone;
+  include_talking_points?: string[];
+  exclude_talking_points?: string[];
+  analyst_notes?: string;
+  confidence?: AnalystConfidence;
+}
+
+export interface SectionAnalysisInput {
+  section_id: string;
+  section_name?: string;
+  key_findings?: string[];
+  supporting_data_points?: string[];
+  risks_or_gaps?: string[];
+  recommended_storyline?: string;
+  suggested_visual?: string;
+}
+
+export interface SectionAnalysisResult extends SectionAnalysisInput {
+  section_name: string;
+  key_findings: string[];
+  supporting_data_points: string[];
+  risks_or_gaps: string[];
+  recommended_storyline: string;
+  suggested_controls: Omit<SectionControl, 'section_id' | 'approved'>;
+}
+
+export interface AnalyzeSectionsResponse {
+  ticker: string;
+  company_name: string;
+  plan_tier?: 'free' | 'pro' | 'enterprise';
+  model_mode?: 'auto' | 'specific';
+  analysis_depth?: 'low' | 'medium' | 'high';
+  analyzed_at: string;
+  provider_used: {
+    provider: string;
+    model: string;
+    reasoning_level: string;
+  };
+  analyses: SectionAnalysisResult[];
+  errors?: GenerationError[];
+  request_id?: string;
+}
+
 export interface GenerateDeckRequest {
   ticker: string;
   company_name?: string;
@@ -360,6 +426,9 @@ export interface GenerateDeckRequest {
   risks?: RiskInput[];
   data_blocks?: DataBlocks;
   user_constraints?: UserConstraints;
+  workflow_mode?: WorkflowMode;
+  section_controls?: SectionControl[];
+  section_analyses?: SectionAnalysisInput[];
 }
 
 // ----- API Calls -----
@@ -409,6 +478,29 @@ export async function generateDeckAuthed(
     throw new Error(getErrorMessage(error));
   }
   return handleResponse<GenerateDeckResponse>(response);
+}
+
+export async function analyzeSectionsAuthed(
+  authFetch: (url: string, options?: RequestInit) => Promise<Response>,
+  request: GenerateDeckRequest
+): Promise<AnalyzeSectionsResponse> {
+  const url = `${API_BASE}/api/v1/deck/sections/analyze`;
+  let response: Response;
+  try {
+    response = await authFetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(request),
+    });
+  } catch (error) {
+    if (isLikelyNetworkError(error)) {
+      throw buildNetworkError(url, error);
+    }
+    throw new Error(getErrorMessage(error));
+  }
+  return handleResponse<AnalyzeSectionsResponse>(response);
 }
 
 /**

@@ -21,6 +21,7 @@ from app.deck.api.schemas import (
     SECTION_METADATA,
     AnalysisDepth,
     DeckGenerateRequest,
+    DeckSectionsAnalysisResponse,
     DeckPlanRequest,
     DeckPptxDesignSpecRequest,
     ModelMode,
@@ -262,6 +263,39 @@ def _record_llm_usage_sync(session, user_id: str, response, thinking_requested: 
         ))
 
 
+def _record_analysis_usage_sync(
+    session,
+    user_id: str,
+    response: DeckSectionsAnalysisResponse,
+    thinking_requested: bool,
+) -> None:
+    """Persist usage rows for section-analysis calls."""
+    default_provider = response.provider_used.provider
+    default_model = response.provider_used.model
+
+    for section in response.analyses:
+        metadata = section.generation_metadata or {}
+        tokens = metadata.get("tokens") or {}
+        model = str(metadata.get("model") or default_model or "")[:50]
+        provider = _infer_provider(model, default_provider)[:20]
+        input_tokens = _to_int(tokens.get("prompt_tokens") or tokens.get("input_tokens"))
+        output_tokens = _to_int(tokens.get("completion_tokens") or tokens.get("output_tokens"))
+        reasoning_tokens = _to_int(tokens.get("reasoning_tokens"))
+        latency_ms = _to_int(metadata.get("latency_ms"))
+
+        session.add(LLMUsageLog(
+            user_id=user_id,
+            provider=provider,
+            model=model or default_model[:50],
+            thinking_enabled=thinking_requested or reasoning_tokens > 0,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            reasoning_tokens=reasoning_tokens,
+            estimated_cost_usd=_estimate_cost_usd(model or default_model, input_tokens, output_tokens),
+            latency_ms=latency_ms,
+        ))
+
+
 async def _parse_model(model_cls, request: Request):
     content_type = request.headers.get("content-type", "")
     if "application/json" not in content_type.lower():
@@ -322,6 +356,136 @@ async def get_sections():
         ))
 
     return SectionsResponse(sections=sections)
+
+
+@router.post("/deck/sections/analyze")
+async def analyze_sections(request: Request):
+    """Generate section analysis briefs before final slide generation."""
+    deck_request = await _parse_model(DeckGenerateRequest, request)
+
+    token = _get_bearer_token(request)
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "Authentication required", "request_id": _request_id(request)},
+        )
+
+    try:
+        payload = verifier.verify_token(token)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "Invalid token", "request_id": _request_id(request)},
+        )
+
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "Invalid token: Missing subject", "request_id": _request_id(request)},
+        )
+
+    session = SessionLocal()
+    try:
+        user = _upsert_user_sync(session, user_id, payload)
+        plan_tier = get_plan_tier(user)
+        allowed, limit = check_deck_limit_sync(user, _utcnow_naive())
+        session.commit()
+    except Exception as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "User lookup failed", "message": str(exc), "request_id": _request_id(request)},
+        )
+    finally:
+        session.close()
+
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "Deck limit reached",
+                "message": f"Your plan is limited to {limit} deck generations per month.",
+                "request_id": _request_id(request),
+            },
+        )
+
+    try:
+        company_name, sector = await asyncio.to_thread(
+            enrich_request_with_ticker_info,
+            ticker=deck_request.ticker,
+            company_name=deck_request.company_name,
+            sector=deck_request.sector,
+        )
+        deck_request.company_name = company_name
+        deck_request.sector = sector
+        logger.info("Analysis request enriched: %s -> %s (%s)", deck_request.ticker, company_name, sector)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": str(exc), "request_id": _request_id(request)},
+        )
+
+    api_keys = get_api_keys(request)
+    provider_name, model_name, analysis_depth, model_mode = _resolve_plan_and_models(
+        deck_request,
+        api_keys,
+        plan_tier,
+    )
+    deck_request.plan_tier = PlanTier(plan_tier)
+    deck_request.model_mode = model_mode
+    deck_request.analysis_depth = analysis_depth
+    deck_request.reasoning_level = ReasoningLevel(analysis_depth.value)
+    deck_request.provider = Provider(provider_name)
+    deck_request.model = model_name
+
+    chosen_provider = deck_request.provider.value
+    if not api_keys.get(chosen_provider):
+        if chosen_provider == "gemini" and settings.GOOGLE_GENAI_USE_VERTEXAI:
+            env_hint = "GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION"
+            message = f"{chosen_provider} Vertex AI configuration required. Set {env_hint}."
+        else:
+            env_hint = {"gemini": "GEMINI_API_KEY"}.get(
+                chosen_provider,
+                chosen_provider.upper() + "_API_KEY",
+            )
+            message = f"{chosen_provider} API key required. Set {env_hint} env var."
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": message, "request_id": _request_id(request)},
+        )
+    if chosen_provider == "gemini" and settings.GOOGLE_GENAI_USE_VERTEXAI and not _is_vertex_gemini_configured():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "Gemini Vertex AI requires GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION.",
+                "request_id": _request_id(request),
+            },
+        )
+
+    generator = get_deck_generator()
+    response = await asyncio.to_thread(
+        generator.analyze_sections,
+        request=deck_request,
+        api_keys=api_keys,
+    )
+
+    session = SessionLocal()
+    try:
+        _record_analysis_usage_sync(
+            session,
+            user_id,
+            response,
+            thinking_requested=deck_request.reasoning_level == ReasoningLevel.HIGH,
+        )
+        session.commit()
+    except Exception as exc:
+        logger.warning("Failed to record section-analysis usage metadata: %s", exc)
+        session.rollback()
+    finally:
+        session.close()
+
+    return response
 
 
 @router.post("/deck/generate")

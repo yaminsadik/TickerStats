@@ -66,6 +66,40 @@ class DeckLength(str, Enum):
     DEEP = "deep"          # 15-20 slides
 
 
+class WorkflowMode(str, Enum):
+    """Deck generation workflow mode."""
+    AUTO = "auto"
+    GUIDED = "guided"
+
+
+class VisualPreference(str, Enum):
+    """Analyst-preferred visual treatment for a section."""
+    AUTO = "auto"
+    BULLETS = "bullets"
+    TABLE = "table"
+    TIMELINE = "timeline"
+    TWO_COLUMN = "two_column"
+    SWOT = "swot"
+    VALUATION = "valuation"
+    CHART = "chart"
+
+
+class NarrativeTone(str, Enum):
+    """Narrative stance to bias section messaging."""
+    BALANCED = "balanced"
+    BULLISH = "bullish"
+    BEARISH = "bearish"
+    RISK_FOCUSED = "risk_focused"
+    CATALYST_FOCUSED = "catalyst_focused"
+
+
+class AnalystConfidence(str, Enum):
+    """Analyst confidence marker for a section brief."""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
 class SectionId(str, Enum):
     """Valid deck section identifiers."""
     COMPANY_SNAPSHOT = "company_snapshot"
@@ -391,6 +425,98 @@ class UserConstraints(BaseModel):
     )
 
 
+class SectionControlInput(BaseModel):
+    """Analyst controls for one section in guided mode."""
+    section_id: str = Field(..., description="Target section ID", min_length=1, max_length=80)
+    approved: bool = Field(
+        default=True,
+        description="Whether this section is approved for final generation",
+    )
+    lock_key_metrics: bool = Field(
+        default=False,
+        description="Require the generator to preserve listed key metrics exactly",
+    )
+    locked_metrics: list[str] = Field(
+        default_factory=list,
+        description="Metrics/statements that must be preserved in final slides",
+        max_length=12,
+    )
+    visual_preference: VisualPreference = Field(
+        default=VisualPreference.AUTO,
+        description="Preferred visual style for this section",
+    )
+    narrative_tone: Optional[NarrativeTone] = Field(
+        None,
+        description="Narrative posture for this section",
+    )
+    include_talking_points: list[str] = Field(
+        default_factory=list,
+        description="Points that must be included",
+        max_length=10,
+    )
+    exclude_talking_points: list[str] = Field(
+        default_factory=list,
+        description="Points that must be excluded",
+        max_length=10,
+    )
+    analyst_notes: Optional[str] = Field(
+        None,
+        description="Free-form analyst notes for the section writer",
+        max_length=1500,
+    )
+    confidence: Optional[AnalystConfidence] = Field(
+        None,
+        description="Analyst confidence signal for this section",
+    )
+
+    @field_validator("section_id", mode="after")
+    @classmethod
+    def validate_section_id(cls, value: str) -> str:
+        valid_ids = {s.value for s in SectionId}
+        if value not in valid_ids:
+            raise ValueError(f"Invalid section_id '{value}'. Valid: {sorted(valid_ids)}")
+        return value
+
+
+class SectionAnalysisInput(BaseModel):
+    """Analyst-reviewed pre-slide brief for one section."""
+    section_id: str = Field(..., description="Target section ID", min_length=1, max_length=80)
+    section_name: Optional[str] = Field(None, max_length=200)
+    key_findings: list[str] = Field(
+        default_factory=list,
+        description="Top findings to carry into final slides",
+        max_length=8,
+    )
+    supporting_data_points: list[str] = Field(
+        default_factory=list,
+        description="Data points that support the section narrative",
+        max_length=12,
+    )
+    risks_or_gaps: list[str] = Field(
+        default_factory=list,
+        description="Known risks, caveats, or evidence gaps",
+        max_length=8,
+    )
+    recommended_storyline: Optional[str] = Field(
+        None,
+        description="Preferred narrative throughline",
+        max_length=1500,
+    )
+    suggested_visual: Optional[str] = Field(
+        None,
+        description="Suggested visual or chart type",
+        max_length=120,
+    )
+
+    @field_validator("section_id", mode="after")
+    @classmethod
+    def validate_section_id(cls, value: str) -> str:
+        valid_ids = {s.value for s in SectionId}
+        if value not in valid_ids:
+            raise ValueError(f"Invalid section_id '{value}'. Valid: {sorted(valid_ids)}")
+        return value
+
+
 class DeckGenerateRequest(BaseModel):
     """Request schema for POST /api/v1/deck/generate."""
     ticker: str = Field(
@@ -493,6 +619,18 @@ class DeckGenerateRequest(BaseModel):
         None,
         description="Portfolio-level constraints",
     )
+    workflow_mode: WorkflowMode = Field(
+        default=WorkflowMode.AUTO,
+        description="Auto shortcut mode or guided analyst-in-the-loop mode",
+    )
+    section_controls: list[SectionControlInput] = Field(
+        default_factory=list,
+        description="Optional per-section controls for guided generation",
+    )
+    section_analyses: list[SectionAnalysisInput] = Field(
+        default_factory=list,
+        description="Optional analyst-reviewed section briefs to condition slide generation",
+    )
 
     @field_validator("ticker", mode="before")
     @classmethod
@@ -518,6 +656,22 @@ class DeckGenerateRequest(BaseModel):
                 seen.add(s)
                 result.append(s)
         return result
+
+    @field_validator("section_controls", mode="after")
+    @classmethod
+    def dedupe_section_controls(cls, v: list[SectionControlInput]) -> list[SectionControlInput]:
+        deduped: dict[str, SectionControlInput] = {}
+        for item in v:
+            deduped[item.section_id] = item
+        return list(deduped.values())
+
+    @field_validator("section_analyses", mode="after")
+    @classmethod
+    def dedupe_section_analyses(cls, v: list[SectionAnalysisInput]) -> list[SectionAnalysisInput]:
+        deduped: dict[str, SectionAnalysisInput] = {}
+        for item in v:
+            deduped[item.section_id] = item
+        return list(deduped.values())
 
 
 class DeckPlanRequest(BaseModel):
@@ -693,6 +847,50 @@ class DeckGenerateResponse(BaseModel):
     )
     computed_inputs: ComputedInputs = Field(default_factory=ComputedInputs)
     results: list[SectionResult] = Field(default_factory=list)
+    errors: list[GenerationError] = Field(default_factory=list)
+    request_id: str = Field(..., description="Unique request identifier for tracing")
+
+
+class SectionAnalysisControls(BaseModel):
+    """Suggested controls from section-level analysis."""
+    lock_key_metrics: bool = False
+    locked_metrics: list[str] = Field(default_factory=list, max_length=12)
+    visual_preference: VisualPreference = VisualPreference.AUTO
+    narrative_tone: Optional[NarrativeTone] = None
+    include_talking_points: list[str] = Field(default_factory=list, max_length=10)
+    exclude_talking_points: list[str] = Field(default_factory=list, max_length=10)
+    analyst_notes: Optional[str] = Field(default=None, max_length=1500)
+    confidence: Optional[AnalystConfidence] = None
+
+
+class SectionAnalysisResult(BaseModel):
+    """AI-generated analysis brief for one section."""
+    section_id: str
+    section_name: str
+    key_findings: list[str] = Field(default_factory=list)
+    supporting_data_points: list[str] = Field(default_factory=list)
+    risks_or_gaps: list[str] = Field(default_factory=list)
+    recommended_storyline: str = ""
+    suggested_visual: Optional[str] = None
+    suggested_controls: SectionAnalysisControls = Field(default_factory=SectionAnalysisControls)
+    generation_metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Generation stats and debugging info",
+    )
+
+
+class DeckSectionsAnalysisResponse(BaseModel):
+    """Response schema for POST /api/v1/deck/sections/analyze."""
+    ticker: str
+    company_name: str = Field(..., description="Company name for the ticker")
+    plan_tier: Optional[PlanTier] = None
+    model_mode: Optional[ModelMode] = None
+    analysis_depth: Optional[AnalysisDepth] = None
+    provider_used: ProviderInfo
+    analyzed_at: str = Field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    )
+    analyses: list[SectionAnalysisResult] = Field(default_factory=list)
     errors: list[GenerationError] = Field(default_factory=list)
     request_id: str = Field(..., description="Unique request identifier for tracing")
 

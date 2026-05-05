@@ -41,9 +41,13 @@ import { useSignalSettings } from "../hooks/useSignalSettings";
 import { useAuthenticatedFetch } from "../hooks/useAuthenticatedApi";
 import { useUserProfile } from "../hooks/useUserProfile";
 import {
+  analyzeSectionsAuthed,
   fetchSections,
   generateDeckAuthed,
   normalizeAvailableSections,
+  type AnalyzeSectionsResponse,
+  type SectionAnalysisResult,
+  type SectionControl,
   type Section,
   type GenerateDeckResponse,
   type ThesisInput,
@@ -55,6 +59,7 @@ import {
   type Position,
   type DeckLength,
   type DataTrustMode,
+  type WorkflowMode,
 } from "../api/deckApi";
 import { queryKeys } from "../lib/queryKeys";
 import { sectionSchema } from "../schemas/deck";
@@ -166,6 +171,24 @@ function formatGenerationErrors(data: GenerateDeckResponse): string {
     .join("; ");
 }
 
+function splitMultiline(value: string): string[] {
+  return value
+    .split("\n")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function splitCommaList(value: string): string[] {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function joinLines(values?: string[]): string {
+  return values?.join("\n") ?? "";
+}
+
 // --- Collapsible section helper ---
 function CollapsibleSection({
   title,
@@ -209,6 +232,33 @@ const VALUATION_METHODS = [
   { value: "nav", label: "NAV" },
   { value: "unit_econ", label: "Unit Economics" },
   { value: "yield", label: "Yield Lens" },
+];
+
+const VISUAL_PREFERENCE_OPTIONS = [
+  { value: "auto", label: "Auto" },
+  { value: "bullets", label: "Bullets" },
+  { value: "table", label: "Table" },
+  { value: "timeline", label: "Timeline" },
+  { value: "two_column", label: "Two Column" },
+  { value: "swot", label: "SWOT" },
+  { value: "valuation", label: "Valuation" },
+  { value: "chart", label: "Chart" },
+];
+
+const NARRATIVE_TONE_OPTIONS = [
+  { value: "", label: "Auto" },
+  { value: "balanced", label: "Balanced" },
+  { value: "bullish", label: "Bullish" },
+  { value: "bearish", label: "Bearish" },
+  { value: "risk_focused", label: "Risk-Focused" },
+  { value: "catalyst_focused", label: "Catalyst-Focused" },
+];
+
+const ANALYST_CONFIDENCE_OPTIONS = [
+  { value: "", label: "Not Set" },
+  { value: "high", label: "High" },
+  { value: "medium", label: "Medium" },
+  { value: "low", label: "Low" },
 ];
 
 export default function DeckWizardPage() {
@@ -292,6 +342,7 @@ export default function DeckWizardPage() {
     provider: "gemini",
     model: "gemini-3.1-pro-preview",
     quality: "high",
+    workflowMode: "auto",
   });
   const [sectionsTouched, setSectionsTouched] = useState(false);
 
@@ -311,6 +362,11 @@ export default function DeckWizardPage() {
   // Generated content
   const [generatedDeck, setGeneratedDeck] =
     useState<GenerateDeckResponse | null>(null);
+  const [guidedAnalysis, setGuidedAnalysis] =
+    useState<SectionAnalysisResult[]>([]);
+  const [guidedControlsBySection, setGuidedControlsBySection] = useState<
+    Record<string, SectionControl>
+  >({});
   const [limitError, setLimitError] = useState<string | null>(null);
 
   // Fetch sections (with Zod validation)
@@ -545,6 +601,102 @@ export default function DeckWizardPage() {
   // Save deck to DB mutation
   const saveDeckMutation = useSaveDeck();
 
+  const sectionIdsForRequest = useMemo(
+    () => (config.sections.length > 0 ? config.sections : plannedSectionIds),
+    [config.sections, plannedSectionIds],
+  );
+
+  const buildGenerationPayload = useCallback(
+    (
+      overrides: Partial<import("../api/deckApi").GenerateDeckRequest> = {},
+    ): import("../api/deckApi").GenerateDeckRequest => {
+      const providerToUse = selectedModel?.provider || config.provider;
+      const modelToUse = resolveModelForRequest(
+        providerToUse,
+        config.model,
+        config.quality,
+      );
+      return {
+        ticker: basics.ticker,
+        ...(basics.companyName.trim() && { company_name: basics.companyName }),
+        ...(basics.sector.trim() && { sector: basics.sector }),
+        fund_constraints: fundConstraints,
+        sections: sectionIdsForRequest,
+        provider: providerToUse,
+        model: modelToUse,
+        plan_tier: tier,
+        model_mode: "specific",
+        analysis_depth: config.quality,
+        reasoning_level: config.quality,
+        include_comps: true,
+        ...(compTickers.length > 0 && { comp_tickers: compTickers }),
+        ...(basics.position && { position: basics.position }),
+        ...(basics.deckLength && { deck_length: basics.deckLength }),
+        ...(basics.dataTrustMode && { data_trust_mode: basics.dataTrustMode }),
+        ...(hasThesisInput && { thesis: effectiveThesis }),
+        ...(validCatalysts.length > 0 && { catalysts: validCatalysts }),
+        ...(hasValuationInput && { valuation_input: effectiveValuationInput }),
+        ...(validRisks.length > 0 && { risks: validRisks }),
+        ...(hasDataBlocks && { data_blocks: dataBlocks }),
+        ...(hasConstraints && { user_constraints: userConstraints }),
+        ...overrides,
+      };
+    },
+    [
+      selectedModel?.provider,
+      config.provider,
+      config.model,
+      config.quality,
+      basics.ticker,
+      basics.companyName,
+      basics.sector,
+      basics.position,
+      basics.deckLength,
+      basics.dataTrustMode,
+      fundConstraints,
+      sectionIdsForRequest,
+      tier,
+      compTickers,
+      hasThesisInput,
+      effectiveThesis,
+      validCatalysts,
+      hasValuationInput,
+      effectiveValuationInput,
+      validRisks,
+      hasDataBlocks,
+      dataBlocks,
+      hasConstraints,
+      userConstraints,
+    ],
+  );
+
+  const analyzeMutation = useMutation({
+    mutationFn: async (
+      payload: import("../api/deckApi").GenerateDeckRequest,
+    ) => analyzeSectionsAuthed(authenticatedFetch, payload),
+    onSuccess: (data: AnalyzeSectionsResponse) => {
+      setGuidedAnalysis(data.analyses ?? []);
+      const controls: Record<string, SectionControl> = {};
+      for (const section of data.analyses ?? []) {
+        controls[section.section_id] = {
+          section_id: section.section_id,
+          approved: true,
+          lock_key_metrics: section.suggested_controls?.lock_key_metrics ?? false,
+          locked_metrics: section.suggested_controls?.locked_metrics ?? [],
+          visual_preference: section.suggested_controls?.visual_preference ?? "auto",
+          narrative_tone: section.suggested_controls?.narrative_tone,
+          include_talking_points:
+            section.suggested_controls?.include_talking_points ?? [],
+          exclude_talking_points:
+            section.suggested_controls?.exclude_talking_points ?? [],
+          analyst_notes: section.suggested_controls?.analyst_notes ?? "",
+          confidence: section.suggested_controls?.confidence,
+        };
+      }
+      setGuidedControlsBySection(controls);
+    },
+  });
+
   // Generate deck mutation
   const generateMutation = useMutation({
     mutationFn: async (
@@ -600,7 +752,10 @@ export default function DeckWizardPage() {
   const currentStepIndex = STEPS.findIndex((s) => s.id === currentStep);
 
   // Navigation
-  const canGoBack = currentStepIndex > 0 && !generateMutation.isPending;
+  const canGoBack =
+    currentStepIndex > 0 &&
+    !generateMutation.isPending &&
+    !analyzeMutation.isPending;
   const canGoNext = currentStepIndex < STEPS.length - 1;
 
   const goBack = () => {
@@ -682,7 +837,42 @@ export default function DeckWizardPage() {
     if (draft) {
       updateDraftConfig(draft.id, config);
     }
+    setGeneratedDeck(null);
+    setGuidedAnalysis([]);
+    setGuidedControlsBySection({});
     goNext();
+  };
+
+  const syncDraftBeforeGeneration = () => {
+    if (!draft) return;
+    updateDraftConfig(draft.id, config);
+    updateDraftIntake(draft.id, {
+      thesis: effectiveThesis,
+      catalysts,
+      valuationInput: effectiveValuationInput,
+      risks,
+      dataBlocks,
+      userConstraints,
+    });
+  };
+
+  const handleRunGuidedAnalysis = () => {
+    if (atDeckLimit) {
+      setLimitError(
+        `You have reached your free deck limit (${deckCount}/${deckLimit}). Export is available after you unlock a finished deck.`,
+      );
+      return;
+    }
+    setLimitError(null);
+    syncDraftBeforeGeneration();
+    setGeneratedDeck(null);
+    analyzeMutation.mutate(
+      buildGenerationPayload({
+        workflow_mode: "guided",
+        section_controls: [],
+        section_analyses: [],
+      }),
+    );
   };
 
   // Generate deck - wire up ALL intake fields
@@ -694,54 +884,54 @@ export default function DeckWizardPage() {
       return;
     }
     setLimitError(null);
-    if (draft) {
-      updateDraftConfig(draft.id, config);
-      updateDraftIntake(draft.id, {
-        thesis: effectiveThesis,
-        catalysts,
-        valuationInput: effectiveValuationInput,
-        risks,
-        dataBlocks,
-        userConstraints,
-      });
+    syncDraftBeforeGeneration();
+
+    if (config.workflowMode === "guided") {
+      if (guidedAnalysis.length === 0) {
+        setLimitError(
+          "Run section analysis first so you can review and approve controls before slide generation.",
+        );
+        return;
+      }
+
+      const controls = Object.values(guidedControlsBySection);
+      const approvedControls = controls.filter(
+        (control) => control.approved !== false,
+      );
+      const approvedSectionIds = approvedControls.map((control) => control.section_id);
+      if (approvedSectionIds.length === 0) {
+        setLimitError("Approve at least one section before generating slides.");
+        return;
+      }
+
+      const approvedAnalyses = guidedAnalysis
+        .filter((section) => approvedSectionIds.includes(section.section_id))
+        .map((section) => ({
+          section_id: section.section_id,
+          section_name: section.section_name,
+          key_findings: section.key_findings,
+          supporting_data_points: section.supporting_data_points,
+          risks_or_gaps: section.risks_or_gaps,
+          recommended_storyline: section.recommended_storyline,
+          suggested_visual: section.suggested_visual,
+        }));
+
+      generateMutation.mutate(
+        buildGenerationPayload({
+          workflow_mode: "guided",
+          sections: approvedSectionIds,
+          section_controls: approvedControls,
+          section_analyses: approvedAnalyses,
+        }),
+      );
+      return;
     }
 
-    const providerToUse = selectedModel?.provider || config.provider;
-    const modelToUse = resolveModelForRequest(
-      providerToUse,
-      config.model,
-      config.quality,
+    generateMutation.mutate(
+      buildGenerationPayload({
+        workflow_mode: "auto",
+      }),
     );
-
-    const sectionIds = config.sections.length > 0
-      ? config.sections
-      : plannedSectionIds;
-
-    generateMutation.mutate({
-      ticker: basics.ticker,
-      ...(basics.companyName.trim() && { company_name: basics.companyName }),
-      ...(basics.sector.trim() && { sector: basics.sector }),
-      fund_constraints: fundConstraints,
-      sections: sectionIds,
-      provider: providerToUse,
-      model: modelToUse,
-      plan_tier: tier,
-      model_mode: "specific",
-      analysis_depth: config.quality,
-      reasoning_level: config.quality,
-      include_comps: true,
-      ...(compTickers.length > 0 && { comp_tickers: compTickers }),
-      // Intake redesign fields
-      ...(basics.position && { position: basics.position }),
-      ...(basics.deckLength && { deck_length: basics.deckLength }),
-      ...(basics.dataTrustMode && { data_trust_mode: basics.dataTrustMode }),
-      ...(hasThesisInput && { thesis: effectiveThesis }),
-      ...(validCatalysts.length > 0 && { catalysts: validCatalysts }),
-      ...(hasValuationInput && { valuation_input: effectiveValuationInput }),
-      ...(validRisks.length > 0 && { risks: validRisks }),
-      ...(hasDataBlocks && { data_blocks: dataBlocks }),
-      ...(hasConstraints && { user_constraints: userConstraints }),
-    });
   };
 
   // Save and view
@@ -759,6 +949,34 @@ export default function DeckWizardPage() {
       sections: prev.sections.includes(sectionId)
         ? prev.sections.filter((id) => id !== sectionId)
         : [...prev.sections, sectionId],
+    }));
+  };
+
+  const setWorkflowMode = (mode: WorkflowMode) => {
+    setConfig((prev) => ({ ...prev, workflowMode: mode }));
+    setGeneratedDeck(null);
+    setGuidedAnalysis([]);
+    setGuidedControlsBySection({});
+  };
+
+  const updateGuidedControl = (
+    sectionId: string,
+    updates: Partial<Omit<SectionControl, "section_id">>,
+  ) => {
+    setGuidedControlsBySection((prev) => ({
+      ...prev,
+      [sectionId]: {
+        approved: true,
+        visual_preference: "auto",
+        lock_key_metrics: false,
+        locked_metrics: [],
+        include_talking_points: [],
+        exclude_talking_points: [],
+        analyst_notes: "",
+        ...prev[sectionId],
+        ...updates,
+        section_id: sectionId,
+      },
     }));
   };
 
@@ -1768,6 +1986,41 @@ export default function DeckWizardPage() {
               </Button>
             </div>
 
+            <div className="space-y-2">
+              <p className="text-xs text-slate-400">Workflow Mode</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setWorkflowMode("auto")}
+                  className={`rounded-lg border p-4 text-left transition-colors ${
+                    config.workflowMode === "auto"
+                      ? "border-blue-600 bg-blue-900/20"
+                      : "border-slate-700 bg-slate-800/50 hover:border-slate-600"
+                  }`}
+                >
+                  <p className="text-white font-medium">Auto</p>
+                  <p className="text-slate-400 text-sm mt-1">
+                    Fast shortcut: generate slides directly.
+                  </p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWorkflowMode("guided")}
+                  className={`rounded-lg border p-4 text-left transition-colors ${
+                    config.workflowMode === "guided"
+                      ? "border-blue-600 bg-blue-900/20"
+                      : "border-slate-700 bg-slate-800/50 hover:border-slate-600"
+                  }`}
+                >
+                  <p className="text-white font-medium">Guided</p>
+                  <p className="text-slate-400 text-sm mt-1">
+                    Analyze each section first, then approve controls before
+                    slide generation.
+                  </p>
+                </button>
+              </div>
+            </div>
+
             {/* AI Model & Reasoning */}
             <div className="pt-2">
               <p className="text-xs text-slate-400 mb-1.5">
@@ -1825,10 +2078,14 @@ export default function DeckWizardPage() {
                 </span>
               </div>
               <div className="flex justify-between">
+                <span className="text-slate-400">Workflow:</span>
+                <Badge variant={config.workflowMode === "guided" ? "info" : "default"}>
+                  {config.workflowMode === "guided" ? "Guided" : "Auto"}
+                </Badge>
+              </div>
+              <div className="flex justify-between">
                 <span className="text-slate-400">Sections:</span>
-                <span className="text-white">
-                  {config.sections.length} selected
-                </span>
+                <span className="text-white">{sectionIdsForRequest.length} selected</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Model:</span>
@@ -1881,6 +2138,220 @@ export default function DeckWizardPage() {
                 </div>
               )}
             </div>
+
+            {config.workflowMode === "guided" && (
+              <div className="space-y-4">
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    onClick={handleRunGuidedAnalysis}
+                    variant="outline"
+                    disabled={analyzeMutation.isPending || generateMutation.isPending}
+                  >
+                    {analyzeMutation.isPending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Running Section Analysis
+                      </>
+                    ) : (
+                      "Run Section Analysis"
+                    )}
+                  </Button>
+                  {guidedAnalysis.length > 0 && (
+                    <Badge variant="success">
+                      {guidedAnalysis.length} section briefs ready
+                    </Badge>
+                  )}
+                </div>
+
+                {analyzeMutation.isError && (
+                  <Alert variant="error" title="Analysis Pass Failed">
+                    <p className="text-sm">
+                      {analyzeMutation.error instanceof Error
+                        ? analyzeMutation.error.message
+                        : "Unable to generate section analysis briefs."}
+                    </p>
+                  </Alert>
+                )}
+
+                {guidedAnalysis.length > 0 && (
+                  <div className="space-y-4">
+                    {guidedAnalysis.map((analysis) => {
+                      const control =
+                        guidedControlsBySection[analysis.section_id] ?? {
+                          section_id: analysis.section_id,
+                          approved: true,
+                          visual_preference: "auto",
+                          lock_key_metrics: false,
+                          locked_metrics: [],
+                          include_talking_points: [],
+                          exclude_talking_points: [],
+                          analyst_notes: "",
+                        };
+
+                      return (
+                        <Card
+                          key={analysis.section_id}
+                          className="border border-slate-700 bg-slate-800/50"
+                        >
+                          <div className="space-y-4">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="text-white font-medium">
+                                  {analysis.section_name}
+                                </p>
+                                <p className="text-xs text-slate-400 mt-1">
+                                  {analysis.section_id}
+                                </p>
+                              </div>
+                              <label className="flex items-center gap-2 text-sm text-slate-300">
+                                <input
+                                  type="checkbox"
+                                  checked={control.approved !== false}
+                                  onChange={(e) =>
+                                    updateGuidedControl(analysis.section_id, {
+                                      approved: e.target.checked,
+                                    })
+                                  }
+                                  className="rounded border-slate-600 bg-slate-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-slate-900"
+                                />
+                                Approved
+                              </label>
+                            </div>
+
+                            <div className="grid md:grid-cols-2 gap-4">
+                              <div>
+                                <p className="text-xs uppercase tracking-wide text-slate-400 mb-2">
+                                  Key Findings
+                                </p>
+                                <ul className="space-y-1 text-sm text-slate-200 list-disc ml-4">
+                                  {(analysis.key_findings ?? []).map((item, index) => (
+                                    <li key={`${analysis.section_id}-finding-${index}`}>{item}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                              <div>
+                                <p className="text-xs uppercase tracking-wide text-slate-400 mb-2">
+                                  Risks Or Gaps
+                                </p>
+                                <ul className="space-y-1 text-sm text-slate-200 list-disc ml-4">
+                                  {(analysis.risks_or_gaps ?? []).map((item, index) => (
+                                    <li key={`${analysis.section_id}-risk-${index}`}>{item}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            </div>
+
+                            {analysis.recommended_storyline && (
+                              <div>
+                                <p className="text-xs uppercase tracking-wide text-slate-400 mb-1">
+                                  Recommended Storyline
+                                </p>
+                                <p className="text-sm text-slate-200">
+                                  {analysis.recommended_storyline}
+                                </p>
+                              </div>
+                            )}
+
+                            <div className="grid md:grid-cols-3 gap-4">
+                              <Select
+                                label="Visual Preference"
+                                value={control.visual_preference ?? "auto"}
+                                onChange={(e) =>
+                                  updateGuidedControl(analysis.section_id, {
+                                    visual_preference: e.target.value as SectionControl["visual_preference"],
+                                  })
+                                }
+                                options={VISUAL_PREFERENCE_OPTIONS}
+                              />
+                              <Select
+                                label="Narrative Tone"
+                                value={control.narrative_tone ?? ""}
+                                onChange={(e) =>
+                                  updateGuidedControl(analysis.section_id, {
+                                    narrative_tone: (e.target.value || undefined) as SectionControl["narrative_tone"],
+                                  })
+                                }
+                                options={NARRATIVE_TONE_OPTIONS}
+                              />
+                              <Select
+                                label="Confidence"
+                                value={control.confidence ?? ""}
+                                onChange={(e) =>
+                                  updateGuidedControl(analysis.section_id, {
+                                    confidence: (e.target.value || undefined) as SectionControl["confidence"],
+                                  })
+                                }
+                                options={ANALYST_CONFIDENCE_OPTIONS}
+                              />
+                            </div>
+
+                            <label className="flex items-center gap-2 text-sm text-slate-300">
+                              <input
+                                type="checkbox"
+                                checked={control.lock_key_metrics === true}
+                                onChange={(e) =>
+                                  updateGuidedControl(analysis.section_id, {
+                                    lock_key_metrics: e.target.checked,
+                                  })
+                                }
+                                className="rounded border-slate-600 bg-slate-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-slate-900"
+                              />
+                              Lock key metrics during generation
+                            </label>
+
+                            <Input
+                              label="Locked Metrics (comma separated)"
+                              value={(control.locked_metrics ?? []).join(", ")}
+                              onChange={(e) =>
+                                updateGuidedControl(analysis.section_id, {
+                                  locked_metrics: splitCommaList(e.target.value),
+                                })
+                              }
+                              placeholder="e.g., Revenue CAGR 18%, Net debt / EBITDA 2.1x"
+                            />
+
+                            <div className="grid md:grid-cols-2 gap-4">
+                              <TextArea
+                                label="Required Talking Points (one per line)"
+                                value={joinLines(control.include_talking_points)}
+                                onChange={(e) =>
+                                  updateGuidedControl(analysis.section_id, {
+                                    include_talking_points: splitMultiline(e.target.value),
+                                  })
+                                }
+                                rows={4}
+                              />
+                              <TextArea
+                                label="Avoid Talking Points (one per line)"
+                                value={joinLines(control.exclude_talking_points)}
+                                onChange={(e) =>
+                                  updateGuidedControl(analysis.section_id, {
+                                    exclude_talking_points: splitMultiline(e.target.value),
+                                  })
+                                }
+                                rows={4}
+                              />
+                            </div>
+
+                            <TextArea
+                              label="Analyst Notes"
+                              value={control.analyst_notes ?? ""}
+                              onChange={(e) =>
+                                updateGuidedControl(analysis.section_id, {
+                                  analyst_notes: e.target.value,
+                                })
+                              }
+                              rows={3}
+                              placeholder="Optional extra instructions for this section"
+                            />
+                          </div>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Generation Progress */}
             {generateMutation.isPending && (
@@ -1947,14 +2418,30 @@ export default function DeckWizardPage() {
 
             {/* Generate Button */}
             {!generatedDeck && !generateMutation.isPending && (
-              <Button
-                onClick={handleGenerate}
-                size="lg"
-                className="w-full"
-                disabled={generateMutation.isPending || atDeckLimit}
-              >
-                Generate Pitch Deck
-              </Button>
+              <div className="space-y-2">
+                <Button
+                  onClick={handleGenerate}
+                  size="lg"
+                  className="w-full"
+                  disabled={
+                    generateMutation.isPending ||
+                    analyzeMutation.isPending ||
+                    atDeckLimit ||
+                    (config.workflowMode === "guided" &&
+                      guidedAnalysis.length === 0)
+                  }
+                >
+                  {config.workflowMode === "guided"
+                    ? "Generate From Approved Analysis"
+                    : "Generate Pitch Deck"}
+                </Button>
+                {config.workflowMode === "guided" &&
+                  guidedAnalysis.length === 0 && (
+                    <p className="text-xs text-slate-400">
+                      Run section analysis before generating guided slides.
+                    </p>
+                  )}
+              </div>
             )}
           </div>
         )}
