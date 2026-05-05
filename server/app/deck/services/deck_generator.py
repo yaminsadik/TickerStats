@@ -3,6 +3,7 @@ Deck Generator Orchestrator.
 Coordinates LLM providers, prompts, and validation for slide generation.
 """
 
+import re
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -49,6 +50,56 @@ from app.deck.utils.validation import (
 )
 
 logger = get_logger(__name__)
+
+
+_EMPTY_TEXT_MARKERS = {
+    "",
+    "-",
+    "—",
+    "n/a",
+    "na",
+    "none",
+    "null",
+    "undefined",
+    "unknown",
+    "not provided",
+    "not_provided",
+    "tbd",
+}
+
+_PLACEHOLDER_PATTERN = re.compile(r"\b(not[_\s]+provided|null|none|undefined|tbd)\b", re.IGNORECASE)
+
+
+def _sanitize_slide_text(value: Any) -> str:
+    """
+    Normalize and clean obvious placeholder tokens from generated slide text.
+
+    Keeps the slide readable while avoiding raw placeholders like "null",
+    "NOT PROVIDED", and "(source needed)" leaking into exported decks.
+    """
+    if not isinstance(value, str):
+        return ""
+
+    text = " ".join(value.replace("\u00a0", " ").split())
+    if not text:
+        return ""
+
+    lowered = text.lower().strip()
+    if lowered in _EMPTY_TEXT_MARKERS:
+        return ""
+
+    text = re.sub(r"\(\s*null\s*\)", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\(\s*source needed\s*\)", "(source required)", text, flags=re.IGNORECASE)
+    text = _PLACEHOLDER_PATTERN.sub("data unavailable", text)
+    text = re.sub(r"\bN/?A\b", "data unavailable", text, flags=re.IGNORECASE)
+    text = re.sub(r"(data unavailable)(?:\s*[,;/|]\s*data unavailable)+", r"\1", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s{2,}", " ", text).strip(" ,;:-")
+
+    lowered = text.lower()
+    if lowered in _EMPTY_TEXT_MARKERS or lowered == "data unavailable":
+        return ""
+
+    return text
 
 
 class DeckGeneratorConfig:
@@ -842,9 +893,20 @@ class DeckGenerator:
             normalized_bullets = []
             for bullet in raw_bullets:
                 if isinstance(bullet, str):
-                    normalized_bullets.append({"text": bullet, "source_needed": False})
+                    bullet_dict = {"text": bullet, "source_needed": False}
+                elif isinstance(bullet, dict):
+                    bullet_dict = bullet
                 else:
-                    normalized_bullets.append(bullet)
+                    continue
+
+                cleaned_text = _sanitize_slide_text(bullet_dict.get("text"))
+                if not cleaned_text:
+                    continue
+
+                normalized_bullets.append({
+                    "text": cleaned_text,
+                    "source_needed": bool(bullet_dict.get("source_needed", False)),
+                })
             
             # Apply strict numbers gate - flags bullets with unverified numbers
             checked_bullets = flag_numeric_content(normalized_bullets, computed_inputs)
@@ -885,11 +947,21 @@ class DeckGenerator:
                 is_draft=flags_data.get("is_draft", False),
             )
             
+            speaker_notes = "\n".join(
+                line
+                for raw_line in str(slide_data.get("speaker_notes", "")).splitlines()
+                if (line := _sanitize_slide_text(raw_line))
+            )
+
+            cleaned_title = _sanitize_slide_text(slide_data.get("title", ""))
+            if not cleaned_title:
+                cleaned_title = section_id.replace("_", " ").title()
+
             slides.append(Slide(
                 slide_id=slide_data.get("slide_id", f"{section_id}_{len(slides) + 1}"),
-                title=slide_data.get("title", ""),
+                title=cleaned_title,
                 bullets=bullets[:4],  # Enforce max 4
-                speaker_notes=slide_data.get("speaker_notes", ""),
+                speaker_notes=speaker_notes,
                 layout_hints=layout_hints,
                 flags=flags,
             ))

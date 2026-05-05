@@ -26,7 +26,7 @@ export default function PricingCalculator() {
         Pay when the deck is ready
       </h3>
       <p className="text-sm text-slate-400 mb-6">
-        Generate a first deck free. Export the finished deck for one simple price.
+        Student-friendly pricing for 1-2 decks per semester, with no subscription.
       </p>
 
       <div className="rounded-lg p-4 mb-6 border bg-blue-500/10 border-blue-500/30">
@@ -42,6 +42,13 @@ export default function PricingCalculator() {
               Two export credits, no monthly plan, no surprise renewal.
             </div>
           </div>
+        </div>
+      </div>
+
+      <div className="rounded-lg p-4 mb-6 border bg-slate-800/60 border-slate-700/70">
+        <div className="text-xs text-slate-300">
+          Usage Pack: <span className="font-semibold text-white">$2.99</span> one-time for
+          10 extra company compares and 2 extra deck generations this month.
         </div>
       </div>
 

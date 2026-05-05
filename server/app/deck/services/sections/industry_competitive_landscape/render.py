@@ -11,15 +11,26 @@ Slide 2 — "Competitive Landscape": competitors, moat pillars, Porter's summary
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 
 _MAX_BULLETS_PER_SLIDE = 4
+_PLACEHOLDER_RE = re.compile(r"^(?:null|none|n/?a|not[_\s]+provided|tbd|unknown)$", re.IGNORECASE)
 
 
 def _bullet(text: str, source_needed: bool = False) -> dict[str, Any]:
     """Create a bullet dict matching SLIDE_JSON_SCHEMA."""
     return {"text": text, "source_needed": source_needed}
+
+
+def _clean_text(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    text = " ".join(value.split())
+    if not text or _PLACEHOLDER_RE.match(text):
+        return ""
+    return text
 
 
 # ── Slide 1: Industry Overview ───────────────────────────────────────────────
@@ -32,13 +43,13 @@ def _build_slide_1(output: dict[str, Any]) -> dict[str, Any]:
     bullets: list[dict[str, Any]] = []
 
     # Market definition
-    mdef = market.get("market_definition", "")
+    mdef = _clean_text(market.get("market_definition"))
     if mdef:
         bullets.append(_bullet(mdef))
 
     # Sizing: TAM if present, else proxy bullets
-    tam = sizing.get("tam_value")
-    tam_basis = sizing.get("tam_basis")
+    tam = _clean_text(sizing.get("tam_value"))
+    tam_basis = _clean_text(sizing.get("tam_basis"))
     if tam:
         sizing_text = f"TAM: {tam}"
         if tam_basis:
@@ -46,20 +57,26 @@ def _build_slide_1(output: dict[str, Any]) -> dict[str, Any]:
         bullets.append(_bullet(sizing_text, source_needed=True))
     else:
         for proxy in sizing.get("proxy_sizing", [])[:2]:
+            cleaned_proxy = _clean_text(proxy)
+            if not cleaned_proxy:
+                continue
             if len(bullets) < _MAX_BULLETS_PER_SLIDE:
-                bullets.append(_bullet(proxy))
+                bullets.append(_bullet(cleaned_proxy))
 
     # Growth drivers (fill remaining bullet slots)
     for driver in market.get("growth_drivers", []):
+        cleaned_driver = _clean_text(driver)
+        if not cleaned_driver:
+            continue
         if len(bullets) >= _MAX_BULLETS_PER_SLIDE:
             break
-        bullets.append(_bullet(driver))
+        bullets.append(_bullet(cleaned_driver))
 
     # Speaker notes: additional growth drivers + growth chart notes
     notes_parts: list[str] = []
 
     # Growth drivers that didn't fit in bullets
-    all_drivers = market.get("growth_drivers", [])
+    all_drivers = [d for d in (_clean_text(v) for v in market.get("growth_drivers", [])) if d]
     extra_drivers = all_drivers[max(0, _MAX_BULLETS_PER_SLIDE - 2):]
     if extra_drivers:
         notes_parts.append(
@@ -68,7 +85,7 @@ def _build_slide_1(output: dict[str, Any]) -> dict[str, Any]:
         )
 
     # Growth chart notes
-    gcn = sizing.get("growth_chart_notes", [])
+    gcn = [n for n in (_clean_text(v) for v in sizing.get("growth_chart_notes", [])) if n]
     if gcn:
         notes_parts.append(
             "Growth notes:\n" + "\n".join(f"  • {n}" for n in gcn)
@@ -78,8 +95,9 @@ def _build_slide_1(output: dict[str, Any]) -> dict[str, Any]:
     conf = market.get("confidence", "medium")
     notes_parts.append(f"Market confidence: {conf}")
 
-    if market.get("notes"):
-        notes_parts.append(f"Notes: {market['notes']}")
+    market_notes = _clean_text(market.get("notes"))
+    if market_notes:
+        notes_parts.append(f"Notes: {market_notes}")
 
     # Low confidence flag
     if output.get("low_confidence_flag"):
@@ -117,9 +135,11 @@ def _build_slide_2(output: dict[str, Any]) -> dict[str, Any]:
     competitors = competition.get("competitors", [])
     positioning = competition.get("positioning", {})
     if competitors:
-        comp_names = [c.get("name", "") for c in competitors[:4]]
+        comp_names = [name for name in (_clean_text(c.get("name")) for c in competitors[:4]) if name]
+        if not comp_names:
+            comp_names = ["Peers"]
         comp_text = f"Key competitors: {', '.join(comp_names)}"
-        diff = positioning.get("key_differentiator", "")
+        diff = _clean_text(positioning.get("key_differentiator"))
         if diff:
             comp_text += f" — differentiator: {diff}"
         # Truncate if too long
@@ -130,7 +150,9 @@ def _build_slide_2(output: dict[str, Any]) -> dict[str, Any]:
     # Moat pillars summary
     pillars = moat.get("pillars", [])
     if pillars:
-        pillar_names = [p.get("pillar", "") for p in pillars[:4]]
+        pillar_names = [name for name in (_clean_text(p.get("pillar")) for p in pillars[:4]) if name]
+        if not pillar_names:
+            pillar_names = ["Moat strength"]
         moat_text = f"Moat drivers: {', '.join(pillar_names)}"
         if len(moat_text) > 500:
             moat_text = moat_text[:497] + "..."
@@ -141,8 +163,8 @@ def _build_slide_2(output: dict[str, Any]) -> dict[str, Any]:
     if forces:
         force_summary_parts = []
         for f in forces[:5]:
-            fname = f.get("force", "")
-            fpressure = f.get("pressure", "")
+            fname = _clean_text(f.get("force"))
+            fpressure = _clean_text(f.get("pressure"))
             # Compact: abbreviate force names
             short = _abbreviate_force(fname)
             force_summary_parts.append(f"{short}: {fpressure}")
@@ -155,9 +177,10 @@ def _build_slide_2(output: dict[str, Any]) -> dict[str, Any]:
     if len(bullets) < _MAX_BULLETS_PER_SLIDE and pillars:
         # Add top moat mechanism as extra detail
         top_pillar = pillars[0]
-        mech = top_pillar.get("mechanism", "")
+        mech = _clean_text(top_pillar.get("mechanism"))
         if mech:
-            bullets.append(_bullet(f"{top_pillar.get('pillar', '')}: {mech}"))
+            pillar_name = _clean_text(top_pillar.get("pillar")) or "Moat"
+            bullets.append(_bullet(f"{pillar_name}: {mech}"))
 
     # Speaker notes: detailed competitor list + moat evidence + Porter's detail
     notes_parts: list[str] = []
@@ -166,17 +189,22 @@ def _build_slide_2(output: dict[str, Any]) -> dict[str, Any]:
     if competitors:
         comp_lines = []
         for c in competitors:
-            cname = c.get("name", "")
-            ctype = c.get("type", "")
-            cwhy = c.get("why_relevant", "")
-            comp_lines.append(f"  • {cname} ({ctype}): {cwhy}")
+            cname = _clean_text(c.get("name")) or "Competitor"
+            ctype = _clean_text(c.get("type"))
+            cwhy = _clean_text(c.get("why_relevant"))
+            line = f"  • {cname}"
+            if ctype:
+                line += f" ({ctype})"
+            if cwhy:
+                line += f": {cwhy}"
+            comp_lines.append(line)
         notes_parts.append("Competitors:\n" + "\n".join(comp_lines))
 
     # Positioning
     if positioning:
         pos_text = (
-            f"Positioning: {positioning.get('x_label', '')} vs {positioning.get('y_label', '')}; "
-            f"Company at {positioning.get('company_position', '')}"
+            f"Positioning: {_clean_text(positioning.get('x_label'))} vs {_clean_text(positioning.get('y_label'))}; "
+            f"Company at {_clean_text(positioning.get('company_position'))}"
         )
         notes_parts.append(pos_text)
 
@@ -184,9 +212,12 @@ def _build_slide_2(output: dict[str, Any]) -> dict[str, Any]:
     if pillars:
         moat_lines = []
         for p in pillars:
-            line = f"  • {p.get('pillar', '')}: {p.get('mechanism', '')}"
-            if p.get("evidence"):
-                line += f" [evidence: {p['evidence']}]"
+            pillar_name = _clean_text(p.get("pillar")) or "Pillar"
+            mechanism = _clean_text(p.get("mechanism")) or "data unavailable"
+            line = f"  • {pillar_name}: {mechanism}"
+            evidence = _clean_text(p.get("evidence"))
+            if evidence:
+                line += f" [evidence: {evidence}]"
             moat_lines.append(line)
         notes_parts.append("Moat pillars:\n" + "\n".join(moat_lines))
 
@@ -194,10 +225,14 @@ def _build_slide_2(output: dict[str, Any]) -> dict[str, Any]:
     if forces:
         porter_lines = []
         for f in forces:
-            because = "; ".join(f.get("because", []))
-            line = f"  • {f.get('force', '')} ({f.get('pressure', '')}): {because}"
-            if f.get("evidence"):
-                line += f" [evidence: {f['evidence']}]"
+            because_items = [b for b in (_clean_text(v) for v in f.get("because", [])) if b]
+            because = "; ".join(because_items)
+            force = _clean_text(f.get("force")) or "Force"
+            pressure = _clean_text(f.get("pressure")) or "unknown"
+            line = f"  • {force} ({pressure}): {because}"
+            evidence = _clean_text(f.get("evidence"))
+            if evidence:
+                line += f" [evidence: {evidence}]"
             porter_lines.append(line)
         notes_parts.append("Porter's Five Forces:\n" + "\n".join(porter_lines))
 
@@ -206,8 +241,9 @@ def _build_slide_2(output: dict[str, Any]) -> dict[str, Any]:
         conf = mod_data.get("confidence", "")
         if conf:
             notes_parts.append(f"{mod_name} confidence: {conf}")
-        if mod_data.get("notes"):
-            notes_parts.append(f"[{mod_name}] {mod_data['notes']}")
+        mod_notes = _clean_text(mod_data.get("notes"))
+        if mod_notes:
+            notes_parts.append(f"[{mod_name}] {mod_notes}")
 
     # Low confidence flag
     if output.get("low_confidence_flag"):

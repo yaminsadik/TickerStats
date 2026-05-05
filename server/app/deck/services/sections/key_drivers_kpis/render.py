@@ -11,10 +11,13 @@ Slide 2 (optional): KPI → unit → disclosure source summary table in notes
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 
 _MAX_BULLETS_PER_SLIDE = 4
+_PLACEHOLDER_RE = re.compile(r"^(?:null|none|n/?a|not[_\s]+provided|tbd|unknown)$", re.IGNORECASE)
+_SAFE_UNIT_RE = re.compile(r"^[A-Za-z0-9$%#xX/\-+ .]{1,24}$")
 
 
 def _bullet(text: str, source_needed: bool = False) -> dict[str, Any]:
@@ -22,11 +25,37 @@ def _bullet(text: str, source_needed: bool = False) -> dict[str, Any]:
     return {"text": text, "source_needed": source_needed}
 
 
+def _clean_text(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    text = " ".join(value.split())
+    if not text or _PLACEHOLDER_RE.match(text):
+        return ""
+    return text
+
+
+def _sanitize_unit(value: Any) -> str:
+    """
+    Accept only compact unit-like strings.
+
+    This prevents prompt-leak chatter from appearing as KPI units.
+    """
+    unit = _clean_text(value)
+    if not unit:
+        return ""
+    lowered = unit.lower()
+    if any(token in lowered for token in ("let's", "wait", "actually", "formalize", "standard unit")):
+        return ""
+    if not _SAFE_UNIT_RE.match(unit):
+        return ""
+    return unit
+
+
 def _format_kpi_bullet(kpi: dict[str, Any]) -> str:
     """Format a single KPI as a compact bullet line."""
-    name = kpi.get("name", "KPI")
-    definition = kpi.get("definition", "")
-    unit = kpi.get("unit")
+    name = _clean_text(kpi.get("name")) or "KPI"
+    definition = _clean_text(kpi.get("definition"))
+    unit = _sanitize_unit(kpi.get("unit"))
     text = f"{name}: {definition}"
     if unit:
         text += f" ({unit})"
@@ -35,21 +64,21 @@ def _format_kpi_bullet(kpi: dict[str, Any]) -> str:
 
 def _format_kpi_value_line(kpi: dict[str, Any]) -> str:
     """Format a KPI's 'why it matters' as a compact line."""
-    name = kpi.get("name", "KPI")
-    why = kpi.get("why_it_moves_value", "")
+    name = _clean_text(kpi.get("name")) or "KPI"
+    why = _clean_text(kpi.get("why_it_moves_value")) or "data unavailable"
     return f"Why {name} matters: {why}"
 
 
 def _format_disclosure_line(kpi: dict[str, Any]) -> str:
     """Format a KPI's disclosure reference for speaker notes."""
-    name = kpi.get("name", "KPI")
+    name = _clean_text(kpi.get("name")) or "KPI"
     disclosure = kpi.get("disclosure") or {}
     source_type = disclosure.get("source_type", "not_provided")
-    desc = disclosure.get("description")
-    page = disclosure.get("page_or_section")
+    desc = _clean_text(disclosure.get("description"))
+    page = _clean_text(disclosure.get("page_or_section"))
 
     if source_type == "not_provided":
-        return f"Disclosure ({name}): not provided"
+        return f"Disclosure ({name}): data unavailable"
 
     parts = [f"Disclosure ({name}): {source_type}"]
     if desc:
@@ -72,12 +101,16 @@ def _build_slide_1(output: dict[str, Any]) -> dict[str, Any]:
         if len(bullets) >= _MAX_BULLETS_PER_SLIDE:
             break
         text = _format_kpi_bullet(kpi)
+        if not text.strip() or text.endswith(":"):
+            continue
         bullets.append(_bullet(text))
 
     # If we have room and takeaways, add as a combined bullet
     if len(bullets) < _MAX_BULLETS_PER_SLIDE and takeaways:
-        combined = "Takeaway: " + "; ".join(takeaways[:2])
-        bullets.append(_bullet(combined))
+        cleaned_takeaways = [t for t in (_clean_text(v) for v in takeaways[:2]) if t]
+        if cleaned_takeaways:
+            combined = "Takeaway: " + "; ".join(cleaned_takeaways)
+            bullets.append(_bullet(combined))
 
     # Speaker notes: value linkage + disclosure refs + takeaways
     notes_parts: list[str] = []
@@ -96,9 +129,10 @@ def _build_slide_1(output: dict[str, Any]) -> dict[str, Any]:
 
     # Overall takeaways
     if takeaways:
+        cleaned_takeaways = [t for t in (_clean_text(v) for v in takeaways) if t]
         notes_parts.append("")
         notes_parts.append("Overall Takeaways:")
-        for ta in takeaways:
+        for ta in cleaned_takeaways:
             notes_parts.append(f"  • {ta}")
 
     # Low confidence warning
@@ -142,20 +176,24 @@ def _build_slide_2(output: dict[str, Any]) -> dict[str, Any] | None:
         if len(bullets) >= _MAX_BULLETS_PER_SLIDE:
             break
         name = kpi.get("name", "KPI")
-        unit = kpi.get("unit") or "—"
+        unit = _sanitize_unit(kpi.get("unit")) or "—"
         disclosure = kpi.get("disclosure") or {}
         source = disclosure.get("source_type", "not_provided")
+        if source == "not_provided":
+            source = "data unavailable"
         text = f"{name} | {unit} | {source}"
         bullets.append(_bullet(text))
 
     # Speaker notes: remaining KPIs if any didn't fit in bullets
     notes_parts: list[str] = ["KPI Summary Table:"]
     for kpi in kpis:
-        name = kpi.get("name", "KPI")
-        unit = kpi.get("unit") or "—"
-        direction = kpi.get("typical_direction") or "—"
+        name = _clean_text(kpi.get("name")) or "KPI"
+        unit = _sanitize_unit(kpi.get("unit")) or "—"
+        direction = _clean_text(kpi.get("typical_direction")) or "—"
         disclosure = kpi.get("disclosure") or {}
         source = disclosure.get("source_type", "not_provided")
+        if source == "not_provided":
+            source = "data unavailable"
         notes_parts.append(f"  {name} | {unit} | {direction} | {source}")
 
     return {

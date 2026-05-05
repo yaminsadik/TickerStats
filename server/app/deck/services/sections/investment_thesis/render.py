@@ -2,14 +2,29 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 
 _MAX_BULLETS_PER_SLIDE = 4
+_PLACEHOLDER_RE = re.compile(r"^(?:null|none|n/?a|not[_\s]+provided|tbd|unknown)$", re.IGNORECASE)
 
 
 def _bullet(text: str, source_needed: bool = False) -> dict[str, Any]:
     return {"text": text, "source_needed": source_needed}
+
+
+def _clean_text(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    text = " ".join(value.split())
+    if not text or _PLACEHOLDER_RE.match(text):
+        return ""
+    return text
+
+
+def _clean_list(values: list[Any]) -> list[str]:
+    return [v for v in (_clean_text(item) for item in values) if v]
 
 
 def render_to_slides(out: dict[str, Any]) -> list[dict[str, Any]]:
@@ -18,17 +33,17 @@ def render_to_slides(out: dict[str, Any]) -> list[dict[str, Any]]:
 
     # --- Slide 1: Investment Thesis ---
     bullets_1: list[dict[str, Any]] = []
-    thesis = out.get("thesis_sentence")
+    thesis = _clean_text(out.get("thesis_sentence"))
     if thesis:
         bullets_1.append(_bullet(thesis))
 
-    for pillar in (out.get("pillars") or [])[:3]:  # leave room if thesis used a slot
+    for pillar in _clean_list(out.get("pillars") or [])[:3]:  # leave room if thesis used a slot
         if len(bullets_1) < _MAX_BULLETS_PER_SLIDE:
             bullets_1.append(_bullet(pillar))
 
     notes_1: list[str] = []
     # Put extra pillars in speaker notes
-    extra_pillars = (out.get("pillars") or [])[3:]
+    extra_pillars = _clean_list(out.get("pillars") or [])[3:]
     if extra_pillars:
         notes_1.append("Additional pillars: " + "; ".join(extra_pillars))
 
@@ -50,9 +65,9 @@ def render_to_slides(out: dict[str, Any]) -> list[dict[str, Any]]:
     })
 
     # --- Slide 2: Variant View ---
-    market_view = out.get("market_view")
-    variant_view = out.get("variant_view")
-    what_changes = out.get("what_changes_mind") or []
+    market_view = _clean_text(out.get("market_view"))
+    variant_view = _clean_text(out.get("variant_view"))
+    what_changes = _clean_list(out.get("what_changes_mind") or [])
 
     if market_view or variant_view or what_changes:
         bullets_2: list[dict[str, Any]] = []

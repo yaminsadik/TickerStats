@@ -15,10 +15,12 @@ If space is tight, proof points take priority over footprint.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 
 _MAX_BULLETS_PER_SLIDE = 4
+_PLACEHOLDER_RE = re.compile(r"^(?:null|none|n/?a|not[_\s]+provided|tbd|unknown)$", re.IGNORECASE)
 
 
 def _bullet(text: str, source_needed: bool = False) -> dict[str, Any]:
@@ -26,9 +28,18 @@ def _bullet(text: str, source_needed: bool = False) -> dict[str, Any]:
     return {"text": text, "source_needed": source_needed}
 
 
+def _clean_text(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    text = " ".join(value.split())
+    if not text or _PLACEHOLDER_RE.match(text):
+        return ""
+    return text
+
+
 def _format_kpi(kpi: dict[str, Any]) -> str:
-    label = kpi.get("label", "KPI")
-    value = kpi.get("value", "N/A")
+    label = _clean_text(kpi.get("label")) or "KPI"
+    value = _clean_text(kpi.get("value")) or "data unavailable"
     as_of = kpi.get("as_of")
     s = f"{label}: {value}"
     if as_of:
@@ -37,8 +48,10 @@ def _format_kpi(kpi: dict[str, Any]) -> str:
 
 
 def _format_quick_stat(stat: dict[str, Any]) -> str:
-    label = stat.get("label", "")
-    value = stat.get("value", "")
+    label = _clean_text(stat.get("label"))
+    value = _clean_text(stat.get("value"))
+    if not label or not value:
+        return ""
     return f"{label}: {value}"
 
 
@@ -55,23 +68,26 @@ def _build_slide_1(snapshot: dict[str, Any]) -> dict[str, Any]:
 
     # Bullets: positioning sentence first, then positioning bullets
     bullets: list[dict[str, Any]] = []
-    pos_sentence = header.get("positioning_sentence", "")
+    pos_sentence = _clean_text(header.get("positioning_sentence"))
     if pos_sentence:
         bullets.append(_bullet(pos_sentence))
 
     for b in positioning.get("bullets", []):
+        cleaned = _clean_text(b)
+        if not cleaned:
+            continue
         if len(bullets) >= _MAX_BULLETS_PER_SLIDE:
             break
-        bullets.append(_bullet(b))
+        bullets.append(_bullet(cleaned))
 
     # Speaker notes: money model summary + quick stats
     notes_parts: list[str] = []
 
     # Money model
-    pricing = money.get("pricing_unit", "")
-    contract = money.get("contract_structure", "")
-    recurrence = money.get("recurrence", "")
-    cost_drivers = money.get("cost_drivers", [])
+    pricing = _clean_text(money.get("pricing_unit"))
+    contract = _clean_text(money.get("contract_structure"))
+    recurrence = _clean_text(money.get("recurrence"))
+    cost_drivers = [cd for cd in (_clean_text(v) for v in money.get("cost_drivers", [])) if cd]
     if pricing or contract or recurrence:
         money_line = "Money Model: "
         money_pieces = []
@@ -89,10 +105,10 @@ def _build_slide_1(snapshot: dict[str, Any]) -> dict[str, Any]:
     # Quick stats for speaker notes
     quick_stats = header.get("quick_stats", [])
     if quick_stats:
-        stats_line = "Quick Stats: " + " | ".join(
-            _format_quick_stat(s) for s in quick_stats
-        )
-        notes_parts.append(stats_line)
+        formatted_stats = [fs for fs in (_format_quick_stat(s) for s in quick_stats) if fs]
+        if formatted_stats:
+            stats_line = "Quick Stats: " + " | ".join(formatted_stats)
+            notes_parts.append(stats_line)
 
     # Confidence notes
     conf_notes = []
@@ -130,7 +146,7 @@ def _build_slide_2(snapshot: dict[str, Any]) -> dict[str, Any]:
     footprint = modules.get("footprint", {})
     proof_points = modules.get("proof_points", {})
 
-    company_name = header.get("company_name", "Company")
+    company_name = _clean_text(header.get("company_name")) or "Company"
     title = f"{company_name} — Business Profile"
 
     # Bullets: segments one-liners, customer types, footprint regions
@@ -141,30 +157,32 @@ def _build_slide_2(snapshot: dict[str, Any]) -> dict[str, Any]:
     for seg in segments.get("items", []):
         if len(bullets) >= _MAX_BULLETS_PER_SLIDE:
             break
-        name = seg.get("name", "")
-        liner = seg.get("one_liner", "")
+        name = _clean_text(seg.get("name"))
+        liner = _clean_text(seg.get("one_liner"))
+        if not name and not liner:
+            continue
         mix = seg.get("mix_pct")
-        text = name
-        if mix is not None:
+        text = name or "Segment"
+        if isinstance(mix, (int, float)) and mix > 0:
             text += f" ({mix:.0f}%)"
         if liner:
             text += f" — {liner}"
         bullets.append(_bullet(text))
 
     # Customer types
-    cust_types = customers.get("types", [])
+    cust_types = [ct for ct in (_clean_text(t) for t in customers.get("types", [])) if ct]
     if cust_types and len(bullets) < _MAX_BULLETS_PER_SLIDE:
-        conc = customers.get("concentration", "")
+        conc = _clean_text(customers.get("concentration"))
         cust_text = f"Customers: {', '.join(cust_types)}"
         if conc:
             cust_text += f" (concentration: {conc})"
         bullets.append(_bullet(cust_text))
 
     # Footprint (lowest priority for bullets — proof points go to notes)
-    regions = footprint.get("regions", [])
+    regions = [r for r in (_clean_text(v) for v in footprint.get("regions", [])) if r]
     if regions and len(bullets) < _MAX_BULLETS_PER_SLIDE:
         fp_text = f"Footprint: {', '.join(regions)}"
-        why = footprint.get("why_it_matters")
+        why = _clean_text(footprint.get("why_it_matters"))
         if why:
             fp_text += f" — {why}"
         bullets.append(_bullet(fp_text))

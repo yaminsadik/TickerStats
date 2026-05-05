@@ -3,6 +3,8 @@ import sys
 import types
 from types import SimpleNamespace
 
+import pytest
+
 from app.core.config import settings
 from app.deck.api.routes_deck import VERTEX_GEMINI_KEY_SENTINEL, get_api_keys
 from app.deck.services.llm_gemini import GeminiProvider, VERTEX_CLOUD_PLATFORM_SCOPE
@@ -180,3 +182,37 @@ def test_vertex_client_reports_missing_credentials_file(monkeypatch):
 
     assert "GOOGLE_APPLICATION_CREDENTIALS points to" in message
     assert "GOOGLE_APPLICATION_CREDENTIALS_JSON_BASE64" in message
+
+
+def test_vertex_model_lookup_error_includes_global_location_hint(monkeypatch):
+    class _FailingModels:
+        def generate_content(self, **kwargs):
+            raise RuntimeError(
+                "404 NOT_FOUND. {'error': {'code': 404, 'message': "
+                "'Publisher Model `projects/test/locations/us-central1/publishers/google/models/gemini-3.1-pro-preview` "
+                "was not found or your project does not have access to it.'}}"
+            )
+
+    class _FailingClient:
+        def __init__(self):
+            self.models = _FailingModels()
+
+    monkeypatch.setattr(settings, "GOOGLE_CLOUD_LOCATION", "us-central1")
+
+    provider = GeminiProvider(api_key="", default_model="gemini-3.1-pro-preview")
+    monkeypatch.setattr(provider, "_get_client", lambda: _FailingClient())
+    monkeypatch.setattr(provider, "_use_vertex", lambda: True)
+
+    with pytest.raises(AuthenticationError) as exc:
+        provider.generate_json(
+            system_prompt="Return JSON.",
+            user_prompt="Say ok.",
+            json_schema={
+                "type": "object",
+                "properties": {"status": {"type": "string"}},
+                "required": ["status"],
+            },
+            options=LLMOptions(reasoning_level="low", extra={"model": "gemini-3.1-pro-preview"}),
+        )
+
+    assert "GOOGLE_CLOUD_LOCATION=global" in str(exc.value)

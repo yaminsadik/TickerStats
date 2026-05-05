@@ -81,7 +81,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("GOOGLE_CLOUD_PROJECT"),
     )
     GOOGLE_CLOUD_LOCATION: str = Field(
-        default="us-central1",
+        default="global",
         validation_alias=AliasChoices("GOOGLE_CLOUD_LOCATION"),
     )
     VERTEX_GEMINI_DEFAULT_MODEL: str = Field(

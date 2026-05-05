@@ -70,7 +70,7 @@ curl http://localhost:5000/health
    # Gemini on Vertex AI
    GOOGLE_GENAI_USE_VERTEXAI=true
    GOOGLE_CLOUD_PROJECT=your-gcp-project-id
-   GOOGLE_CLOUD_LOCATION=us-central1
+   GOOGLE_CLOUD_LOCATION=global
    VERTEX_GEMINI_DEFAULT_MODEL=gemini-3.1-pro-preview
    GEMINI_EXPORT_MODEL=gemini-3.1-pro-preview
    GOOGLE_APPLICATION_CREDENTIALS_JSON_BASE64=base64-encoded-service-account-json
@@ -260,7 +260,7 @@ doctl apps update YOUR_APP_ID --spec app-spec.yaml
 | `ALLOWED_ORIGINS`  | No       | `*`     | CORS allowed origins (comma-separated)        |
 | `GOOGLE_GENAI_USE_VERTEXAI` | No | `false` | Use Vertex AI for Gemini deck generation |
 | `GOOGLE_CLOUD_PROJECT` | If Vertex | - | Google Cloud project for Vertex AI quota |
-| `GOOGLE_CLOUD_LOCATION` | If Vertex | `us-central1` | Vertex AI region |
+| `GOOGLE_CLOUD_LOCATION` | If Vertex | `global` | Vertex AI location (`gemini-3.1-pro-preview` is global-only) |
 | `GOOGLE_APPLICATION_CREDENTIALS_JSON_BASE64` | If Vertex without platform ADC | - | Base64-encoded service-account JSON secret |
 | `GOOGLE_APPLICATION_CREDENTIALS` | No | - | Local file path for ADC; file must exist in the container |
 

@@ -16,15 +16,26 @@ Layout strategy:
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 
 _MAX_BULLETS_PER_SLIDE = 4
+_PLACEHOLDER_RE = re.compile(r"^(?:null|none|n/?a|not[_\s]+provided|tbd|unknown)$", re.IGNORECASE)
 
 
 def _bullet(text: str, source_needed: bool = False) -> dict[str, Any]:
     """Create a bullet dict matching SLIDE_JSON_SCHEMA."""
     return {"text": text, "source_needed": source_needed}
+
+
+def _clean_text(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    text = " ".join(value.split())
+    if not text or _PLACEHOLDER_RE.match(text):
+        return ""
+    return text
 
 
 # ── Slide 1: Capital Structure ───────────────────────────────────────────────
@@ -45,15 +56,17 @@ def _build_slide_1(out: dict[str, Any]) -> dict[str, Any]:
     for t in lev_takeaways:
         if len(bullets) >= _MAX_BULLETS_PER_SLIDE:
             break
-        if isinstance(t, str) and t.strip():
-            bullets.append(_bullet(t))
+        cleaned = _clean_text(t)
+        if cleaned:
+            bullets.append(_bullet(cleaned))
 
     # Then maturity takeaways
     for t in mat_takeaways:
         if len(bullets) >= _MAX_BULLETS_PER_SLIDE:
             break
-        if isinstance(t, str) and t.strip():
-            bullets.append(_bullet(t))
+        cleaned = _clean_text(t)
+        if cleaned:
+            bullets.append(_bullet(cleaned))
 
     if not bullets:
         bullets.append(_bullet("Capital structure data not available"))
@@ -67,7 +80,11 @@ def _build_slide_1(out: dict[str, Any]) -> dict[str, Any]:
         for m in interest_metrics:
             if isinstance(m, dict):
                 as_of = f" (as of {m['as_of']})" if m.get("as_of") else ""
-                notes_parts.append(f"{m.get('label', '')}: {m.get('value', '')}{as_of}")
+                label = _clean_text(m.get("label"))
+                value = _clean_text(m.get("value"))
+                if not label or not value:
+                    continue
+                notes_parts.append(f"{label}: {value}{as_of}")
 
     # Ladder listing
     ladder = maturities.get("ladder", [])
@@ -75,8 +92,8 @@ def _build_slide_1(out: dict[str, Any]) -> dict[str, Any]:
         notes_parts.append("Maturity ladder:")
         for item in ladder:
             if isinstance(item, dict):
-                amt = item.get("amount") or "N/A"
-                inst = item.get("instrument") or ""
+                amt = _clean_text(item.get("amount")) or "data unavailable"
+                inst = _clean_text(item.get("instrument")) or ""
                 inst_str = f" ({inst})" if inst else ""
                 notes_parts.append(f"  {item.get('year_bucket', '?')}: {amt}{inst_str}")
 
@@ -86,12 +103,18 @@ def _build_slide_1(out: dict[str, Any]) -> dict[str, Any]:
         notes_parts.append("Covenants:")
         for cov in covenants:
             if isinstance(cov, dict):
-                headroom = f" — headroom: {cov['headroom']}" if cov.get("headroom") else ""
-                notes_parts.append(f"  [{cov.get('type', 'other')}] {cov.get('description', '')}{headroom}")
+                ctype = _clean_text(cov.get("type")) or "other"
+                desc = _clean_text(cov.get("description"))
+                if not desc:
+                    continue
+                headroom = _clean_text(cov.get("headroom"))
+                headroom_part = f" — headroom: {headroom}" if headroom else ""
+                notes_parts.append(f"  [{ctype}] {desc}{headroom_part}")
 
     # Current leverage
     current_lev = leverage.get("current_net_debt_to_ebitda")
-    if current_lev is not None:
+    has_supporting_leverage_data = bool(leverage.get("leverage_series")) or bool(leverage.get("interest_metrics"))
+    if current_lev is not None and (current_lev != 0 or has_supporting_leverage_data):
         notes_parts.insert(0, f"Current Net Debt/EBITDA: {current_lev}x")
 
     lev_conf = leverage.get("confidence", "medium")
@@ -99,8 +122,8 @@ def _build_slide_1(out: dict[str, Any]) -> dict[str, Any]:
     if lev_conf == "low" or mat_conf == "low":
         notes_parts.append(f"Leverage confidence: {lev_conf}; Maturities confidence: {mat_conf}")
 
-    lev_notes = leverage.get("notes")
-    mat_notes = maturities.get("notes")
+    lev_notes = _clean_text(leverage.get("notes"))
+    mat_notes = _clean_text(maturities.get("notes"))
     if lev_notes:
         notes_parts.append(f"Notes: {lev_notes}")
     if mat_notes:
@@ -145,15 +168,17 @@ def _build_slide_2(out: dict[str, Any]) -> dict[str, Any]:
     for t in liq_takeaways:
         if len(bullets) >= _MAX_BULLETS_PER_SLIDE:
             break
-        if isinstance(t, str) and t.strip():
-            bullets.append(_bullet(t))
+        cleaned = _clean_text(t)
+        if cleaned:
+            bullets.append(_bullet(cleaned))
 
     # Then share count takeaways
     for t in sc_takeaways:
         if len(bullets) >= _MAX_BULLETS_PER_SLIDE:
             break
-        if isinstance(t, str) and t.strip():
-            bullets.append(_bullet(t))
+        cleaned = _clean_text(t)
+        if cleaned:
+            bullets.append(_bullet(cleaned))
 
     if not bullets:
         bullets.append(_bullet("Liquidity and share count data not available"))
@@ -167,12 +192,20 @@ def _build_slide_2(out: dict[str, Any]) -> dict[str, Any]:
         for m in liq_metrics:
             if isinstance(m, dict):
                 as_of = f" (as of {m['as_of']})" if m.get("as_of") else ""
-                notes_parts.append(f"{m.get('label', '')}: {m.get('value', '')}{as_of}")
+                label = _clean_text(m.get("label"))
+                value = _clean_text(m.get("value"))
+                if not label or not value:
+                    continue
+                notes_parts.append(f"{label}: {value}{as_of}")
 
     # Runway
     runway = liquidity.get("runway")
-    if isinstance(runway, dict) and runway.get("estimate"):
-        notes_parts.append(f"Runway: {runway.get('basis', '')} → {runway['estimate']}")
+    if isinstance(runway, dict):
+        runway_estimate = _clean_text(runway.get("estimate"))
+        runway_basis = _clean_text(runway.get("basis"))
+        if runway_estimate:
+            basis_prefix = f"{runway_basis} → " if runway_basis else ""
+            notes_parts.append(f"Runway: {basis_prefix}{runway_estimate}")
 
     # Share series
     share_series = share_count.get("share_series", [])
@@ -181,7 +214,7 @@ def _build_slide_2(out: dict[str, Any]) -> dict[str, Any]:
         for pt in share_series:
             if isinstance(pt, dict):
                 val = pt.get("diluted_shares")
-                val_str = f"{val}M" if val is not None else "N/A"
+                val_str = f"{val}M" if val is not None else "data unavailable"
                 points_str.append(f"{pt.get('period', '?')}: {val_str}")
         if points_str:
             notes_parts.append(f"Diluted shares: {' | '.join(points_str)}")
@@ -189,26 +222,29 @@ def _build_slide_2(out: dict[str, Any]) -> dict[str, Any]:
     # Buyback/SBC facts
     buybacks = share_count.get("buybacks", [])
     for b in buybacks:
-        if isinstance(b, str) and b.strip():
-            notes_parts.append(f"Buyback: {b}")
+        cleaned = _clean_text(b)
+        if cleaned:
+            notes_parts.append(f"Buyback: {cleaned}")
 
     sbc = share_count.get("sbc_dilution", [])
     for s in sbc:
-        if isinstance(s, str) and s.strip():
-            notes_parts.append(f"SBC: {s}")
+        cleaned = _clean_text(s)
+        if cleaned:
+            notes_parts.append(f"SBC: {cleaned}")
 
     dividends = share_count.get("dividends", [])
     for d in dividends:
-        if isinstance(d, str) and d.strip():
-            notes_parts.append(f"Dividend: {d}")
+        cleaned = _clean_text(d)
+        if cleaned:
+            notes_parts.append(f"Dividend: {cleaned}")
 
     liq_conf = liquidity.get("confidence", "medium")
     sc_conf = share_count.get("confidence", "medium")
     if liq_conf == "low" or sc_conf == "low":
         notes_parts.append(f"Liquidity confidence: {liq_conf}; Share count confidence: {sc_conf}")
 
-    liq_notes = liquidity.get("notes")
-    sc_notes = share_count.get("notes")
+    liq_notes = _clean_text(liquidity.get("notes"))
+    sc_notes = _clean_text(share_count.get("notes"))
     if liq_notes:
         notes_parts.append(f"Notes: {liq_notes}")
     if sc_notes:

@@ -673,6 +673,28 @@ class GeminiProvider(LLMProvider):
             # Map to specific error types
             if "quota" in error_str or "rate" in error_str or "resource exhausted" in error_str:
                 raise RateLimitError(str(e))
+
+            is_vertex_model_lookup_error = (
+                "not_found" in error_str
+                or "not found" in error_str
+                or "publisher model" in error_str
+                or "does not have access" in error_str
+            )
+            if self._use_vertex() and is_vertex_model_lookup_error:
+                location = (settings.GOOGLE_CLOUD_LOCATION or "").strip() or "<unset>"
+                if model_name.startswith("gemini-3.1") and location != "global":
+                    hint = (
+                        "Gemini 3.1 preview models are global-only on Vertex AI. "
+                        "Set GOOGLE_CLOUD_LOCATION=global."
+                    )
+                else:
+                    hint = (
+                        "Check model/version availability and project access in Vertex AI."
+                    )
+                raise AuthenticationError(
+                    f"Gemini model routing failed for '{model_name}' in location "
+                    f"'{location}'. {hint} Original error: {e}"
+                )
             
             if "api key" in error_str or "authentication" in error_str or "permission" in error_str:
                 raise AuthenticationError(f"Gemini authentication failed: {e}")
