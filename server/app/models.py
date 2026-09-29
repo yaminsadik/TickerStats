@@ -28,7 +28,6 @@ from sqlalchemy.orm import relationship
 from app.core.database import Base
 
 PLAN_TIERS = ("free", "pro", "enterprise")
-PURCHASE_PRODUCTS = ("usage_pack", "deck_export")
 
 
 def utcnow() -> datetime:

@@ -5,12 +5,11 @@ from typing import List, Optional, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, func, update
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from app.core.auth import (
     get_current_user_with_upsert,
     require_admin,
-    require_paid_or_admin,
 )
 from app.core.database import get_db
 from app.core.middleware import request_id_var

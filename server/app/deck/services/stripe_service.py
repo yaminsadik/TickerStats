@@ -503,7 +503,6 @@ class StripeService:
         metadata = session.get("metadata", {})
         
         auth0_user_id = metadata.get("auth0_user_id")
-        tier = metadata.get("tier")
 
         if not auth0_user_id:
             logger.error("No auth0_user_id in checkout session metadata")

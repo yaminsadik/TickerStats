@@ -3,8 +3,6 @@ API routes for the TickerStats relative table backend.
 """
 
 import asyncio
-import csv
-import io
 import logging
 from typing import Optional
 
