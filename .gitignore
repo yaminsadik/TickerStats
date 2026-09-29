@@ -85,3 +85,6 @@ coverage/
 credentials.json
 secrets.json
 server/secrets/
+
+# Local debug keys (never commit private keys)
+.ssh-debug/
