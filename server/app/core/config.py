@@ -14,14 +14,10 @@ ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
-    # Database
+    # Database (one URL; the app and Alembic both use the psycopg 3 driver)
     DATABASE_URL: str = Field(
         default="postgresql://tickerstats:tickerstats@localhost:5432/ticketstats",
         validation_alias=AliasChoices("DATABASE_URL"),
-    )
-    ASYNC_DATABASE_URL: str = Field(
-        default="postgresql+asyncpg://tickerstats:tickerstats@localhost:5432/ticketstats",
-        validation_alias=AliasChoices("ASYNC_DATABASE_URL"),
     )
 
     # Auth0
@@ -166,6 +162,16 @@ class Settings(BaseSettings):
     def model_post_init(self, __context):
         if self.AUTH0_DOMAIN:
             self.AUTH0_ISSUER = f"https://{self.AUTH0_DOMAIN}/"
+
+    @property
+    def sqlalchemy_database_url(self) -> str:
+        """DATABASE_URL with the driver forced to psycopg 3.
+
+        Hosting providers hand out plain ``postgres://`` or ``postgresql://``
+        URLs; psycopg 3 serves both sync (Alembic) and async (app) engines.
+        """
+        _, _, rest = self.DATABASE_URL.partition("://")
+        return f"postgresql+psycopg://{rest}"
 
 
 settings = Settings()

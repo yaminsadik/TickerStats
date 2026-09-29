@@ -22,7 +22,8 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 # Override sqlalchemy.url from settings
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+# "%" must be escaped because Alembic reads this through ConfigParser.
+config.set_main_option("sqlalchemy.url", settings.sqlalchemy_database_url.replace("%", "%%"))
 
 
 def run_migrations_offline() -> None:

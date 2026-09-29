@@ -90,7 +90,6 @@ Edit `server/.env` with your local values. At minimum, set:
 
 ```env
 DATABASE_URL=postgresql://ticketstats:ticketstats@localhost:5432/ticketstats
-ASYNC_DATABASE_URL=postgresql+asyncpg://ticketstats:ticketstats@localhost:5432/ticketstats
 AUTH0_DOMAIN=your-tenant.us.auth0.com
 AUTH0_API_AUDIENCE=https://api.tickerstats.com
 DEBUG=True

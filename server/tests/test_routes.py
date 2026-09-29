@@ -4,7 +4,7 @@ Tests for API routes.
 
 import json
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 class TestSectionsEndpoint:
@@ -14,7 +14,7 @@ class TestSectionsEndpoint:
         response = client.get("/api/v1/sections")
         
         assert response.status_code == 200
-        data = response.get_json()
+        data = response.json()
         
         assert "sections" in data
         assert len(data["sections"]) == 17
@@ -43,7 +43,7 @@ class TestSectionsEndpoint:
     
     def test_sections_have_labels(self, client):
         response = client.get("/api/v1/sections")
-        data = response.get_json()
+        data = response.json()
         
         for section in data["sections"]:
             assert "id" in section
@@ -57,19 +57,19 @@ class TestHealthEndpoint:
     def test_root_health(self, client):
         response = client.get("/")
         assert response.status_code == 200
-        data = response.get_json()
+        data = response.json()
         assert data["status"] == "running"
     
     def test_health_endpoint(self, client):
         response = client.get("/health")
         assert response.status_code == 200
-        data = response.get_json()
+        data = response.json()
         assert data["status"] == "ok"
     
     def test_deck_health(self, client):
         response = client.get("/api/v1/health")
         assert response.status_code == 200
-        data = response.get_json()
+        data = response.json()
         assert data["status"] == "ok"
         assert data["service"] == "deck-generator"
 
@@ -87,7 +87,7 @@ class TestGenerateEndpoint:
         # Without a valid auth token the route returns 401 (auth required)
         # or 400 (missing API key) depending on auth config
         assert response.status_code in (400, 401)
-        data = response.get_json()
+        data = response.json()
         assert "error" in data or "detail" in data or "message" in data
     
     def test_invalid_content_type(self, client, sample_generate_request):
@@ -98,8 +98,8 @@ class TestGenerateEndpoint:
         )
         
         assert response.status_code == 400
-        data = response.get_json()
-        assert "Content-Type" in data.get("error", "")
+        data = response.json()
+        assert "Content-Type" in data["detail"]["error"]
     
     def test_invalid_request_body(self, client):
         response = client.post(
@@ -143,22 +143,21 @@ class TestGenerateEndpoint:
         
         assert response.status_code == 400
     
-    @patch("app.deck.api.routes_deck.enforce_deck_limit_and_increment_sync", return_value=(True, 100))
-    @patch("app.deck.api.routes_deck.check_deck_limit_sync", return_value=(True, 100))
-    @patch("app.deck.api.routes_deck._upsert_user_sync")
-    @patch("app.deck.api.routes_deck.SessionLocal")
+    @patch("app.deck.api.routes_deck._save_usage_rows", new_callable=AsyncMock)
+    @patch("app.deck.api.routes_deck.reserve_deck", new_callable=AsyncMock, return_value=(True, 100))
+    @patch("app.deck.api.routes_deck._load_user", new_callable=AsyncMock)
+    @patch("app.deck.api.routes_deck.AsyncSessionLocal")
     @patch("app.deck.api.routes_deck.verifier")
     @patch("app.deck.api.routes_deck.enrich_request_with_ticker_info", return_value=("Accenture", "IT"))
     @patch("app.deck.services.deck_generator.DeckGenerator.generate_deck")
-    def test_successful_generation(self, mock_generate, mock_enrich, mock_verifier, mock_session_cls, mock_upsert, mock_deck_limit, mock_enforce_deck, client, sample_generate_request, mock_gemini_response):
-        # Mock auth
+    def test_successful_generation(self, mock_generate, mock_enrich, mock_verifier, mock_session_cls, mock_load_user, mock_reserve_deck, mock_save_usage, client, sample_generate_request, mock_gemini_response):
+        # Mock auth and the database
         mock_verifier.verify_token.return_value = {"sub": "auth0|test123"}
         mock_user = MagicMock()
         mock_user.subscription_tier = "free"
         mock_user.is_admin = False
-        mock_upsert.return_value = mock_user
-        mock_session = MagicMock()
-        mock_session_cls.return_value = mock_session
+        mock_load_user.return_value = mock_user
+        mock_session_cls.return_value.__aenter__.return_value = AsyncMock()
 
         # Mock the response
         from app.deck.api.schemas import (
@@ -205,7 +204,7 @@ class TestGenerateEndpoint:
         )
         
         assert response.status_code == 200
-        data = response.get_json()
+        data = response.json()
         
         assert data["ticker"] == "ACN"
         assert data["provider_used"]["provider"] == "gemini"
@@ -223,7 +222,7 @@ class TestPlanEndpoint:
         )
         
         assert response.status_code == 200
-        data = response.get_json()
+        data = response.json()
         
         assert data["ticker"] == "ACN"
         assert "suggested_sections" in data
@@ -237,7 +236,7 @@ class TestPlanEndpoint:
             content_type="application/json",
         )
         
-        data = response.get_json()
+        data = response.json()
         section_ids = {s["id"] for s in data["suggested_sections"]}
         
         expected = {
@@ -262,7 +261,7 @@ class TestPlanEndpoint:
             content_type="application/json",
         )
         
-        data = response.get_json()
+        data = response.json()
         
         for section in data["suggested_sections"]:
             assert "priority" in section
@@ -301,7 +300,7 @@ class TestRequestContext:
             content_type="application/json",
         )
         
-        data = response.get_json()
+        data = response.json()
         assert "request_id" in data
     
     def test_custom_request_id_header(self, client, sample_plan_request):
@@ -315,5 +314,5 @@ class TestRequestContext:
         )
         
         # The custom ID should be used
-        data = response.get_json()
+        data = response.json()
         assert "request_id" in data

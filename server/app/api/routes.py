@@ -8,18 +8,13 @@ import io
 import logging
 from typing import Optional
 
-from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user_with_upsert, require_paid_or_admin
 from app.core.database import get_db
 from app.models import User
-from app.services.usage_limits import (
-    compute_compare_hash,
-    check_compare_limit_async,
-    enforce_compare_limit_and_increment_async,
-)
+from app.services.usage_limits import compute_compare_hash, reserve_compare
 from app.core.config import (
     DEFAULT_SNAPSHOT_FIELDS,
     MAX_SYMBOLS_PER_REQUEST,
@@ -184,7 +179,8 @@ async def get_relative_table(
     validated_fields = parse_and_validate_fields(fields)
     validated_perf_metrics, validated_perf_period = parse_and_validate_perf(perf, perfPeriod)
 
-    # Enforce monthly compare limits (free tier) with fairness window
+    # Reserve one compare (free tier limit), then commit to release the row
+    # lock before the slow Yahoo Finance calls.
     compare_hash = compute_compare_hash(
         validated_symbols,
         validated_fields,
@@ -192,12 +188,8 @@ async def get_relative_table(
         validated_perf_period,
         dcf,
     )
-    now = datetime.utcnow()
-    allowed, should_increment, limit = await check_compare_limit_async(
-        current_user,
-        now,
-        compare_hash,
-    )
+    allowed, limit = await reserve_compare(db, current_user.auth0_user_id, compare_hash)
+    await db.commit()
     if not allowed:
         raise HTTPException(
             status_code=403,
@@ -216,24 +208,6 @@ async def get_relative_table(
         perf_period=validated_perf_period,
         include_dcf=dcf,
     )
-
-    if should_increment:
-        # Enforce again under row lock to avoid limit bypass under concurrency.
-        allowed_after_fetch, locked_limit = await enforce_compare_limit_and_increment_async(
-            db,
-            current_user.auth0_user_id,
-            now,
-            compare_hash,
-        )
-        if not allowed_after_fetch:
-            blocked_limit = locked_limit or limit or 0
-            raise HTTPException(
-                status_code=403,
-                detail=(
-                    f"Free tier is limited to {blocked_limit} compare actions per month. "
-                    "Paid account limits are managed from billing."
-                ),
-            )
 
     # Set cache header
     response.headers["X-Cache"] = "HIT" if cache_hit else "MISS"

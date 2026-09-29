@@ -1,4 +1,5 @@
 """Auth0 JWT verification and authentication dependencies."""
+import logging
 import threading
 import time
 from typing import Optional
@@ -6,12 +7,14 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 import requests
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.models import User
 
+logger = logging.getLogger(__name__)
 
 # HTTPBearer scheme for extracting JWT from Authorization header
 security = HTTPBearer()
@@ -23,8 +26,6 @@ class Auth0JWTVerifier:
     def __init__(self):
         # Validate that AUTH0_DOMAIN looks like an Auth0 tenant domain or custom domain
         if settings.AUTH0_DOMAIN and not (".auth0.com" in settings.AUTH0_DOMAIN or ".auth0.app" in settings.AUTH0_DOMAIN):
-            import logging
-            logger = logging.getLogger(__name__)
             logger.warning(
                 f"AUTH0_DOMAIN '{settings.AUTH0_DOMAIN}' is not an Auth0 tenant domain. "
                 f"If this is a custom domain, ensure it is fully configured in Auth0 "
@@ -198,84 +199,44 @@ async def verify_token(
     return user_id
 
 
-async def upsert_user_from_token(
-    db: AsyncSession, user_id: str, payload: dict
-) -> User:
+def _claim(payload: dict, name: str) -> Optional[str]:
+    """Read a profile claim from the standard slot or a namespaced custom claim."""
+    return (
+        payload.get(name)
+        or payload.get(f"https://{settings.AUTH0_DOMAIN}/{name}")
+        or payload.get(f"https://tickerstats.com/{name}")
+        or payload.get(f"http://tickerstats.com/{name}")
+    )
+
+
+async def upsert_user_from_token(db: AsyncSession, user_id: str, payload: dict) -> User:
+    """Return the users row for this Auth0 subject, creating it on first login.
+
+    The common case is one SELECT. On first login, INSERT ... ON CONFLICT DO
+    NOTHING makes two simultaneous first requests safe: one inserts, the other
+    does nothing, and both read the same row back.
     """
-    Ensure a users row exists for the authenticated subject.
-    Inserts if missing, updates email/name/picture/updated_at if present.
-    Handles nullable email safely.
-    """
-    from sqlalchemy import select
-    from datetime import datetime
-    import logging
-    
-    logger = logging.getLogger(__name__)
+    email = _claim(payload, "email")
+    name = _claim(payload, "name") or payload.get("nickname")
+    picture = _claim(payload, "picture")
 
-    # Try multiple possible claim locations for email, name, picture
-    # Standard claims, custom namespaced claims, or Auth0-specific claims
-    email = (
-        payload.get("email") or 
-        payload.get(f"https://{settings.AUTH0_DOMAIN}/email") or
-        payload.get("https://tickerstats.com/email") or
-        payload.get("http://tickerstats.com/email")
-    )
-    name = (
-        payload.get("name") or 
-        payload.get(f"https://{settings.AUTH0_DOMAIN}/name") or
-        payload.get("https://tickerstats.com/name") or
-        payload.get("http://tickerstats.com/name") or
-        payload.get("nickname")
-    )
-    picture = (
-        payload.get("picture") or 
-        payload.get(f"https://{settings.AUTH0_DOMAIN}/picture") or
-        payload.get("https://tickerstats.com/picture") or
-        payload.get("http://tickerstats.com/picture")
-    )
-    
-    # Log what we found for debugging
-    if not email or not name:
-        logger.warning(
-            f"Missing user info from token for {user_id}: "
-            f"email={'✓' if email else '✗'}, name={'✓' if name else '✗'}. "
-            f"Available claims: {list(payload.keys())}"
+    user = await db.get(User, user_id)
+    if user is None:
+        await db.execute(
+            pg_insert(User)
+            .values(auth0_user_id=user_id, email=email, name=name, picture=picture)
+            .on_conflict_do_nothing(index_elements=[User.auth0_user_id])
         )
+        user = await db.get(User, user_id)
+        if not email:
+            logger.warning("New user %s has no email claim; claims: %s", user_id, list(payload))
+        return user
 
-    result = await db.execute(
-        select(User).where(User.auth0_user_id == user_id)
-    )
-    user = result.scalar_one_or_none()
-
-    if user:
-        # Update mutable fields if the token carries newer info
-        changed = False
-        if not user.subscription_tier:
-            user.subscription_tier = "free"
-            changed = True
-        if email and user.email != email:
-            user.email = email
-            changed = True
-        if name and user.name != name:
-            user.name = name
-            changed = True
-        if picture and user.picture != picture:
-            user.picture = picture
-            changed = True
-        if changed:
-            user.updated_at = datetime.utcnow()
-            await db.flush()
-    else:
-        user = User(
-            auth0_user_id=user_id,
-            email=email,
-            name=name,
-            picture=picture,
-        )
-        db.add(user)
-        await db.flush()
-        await db.refresh(user)
-
+    # Keep profile fields in sync with the identity provider.
+    for field, value in (("email", email), ("name", name), ("picture", picture)):
+        if value and getattr(user, field) != value:
+            setattr(user, field, value)
+    await db.flush()
     return user
 
 

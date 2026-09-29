@@ -1,84 +1,82 @@
-"""Monthly usage limit helpers for free/pro tiers."""
+"""Monthly plan limits.
+
+Free users get a few compares and decks per month; usage packs add more.
+Limits are enforced by *reserving* a unit before the expensive work:
+
+    lock the user's row -> reset counters if a new month started
+    -> check the limit -> increment -> commit (releases the lock)
+
+The row lock (SELECT ... FOR UPDATE) makes two simultaneous requests take
+turns, so a user at 4/5 cannot get two requests through. The lock is held
+for one short transaction, never while calling Yahoo Finance or an LLM.
+If deck generation then fails, the reservation is refunded.
+"""
 from __future__ import annotations
 
-from datetime import datetime, timedelta
 import hashlib
 import json
-from typing import Optional, Tuple
+from datetime import datetime, timedelta
+from typing import Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Session
 
-from app.models import LLMUsageLog, User
+from app.models import PLAN_TIERS, LLMUsageLog, User, utcnow
 
-# Limits
 FREE_COMPARE_LIMIT = 5
 FREE_DECK_LIMIT = 1
 PRO_DECK_LIMIT = 100
 USAGE_PACK_COMPARE_CREDITS = 10
 USAGE_PACK_DECK_CREDITS = 2
-FAIRNESS_WINDOW_MINUTES = 15
+FAIRNESS_WINDOW = timedelta(minutes=15)
+DAILY_THINKING_LIMIT = 20
 
 
 def get_plan_tier(user: User) -> str:
     if user.is_admin:
         return "enterprise"
-    tier = (user.subscription_tier or "free").lower()
-    if tier not in {"free", "pro", "enterprise"}:
-        return "free"
-    return tier
-
-
-def _clean_extra_credits(value: Optional[int]) -> int:
-    return max(int(value or 0), 0)
-
-
-def get_compare_limit(plan_tier: str, extra_credits: int = 0) -> Optional[int]:
-    if plan_tier == "free":
-        return FREE_COMPARE_LIMIT + _clean_extra_credits(extra_credits)
-    return None
-
-
-def get_deck_limit(plan_tier: str, extra_credits: int = 0) -> Optional[int]:
-    if plan_tier == "free":
-        return FREE_DECK_LIMIT + _clean_extra_credits(extra_credits)
-    if plan_tier == "pro":
-        return PRO_DECK_LIMIT + _clean_extra_credits(extra_credits)
-    return None
+    return user.subscription_tier if user.subscription_tier in PLAN_TIERS else "free"
 
 
 def get_user_compare_limit(user: User) -> Optional[int]:
-    return get_compare_limit(
-        get_plan_tier(user),
-        _clean_extra_credits(getattr(user, "extra_compare_credits", 0)),
-    )
+    """Compares allowed this month, or None for unlimited."""
+    if get_plan_tier(user) == "free":
+        return FREE_COMPARE_LIMIT + user.extra_compare_credits
+    return None
 
 
 def get_user_deck_limit(user: User) -> Optional[int]:
-    return get_deck_limit(
-        get_plan_tier(user),
-        _clean_extra_credits(getattr(user, "extra_deck_credits", 0)),
-    )
+    """Decks allowed this month, or None for unlimited."""
+    tier = get_plan_tier(user)
+    if tier == "free":
+        return FREE_DECK_LIMIT + user.extra_deck_credits
+    if tier == "pro":
+        return PRO_DECK_LIMIT + user.extra_deck_credits
+    return None
 
 
-def month_start(dt: datetime) -> datetime:
-    return datetime(dt.year, dt.month, 1)
+def get_daily_thinking_limit(plan_tier: str) -> Optional[int]:
+    """Daily cap on thinking-mode LLM calls, or None for unlimited."""
+    return None if plan_tier == "enterprise" else DAILY_THINKING_LIMIT
 
 
-def reset_monthly_usage(user: User, now: datetime) -> bool:
-    """Reset monthly counters if month has changed. Returns True if reset."""
-    current_start = month_start(now)
-    if not user.usage_month_start or user.usage_month_start < current_start:
-        user.usage_month_start = current_start
+def month_start(now: datetime) -> datetime:
+    return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+def reset_monthly_usage(user: User, now: datetime) -> None:
+    """Start a new month lazily: the first request after the 1st resets counters.
+
+    Usage-pack credits are monthly, so they reset too.
+    """
+    if user.usage_month_start is None or user.usage_month_start < month_start(now):
+        user.usage_month_start = month_start(now)
         user.deck_count_month = 0
         user.compare_count_month = 0
         user.extra_deck_credits = 0
         user.extra_compare_credits = 0
         user.last_compare_hash = None
         user.last_compare_at = None
-        return True
-    return False
 
 
 def compute_compare_hash(
@@ -88,10 +86,11 @@ def compute_compare_hash(
     perf_period: Optional[str],
     dcf: bool,
 ) -> str:
+    """Order-insensitive fingerprint of a comparison request."""
     payload = {
         "symbols": sorted({s.upper().strip() for s in symbols}),
-        "fields": sorted({f for f in (fields or [])}),
-        "perf": sorted({p for p in (perf_metrics or [])}),
+        "fields": sorted(set(fields or [])),
+        "perf": sorted(set(perf_metrics or [])),
         "perfPeriod": perf_period or "",
         "dcf": bool(dcf),
     }
@@ -99,169 +98,111 @@ def compute_compare_hash(
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def should_skip_compare_increment(user: User, new_hash: str, now: datetime) -> bool:
-    if not user.last_compare_hash or not user.last_compare_at:
-        return False
-    if user.last_compare_hash != new_hash:
-        return False
-    return now - user.last_compare_at <= timedelta(minutes=FAIRNESS_WINDOW_MINUTES)
+async def lock_user(db: AsyncSession, user_id: str) -> Optional[User]:
+    """SELECT ... FOR UPDATE, re-reading the row even if the session already has it.
+
+    Without populate_existing the ORM would hand back the copy it loaded at
+    the start of the request, and the check would run on stale counters.
+    """
+    result = await db.execute(
+        select(User)
+        .where(User.auth0_user_id == user_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    return result.scalar_one_or_none()
 
 
-async def check_compare_limit_async(
-    user: User,
-    now: datetime,
-    compare_hash: str,
-) -> Tuple[bool, bool, Optional[int]]:
-    """Return (allowed, should_increment, limit)."""
+async def reserve_compare(
+    db: AsyncSession, user_id: str, compare_hash: str
+) -> tuple[bool, Optional[int]]:
+    """Count one compare against the monthly limit. Returns (allowed, limit).
+
+    The caller commits right away to release the row lock.
+    """
+    now = utcnow()
+    user = await lock_user(db, user_id)
+    if user is None:
+        return False, None
     reset_monthly_usage(user, now)
     limit = get_user_compare_limit(user)
     if limit is None:
-        return True, False, None
-    if should_skip_compare_increment(user, compare_hash, now):
-        return True, False, limit
+        return True, None
+
+    is_repeat = (
+        user.last_compare_hash == compare_hash
+        and user.last_compare_at is not None
+        and now - user.last_compare_at <= FAIRNESS_WINDOW
+    )
+    if is_repeat:
+        return True, limit
     if user.compare_count_month >= limit:
-        return False, False, limit
-    return True, True, limit
+        return False, limit
 
-
-async def apply_compare_increment_async(user: User, now: datetime, compare_hash: str) -> None:
-    user.compare_count_month = (user.compare_count_month or 0) + 1
+    user.compare_count_month += 1
     user.last_compare_hash = compare_hash
     user.last_compare_at = now
+    return True, limit
 
 
-def check_deck_limit_sync(user: User, now: datetime) -> Tuple[bool, Optional[int]]:
-    """Return (allowed, limit)."""
-    reset_monthly_usage(user, now)
+async def reserve_deck(db: AsyncSession, user_id: str) -> tuple[bool, Optional[int]]:
+    """Count one deck against the monthly limit. Returns (allowed, limit)."""
+    user = await lock_user(db, user_id)
+    if user is None:
+        return False, None
+    reset_monthly_usage(user, utcnow())
     limit = get_user_deck_limit(user)
     if limit is None:
         return True, None
     if user.deck_count_month >= limit:
         return False, limit
+    user.deck_count_month += 1
     return True, limit
 
 
-def increment_deck_usage_sync(user: User, now: datetime) -> None:
-    reset_monthly_usage(user, now)
-    user.deck_count_month = (user.deck_count_month or 0) + 1
+async def refund_deck(db: AsyncSession, user_id: str) -> None:
+    """Give back a reserved deck after generation failed."""
+    await db.execute(
+        update(User)
+        .where(User.auth0_user_id == user_id, User.deck_count_month > 0)
+        .values(deck_count_month=User.deck_count_month - 1)
+    )
 
 
-async def enforce_compare_limit_and_increment_async(
-    db: AsyncSession,
-    user_id: str,
-    now: datetime,
-    compare_hash: str,
-) -> Tuple[bool, Optional[int]]:
-    """
-    Re-check and increment compare usage under row lock.
-    Prevents concurrent requests from over-incrementing monthly counters.
+async def spend_export_credit(db: AsyncSession, user_id: str) -> Optional[int]:
+    """Atomically take one deck export credit. Returns the new balance, or None if none left.
+
+    One conditional UPDATE: the database checks and decrements in a single
+    step, so two requests can never both spend the last credit.
     """
     result = await db.execute(
-        select(User).where(User.auth0_user_id == user_id).with_for_update()
+        update(User)
+        .where(User.auth0_user_id == user_id, User.deck_export_credits > 0)
+        .values(deck_export_credits=User.deck_export_credits - 1)
+        .returning(User.deck_export_credits)
     )
-    user = result.scalar_one_or_none()
-    if not user:
-        return False, None
-
-    allowed, should_increment, limit = await check_compare_limit_async(
-        user,
-        now,
-        compare_hash,
-    )
-    if allowed and should_increment:
-        await apply_compare_increment_async(user, now, compare_hash)
-
-    await db.flush()
-    return allowed, limit
+    return result.scalar_one_or_none()
 
 
-def enforce_deck_limit_and_increment_sync(
-    session: Session,
-    user_id: str,
-    now: datetime,
-) -> Tuple[bool, Optional[int]]:
-    """
-    Re-check and increment deck usage under row lock.
-    Prevents concurrent deck requests from bypassing monthly limits.
-    """
-    user = (
-        session.query(User)
-        .filter(User.auth0_user_id == user_id)
-        .with_for_update()
-        .one_or_none()
-    )
-    if not user:
-        return False, None
-
-    allowed, limit = check_deck_limit_sync(user, now)
-    if not allowed:
-        return False, limit
-
-    increment_deck_usage_sync(user, now)
-    session.flush()
-    return True, limit
-
-
-# =========================================================================
-# LLM usage / cost helpers (for budget-aware routing & profile display)
-# =========================================================================
-
-# Thinking quota: max thinking-mode calls per day for pro users
-PRO_DAILY_THINKING_LIMIT = 20
-
-
-def get_daily_thinking_uses(session: Session, user_id: str) -> int:
-    """Count today's thinking=True LLM calls for *user_id*."""
-    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    result = session.query(func.count(LLMUsageLog.id)).filter(
-        LLMUsageLog.user_id == user_id,
-        LLMUsageLog.thinking_enabled.is_(True),
-        LLMUsageLog.created_at >= today_start,
-    ).scalar()
-    return result or 0
-
-
-def get_monthly_model_cost(session: Session, user_id: str) -> float:
-    """Sum estimated_cost_usd for the current calendar month."""
-    now = datetime.utcnow()
-    m_start = month_start(now)
-    result = session.query(func.coalesce(func.sum(LLMUsageLog.estimated_cost_usd), 0.0)).filter(
-        LLMUsageLog.user_id == user_id,
-        LLMUsageLog.created_at >= m_start,
-    ).scalar()
-    return float(result)
-
-
-async def get_daily_thinking_uses_async(db: AsyncSession, user_id: str) -> int:
-    """Async variant of get_daily_thinking_uses."""
-    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+async def get_daily_thinking_uses(db: AsyncSession, user_id: str) -> int:
+    """Thinking-mode LLM calls made today (UTC)."""
+    today = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     result = await db.execute(
         select(func.count(LLMUsageLog.id)).where(
             LLMUsageLog.user_id == user_id,
             LLMUsageLog.thinking_enabled.is_(True),
-            LLMUsageLog.created_at >= today_start,
+            LLMUsageLog.created_at >= today,
         )
     )
     return result.scalar() or 0
 
 
-async def get_monthly_model_cost_async(db: AsyncSession, user_id: str) -> float:
-    """Async variant of get_monthly_model_cost."""
-    now = datetime.utcnow()
-    m_start = month_start(now)
+async def get_monthly_model_cost(db: AsyncSession, user_id: str) -> float:
+    """Estimated LLM spend this calendar month, in USD."""
     result = await db.execute(
-        select(func.coalesce(func.sum(LLMUsageLog.estimated_cost_usd), 0.0)).where(
+        select(func.coalesce(func.sum(LLMUsageLog.estimated_cost_usd), 0)).where(
             LLMUsageLog.user_id == user_id,
-            LLMUsageLog.created_at >= m_start,
+            LLMUsageLog.created_at >= month_start(utcnow()),
         )
     )
     return float(result.scalar())
-
-
-def get_daily_thinking_limit(plan_tier: str) -> Optional[int]:
-    """Return the daily thinking-call cap for a tier, or None if unlimited."""
-    if plan_tier == "free":
-        return PRO_DAILY_THINKING_LIMIT  # same cap, revisit later
-    if plan_tier == "pro":
-        return PRO_DAILY_THINKING_LIMIT
-    return None  # enterprise = unlimited

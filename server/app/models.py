@@ -1,249 +1,231 @@
-"""Database models for user data and saved analyses."""
-from datetime import datetime
+"""Database models.
+
+Seven tables, all keyed back to ``users``:
+
+- users            one row per Auth0 identity: plan, monthly counters, credit balances
+- watchlists       tickers a user follows (unique per user)
+- saved_analyses   a saved comparison: its inputs plus a JSONB snapshot of the table
+- decks            a generated pitch deck (JSONB) and when its export was unlocked
+- purchases        one row per paid Stripe checkout; the unique session id makes
+                   webhook retries harmless
+- llm_usage_log    append-only ledger of LLM calls and their cost
+- admin_audit_log  append-only record of admin changes
+
+Conventions: timestamps are TIMESTAMPTZ in UTC with a database default of now(),
+JSON is JSONB, money is NUMERIC, and every index serves a real query.
+Schema changes go through Alembic migrations; ``alembic check`` verifies these
+models match the migrated database.
+"""
+from datetime import datetime, timezone
+
 from sqlalchemy import (
-    Column, String, DateTime, ForeignKey, JSON, Text, Integer, Boolean, Float,
-    Index, UniqueConstraint,
+    Boolean, CheckConstraint, Column, DateTime, ForeignKey, Index, Integer,
+    Numeric, String, Text, UniqueConstraint, false, func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
+
 from app.core.database import Base
+
+PLAN_TIERS = ("free", "pro", "enterprise")
+PURCHASE_PRODUCTS = ("usage_pack", "deck_export")
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def created_at_column() -> Column:
+    return Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+def counter_column() -> Column:
+    return Column(Integer, nullable=False, default=0, server_default="0")
 
 
 class User(Base):
-    """User model linked to Auth0 identity."""
+    """A user, identified by their Auth0 subject (e.g. "google-oauth2|123")."""
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(
+            "subscription_tier IN ('free', 'pro', 'enterprise')",
+            name="ck_users_subscription_tier",
+        ),
+        CheckConstraint(
+            "deck_count_month >= 0 AND compare_count_month >= 0"
+            " AND extra_deck_credits >= 0 AND extra_compare_credits >= 0"
+            " AND deck_export_credits >= 0",
+            name="ck_users_counters_non_negative",
+        ),
+    )
 
-    auth0_user_id = Column(String(255), primary_key=True, index=True)  # e.g., "auth0|123456"
-    email = Column(String(255), unique=True, nullable=True, index=True)
+    auth0_user_id = Column(String(255), primary_key=True)
+    # Not unique: one person can sign in with Google and with a password, and
+    # Auth0 treats those as two identities that share an email.
+    email = Column(String(255), nullable=True, index=True)
     name = Column(String(255), nullable=True)
-    picture = Column(Text, nullable=True)  # Avatar URL from Auth0
+    picture = Column(Text, nullable=True)
 
-    # Subscription
-    subscription_tier = Column(String(20), nullable=False, default="free")  # "free", "pro", "enterprise"
+    # Plan (kept in sync by Stripe webhooks)
+    subscription_tier = Column(String(20), nullable=False, default="free", server_default="free")
     stripe_customer_id = Column(String(255), nullable=True, unique=True)
     stripe_subscription_id = Column(String(255), nullable=True)
-    subscription_expires_at = Column(DateTime, nullable=True)
-    deck_export_credits = Column(Integer, nullable=False, default=0)
+    subscription_expires_at = Column(DateTime(timezone=True), nullable=True)
+    is_admin = Column(Boolean, nullable=False, default=False, server_default=false())
 
-    # Admin flag
-    is_admin = Column(Boolean, nullable=False, default=False)
-
-    # Monthly usage limits
-    usage_month_start = Column(DateTime, nullable=True)
-    deck_count_month = Column(Integer, nullable=False, default=0)
-    compare_count_month = Column(Integer, nullable=False, default=0)
-    extra_deck_credits = Column(Integer, nullable=False, default=0)
-    extra_compare_credits = Column(Integer, nullable=False, default=0)
+    # Monthly usage. Counters reset lazily on the first request of a new month.
+    usage_month_start = Column(DateTime(timezone=True), nullable=True)
+    deck_count_month = counter_column()
+    compare_count_month = counter_column()
+    extra_deck_credits = counter_column()      # from usage packs, expire at month end
+    extra_compare_credits = counter_column()   # from usage packs, expire at month end
+    deck_export_credits = counter_column()     # from deck export purchases, never expire
+    # Re-running the same comparison within 15 minutes is not counted twice.
     last_compare_hash = Column(String(64), nullable=True)
-    last_compare_at = Column(DateTime, nullable=True)
+    last_compare_at = Column(DateTime(timezone=True), nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = created_at_column()
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
 
-    # Relationships
     watchlists = relationship("Watchlist", back_populates="user", cascade="all, delete-orphan")
     saved_analyses = relationship("SavedAnalysis", back_populates="user", cascade="all, delete-orphan")
     decks = relationship("Deck", back_populates="user", cascade="all, delete-orphan")
-    deck_export_unlocks = relationship(
-        "DeckExportUnlock",
-        back_populates="user",
-        cascade="all, delete-orphan",
-    )
-    usage_pack_purchases = relationship(
-        "UsagePackPurchase",
-        back_populates="user",
-        cascade="all, delete-orphan",
-    )
+    purchases = relationship("Purchase", back_populates="user", cascade="all, delete-orphan")
 
     @property
     def is_paid(self) -> bool:
-        """Check if user has an active paid subscription."""
-        if not self.subscription_tier or self.subscription_tier == "free":
+        """True while a pro/enterprise subscription is active."""
+        if self.subscription_tier not in ("pro", "enterprise"):
             return False
-        if self.subscription_tier not in {"pro", "enterprise"}:
-            return False
-        if self.subscription_expires_at and self.subscription_expires_at < datetime.utcnow():
-            return False
-        return True
+        return self.subscription_expires_at is None or self.subscription_expires_at > utcnow()
 
 
 class Watchlist(Base):
-    """User's watchlist with custom notes."""
+    """A ticker on a user's watchlist, with optional notes."""
     __tablename__ = "watchlists"
-
     __table_args__ = (
+        # Also serves "list this user's watchlist" (user_id is the leading column).
         UniqueConstraint("user_id", "ticker", name="uq_watchlist_user_ticker"),
-        Index("ix_watchlist_user_ticker", "user_id", "ticker"),
     )
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True)
     user_id = Column(String(255), ForeignKey("users.auth0_user_id", ondelete="CASCADE"), nullable=False)
     ticker = Column(String(20), nullable=False)
     notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = created_at_column()
 
-    # Relationships
     user = relationship("User", back_populates="watchlists")
-
-    def __repr__(self):
-        return f"<Watchlist(user={self.user_id}, ticker={self.ticker})>"
 
 
 class SavedAnalysis(Base):
-    """Saved relative table analysis configurations."""
+    """A saved comparison: what was asked for, plus the table as it looked."""
     __tablename__ = "saved_analyses"
-
     __table_args__ = (
         Index("ix_saved_analyses_user_created", "user_id", "created_at"),
     )
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True)
     user_id = Column(String(255), ForeignKey("users.auth0_user_id", ondelete="CASCADE"), nullable=False)
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
 
-    # Analysis configuration stored as JSON
-    symbols = Column(JSON, nullable=False)  # List of ticker symbols
-    snapshot_fields = Column(JSON, nullable=True)  # List of field names
-    perf_periods = Column(JSON, nullable=True)  # List of performance periods
-    include_dcf = Column(Boolean, default=False)
-    snapshot_data = Column(JSON, nullable=True)  # Full table snapshot (RelativeTableResponse)
+    symbols = Column(JSONB, nullable=False)          # ["AAPL", "MSFT"]
+    snapshot_fields = Column(JSONB, nullable=True)   # ["marketCap", "forwardPE"]
+    perf_periods = Column(JSONB, nullable=True)      # ["1y"]
+    include_dcf = Column(Boolean, nullable=False, default=False, server_default=false())
+    snapshot_data = Column(JSONB, nullable=True)     # full RelativeTableResponse
 
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = created_at_column()
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
 
-    # Relationships
     user = relationship("User", back_populates="saved_analyses")
-
-    def __repr__(self):
-        return f"<SavedAnalysis(id={self.id}, name={self.name})>"
 
 
 class Deck(Base):
-    """Generated investment deck with AI-generated content."""
+    """A generated pitch deck. Sections vary by request, so content is JSONB."""
     __tablename__ = "decks"
-
     __table_args__ = (
         Index("ix_decks_user_created", "user_id", "created_at"),
     )
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True)
     user_id = Column(String(255), ForeignKey("users.auth0_user_id", ondelete="CASCADE"), nullable=False)
-    ticker = Column(String(20), nullable=False, index=True)
+    ticker = Column(String(20), nullable=False)
     title = Column(String(500), nullable=False)
+    content = Column(JSONB, nullable=False)
+    llm_provider = Column(String(50), nullable=True)
+    export_unlocked_at = Column(DateTime(timezone=True), nullable=True)  # set when a credit is spent
+    created_at = created_at_column()
 
-    # Deck content stored as JSON (matches DeckResponse schema)
-    content = Column(JSON, nullable=False)
-
-    # Metadata
-    llm_provider = Column(String(50), nullable=True)  # "openai" or "gemini"
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-
-    # Relationships
     user = relationship("User", back_populates="decks")
-    export_unlocks = relationship(
-        "DeckExportUnlock",
-        back_populates="deck",
-        cascade="all, delete-orphan",
-    )
-
-    def __repr__(self):
-        return f"<Deck(id={self.id}, ticker={self.ticker}, title={self.title})>"
 
 
-class DeckExportUnlock(Base):
-    """A paid export unlock for one generated deck."""
-    __tablename__ = "deck_export_unlocks"
+class Purchase(Base):
+    """One completed Stripe checkout for a one-time product.
 
+    Stripe delivers webhooks at least once. Inserting this row is the first
+    step of granting credits, and the unique checkout session id means a
+    repeated delivery inserts nothing and grants nothing.
+    """
+    __tablename__ = "purchases"
     __table_args__ = (
-        UniqueConstraint("user_id", "deck_id", name="uq_deck_export_unlock_user_deck"),
-        Index("ix_deck_export_unlock_user_deck", "user_id", "deck_id"),
+        CheckConstraint("product IN ('usage_pack', 'deck_export')", name="ck_purchases_product"),
+        Index("ix_purchases_user_created", "user_id", "created_at"),
     )
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(String(255), ForeignKey("users.auth0_user_id", ondelete="CASCADE"), nullable=False)
-    deck_id = Column(Integer, ForeignKey("decks.id", ondelete="CASCADE"), nullable=False)
-    stripe_checkout_session_id = Column(String(255), nullable=True, unique=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-
-    user = relationship("User", back_populates="deck_export_unlocks")
-    deck = relationship("Deck", back_populates="export_unlocks")
-
-    def __repr__(self):
-        return f"<DeckExportUnlock(user={self.user_id}, deck_id={self.deck_id})>"
-
-
-class UsagePackPurchase(Base):
-    """A one-time usage pack purchase for extra monthly compares/decks."""
-    __tablename__ = "usage_pack_purchases"
-
-    __table_args__ = (
-        Index("ix_usage_pack_user_created", "user_id", "created_at"),
-    )
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True)
     user_id = Column(String(255), ForeignKey("users.auth0_user_id", ondelete="CASCADE"), nullable=False)
     stripe_checkout_session_id = Column(String(255), nullable=False, unique=True)
-    compare_credits_granted = Column(Integer, nullable=False, default=0)
-    deck_credits_granted = Column(Integer, nullable=False, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    product = Column(String(20), nullable=False)
+    compare_credits_granted = counter_column()
+    deck_credits_granted = counter_column()
+    export_credits_granted = counter_column()
+    created_at = created_at_column()
 
-    user = relationship("User", back_populates="usage_pack_purchases")
-
-    def __repr__(self):
-        return f"<UsagePackPurchase(user={self.user_id}, session={self.stripe_checkout_session_id})>"
+    user = relationship("User", back_populates="purchases")
 
 
 class LLMUsageLog(Base):
-    """Per-call LLM usage ledger for cost tracking and budget-aware routing."""
+    """One LLM call: tokens, latency and estimated cost."""
     __tablename__ = "llm_usage_log"
-
     __table_args__ = (
         Index("ix_llm_usage_user_created", "user_id", "created_at"),
     )
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(
-        String(255),
-        ForeignKey("users.auth0_user_id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    deck_id = Column(Integer, ForeignKey("decks.id", ondelete="SET NULL"), nullable=True)
+    id = Column(Integer, primary_key=True)
+    user_id = Column(String(255), ForeignKey("users.auth0_user_id", ondelete="CASCADE"), nullable=False)
     provider = Column(String(20), nullable=False)
     model = Column(String(50), nullable=False)
-    thinking_enabled = Column(Boolean, nullable=False, default=False)
-    input_tokens = Column(Integer, nullable=False, default=0)
-    output_tokens = Column(Integer, nullable=False, default=0)
-    reasoning_tokens = Column(Integer, nullable=False, default=0)
-    estimated_cost_usd = Column(Float, nullable=False, default=0.0)
-    latency_ms = Column(Integer, nullable=False, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-
-    def __repr__(self):
-        return f"<LLMUsageLog(id={self.id}, model={self.model}, cost=${self.estimated_cost_usd:.4f})>"
+    thinking_enabled = Column(Boolean, nullable=False, default=False, server_default=false())
+    input_tokens = counter_column()
+    output_tokens = counter_column()
+    reasoning_tokens = counter_column()
+    estimated_cost_usd = Column(Numeric(12, 6), nullable=False, default=0, server_default="0")
+    latency_ms = counter_column()
+    created_at = created_at_column()
 
 
 class AdminAuditLog(Base):
-    """Audit trail for admin actions (tier changes, admin toggles, etc.)."""
-    __tablename__ = "admin_audit_log"
+    """An admin action (tier change, admin toggle, expiry change).
 
+    target_user_id has no foreign key on purpose: the audit trail must
+    outlive the user it describes.
+    """
+    __tablename__ = "admin_audit_log"
     __table_args__ = (
         Index("ix_audit_admin_created", "admin_user_id", "created_at"),
         Index("ix_audit_target_created", "target_user_id", "created_at"),
     )
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    admin_user_id = Column(
-        String(255),
-        ForeignKey("users.auth0_user_id"),
-        nullable=False,
-    )
+    id = Column(Integer, primary_key=True)
+    admin_user_id = Column(String(255), ForeignKey("users.auth0_user_id"), nullable=False)
     target_user_id = Column(String(255), nullable=False)
-    action = Column(String(50), nullable=False)  # "update_tier", "toggle_admin", "update_expiry"
+    action = Column(String(50), nullable=False)
     old_value = Column(JSONB, nullable=True)
     new_value = Column(JSONB, nullable=True)
-    request_id = Column(String(64), nullable=True)  # correlate with structured logs
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-
-    def __repr__(self):
-        return f"<AdminAuditLog(id={self.id}, action={self.action}, target={self.target_user_id})>"
+    request_id = Column(String(64), nullable=True)
+    created_at = created_at_column()

@@ -226,7 +226,7 @@ async def get_all_users(current_user: User = Depends(require_admin)):
 
 ### Database Connection Errors
 
-**Problem:** `asyncpg.exceptions.InvalidPasswordError` or connection refused
+**Problem:** `psycopg.OperationalError` (password authentication failed) or connection refused
 
 **Solutions:**
 
@@ -242,7 +242,6 @@ async def get_all_users(current_user: User = Depends(require_admin)):
    ```bash
    # For Docker database, use:
    DATABASE_URL=postgresql://postgres:postgres@localhost:5432/ticketstats
-   ASYNC_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/ticketstats
    ```
 
 3. **Port conflict (5432 already in use):**

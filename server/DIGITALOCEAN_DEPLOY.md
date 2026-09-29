@@ -19,7 +19,6 @@ docker build -t ticketstats-api .
 # Test locally with environment variables
 docker run -p 5000:5000 \
   -e DATABASE_URL="postgresql://user:pass@host/db" \
-  -e ASYNC_DATABASE_URL="postgresql+asyncpg://user:pass@host/db" \
   -e AUTH0_DOMAIN="your-domain.auth0.com" \
   -e AUTH0_API_AUDIENCE="your-audience" \
   -e AUTH0_ALGORITHMS="RS256" \
@@ -52,7 +51,6 @@ curl http://localhost:5000/health
    ```bash
    # Database
    DATABASE_URL=postgresql://username:password@host:port/database
-   ASYNC_DATABASE_URL=postgresql+asyncpg://username:password@host:port/database
 
    # Auth0
    AUTH0_DOMAIN=your-domain.auth0.com
@@ -249,8 +247,7 @@ doctl apps update YOUR_APP_ID --spec app-spec.yaml
 
 | Variable           | Required | Default | Description                                   |
 | ------------------ | -------- | ------- | --------------------------------------------- |
-| `DATABASE_URL`     | Yes      | -       | PostgreSQL sync connection string (psycopg2)  |
-| `ASYNC_DATABASE_URL` | Yes    | -       | PostgreSQL async connection string (asyncpg)   |
+| `DATABASE_URL`     | Yes      | -       | PostgreSQL connection string (one URL for app and migrations) |
 | `AUTH0_DOMAIN`     | Yes      | -       | Auth0 tenant domain                           |
 | `AUTH0_API_AUDIENCE` | Yes      | -       | Auth0 API audience/identifier               |
 | `AUTH0_ALGORITHMS` | No       | `RS256` | JWT verification algorithm                    |
@@ -276,7 +273,6 @@ doctl apps update YOUR_APP_ID --spec app-spec.yaml
 ### Database connection errors
 
 - Verify DATABASE_URL format: `postgresql://user:pass@host:port/database`
-- Verify ASYNC_DATABASE_URL format: `postgresql+asyncpg://user:pass@host:port/database`
 - Check firewall rules (DigitalOcean Managed DB has trusted sources)
 - Ensure database migrations have run
 

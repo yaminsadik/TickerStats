@@ -1,17 +1,19 @@
 """Stripe integration service for subscription management."""
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 import stripe
-from sqlalchemy import select
+from sqlalchemy import func, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.models import Deck, DeckExportUnlock, UsagePackPurchase, User
+from app.models import Deck, Purchase, User, utcnow
 from app.services.usage_limits import (
     USAGE_PACK_COMPARE_CREDITS,
     USAGE_PACK_DECK_CREDITS,
+    lock_user,
     reset_monthly_usage,
 )
 
@@ -507,11 +509,8 @@ class StripeService:
             logger.error("No auth0_user_id in checkout session metadata")
             return
 
-        if metadata.get("product") == "deck_export":
-            await StripeService._handle_deck_export_checkout_completed(session, db)
-            return
-        if metadata.get("product") == "usage_pack":
-            await StripeService._handle_usage_pack_checkout_completed(session, db)
+        if metadata.get("product") in ("deck_export", "usage_pack"):
+            await StripeService._handle_one_time_purchase(session, db)
             return
 
         # Get user
@@ -532,147 +531,64 @@ class StripeService:
         logger.info(f"Updated user {auth0_user_id} after checkout completion")
 
     @staticmethod
-    async def _handle_deck_export_checkout_completed(
-        session: Dict[str, Any],
-        db: AsyncSession,
-    ):
-        """Handle a completed one-time deck export credit checkout."""
-        customer_id = session.get("customer")
+    async def _handle_one_time_purchase(session: Dict[str, Any], db: AsyncSession):
+        """Grant the credits for a paid usage pack or deck export, exactly once.
+
+        Stripe delivers webhooks at least once. The purchase row is unique on
+        the checkout session id, so a repeated delivery inserts nothing and
+        grants nothing. The row and the credits commit in one transaction.
+        """
         session_id = session.get("id")
         metadata = session.get("metadata", {})
-        auth0_user_id = metadata.get("auth0_user_id")
-        deck_id_raw = metadata.get("deck_id")
-
-        if not auth0_user_id:
-            logger.error("No auth0_user_id in deck export checkout metadata")
+        user_id = metadata.get("auth0_user_id")
+        product = metadata.get("product")
+        if not session_id or not user_id:
+            logger.error("Checkout %s is missing its session id or user id", session_id)
             return
 
-        result = await db.execute(
-            select(User).where(User.auth0_user_id == auth0_user_id)
-        )
-        user = result.scalar_one_or_none()
-        if not user:
-            logger.error(f"User not found for deck export checkout: {auth0_user_id}")
+        user = await lock_user(db, user_id)
+        if user is None:
+            logger.error("User not found for checkout %s: %s", session_id, user_id)
             return
 
-        user.stripe_customer_id = customer_id
-
-        deck_id: Optional[int] = None
-        if deck_id_raw:
-            try:
-                deck_id = int(deck_id_raw)
-            except (TypeError, ValueError):
-                logger.error(f"Invalid deck_id in deck export checkout metadata: {deck_id_raw}")
-
-        if deck_id is not None:
-            deck_result = await db.execute(
-                select(Deck).where(
-                    Deck.id == deck_id,
-                    Deck.user_id == auth0_user_id,
-                )
-            )
-            deck = deck_result.scalar_one_or_none()
-            if deck:
-                existing = await db.execute(
-                    select(DeckExportUnlock).where(
-                        DeckExportUnlock.user_id == auth0_user_id,
-                        DeckExportUnlock.deck_id == deck_id,
-                    )
-                )
-                if not existing.scalar_one_or_none():
-                    db.add(
-                        DeckExportUnlock(
-                            user_id=auth0_user_id,
-                            deck_id=deck_id,
-                            stripe_checkout_session_id=session_id,
-                        )
-                    )
-                    user.deck_export_credits = (
-                        (user.deck_export_credits or 0)
-                        + max(DECK_EXPORT_CREDITS_PER_PURCHASE - 1, 0)
-                    )
-                else:
-                    user.deck_export_credits = (
-                        (user.deck_export_credits or 0)
-                        + DECK_EXPORT_CREDITS_PER_PURCHASE
-                    )
-                await db.commit()
-                logger.info(
-                    f"Unlocked deck export for user {auth0_user_id}, deck_id={deck_id}; "
-                    f"credits={user.deck_export_credits or 0}"
-                )
-                return
-            logger.error(
-                f"Deck not found for completed export checkout: user={auth0_user_id}, "
-                f"deck_id={deck_id}"
-            )
-
-        user.deck_export_credits = (
-            (user.deck_export_credits or 0) + DECK_EXPORT_CREDITS_PER_PURCHASE
+        is_pack = product == "usage_pack"
+        grants = {
+            "compare_credits_granted": USAGE_PACK_COMPARE_CREDITS if is_pack else 0,
+            "deck_credits_granted": USAGE_PACK_DECK_CREDITS if is_pack else 0,
+            "export_credits_granted": 0 if is_pack else DECK_EXPORT_CREDITS_PER_PURCHASE,
+        }
+        inserted = await db.execute(
+            pg_insert(Purchase)
+            .values(user_id=user_id, stripe_checkout_session_id=session_id, product=product, **grants)
+            .on_conflict_do_nothing(index_elements=[Purchase.stripe_checkout_session_id])
+            .returning(Purchase.id)
         )
+        if inserted.scalar_one_or_none() is None:
+            logger.info("Checkout %s already processed", session_id)
+            return
+
+        if session.get("customer"):
+            user.stripe_customer_id = session["customer"]
+        reset_monthly_usage(user, utcnow())  # pack credits belong to the current month
+        user.extra_compare_credits += grants["compare_credits_granted"]
+        user.extra_deck_credits += grants["deck_credits_granted"]
+
+        # A deck export bought from a specific deck unlocks that deck with one credit.
+        export_credits = grants["export_credits_granted"]
+        deck_id = str(metadata.get("deck_id") or "")
+        if export_credits and deck_id.isdigit():
+            claimed = await db.execute(
+                update(Deck)
+                .where(Deck.id == int(deck_id), Deck.user_id == user_id, Deck.export_unlocked_at.is_(None))
+                .values(export_unlocked_at=func.now())
+                .returning(Deck.id)
+            )
+            if claimed.scalar_one_or_none() is not None:
+                export_credits -= 1
+        user.deck_export_credits += export_credits
+
         await db.commit()
-        logger.info(
-            f"Added {DECK_EXPORT_CREDITS_PER_PURCHASE} deck export credits "
-            f"for user {auth0_user_id}"
-        )
-
-    @staticmethod
-    async def _handle_usage_pack_checkout_completed(
-        session: Dict[str, Any],
-        db: AsyncSession,
-    ):
-        """Handle a completed one-time usage pack checkout."""
-        customer_id = session.get("customer")
-        session_id = session.get("id")
-        metadata = session.get("metadata", {})
-        auth0_user_id = metadata.get("auth0_user_id")
-
-        if not auth0_user_id:
-            logger.error("No auth0_user_id in usage pack checkout metadata")
-            return
-        if not session_id:
-            logger.error("No session id in usage pack checkout")
-            return
-
-        existing = await db.execute(
-            select(UsagePackPurchase).where(
-                UsagePackPurchase.stripe_checkout_session_id == session_id
-            )
-        )
-        if existing.scalar_one_or_none():
-            logger.info(f"Usage pack checkout already processed: {session_id}")
-            return
-
-        result = await db.execute(
-            select(User).where(User.auth0_user_id == auth0_user_id)
-        )
-        user = result.scalar_one_or_none()
-        if not user:
-            logger.error(f"User not found for usage pack checkout: {auth0_user_id}")
-            return
-
-        user.stripe_customer_id = customer_id
-        reset_monthly_usage(user, datetime.utcnow())
-        user.extra_compare_credits = (
-            (user.extra_compare_credits or 0) + USAGE_PACK_COMPARE_CREDITS
-        )
-        user.extra_deck_credits = (
-            (user.extra_deck_credits or 0) + USAGE_PACK_DECK_CREDITS
-        )
-        db.add(
-            UsagePackPurchase(
-                user_id=auth0_user_id,
-                stripe_checkout_session_id=session_id,
-                compare_credits_granted=USAGE_PACK_COMPARE_CREDITS,
-                deck_credits_granted=USAGE_PACK_DECK_CREDITS,
-            )
-        )
-        await db.commit()
-        logger.info(
-            f"Added usage pack credits for user {auth0_user_id}: "
-            f"compare={user.extra_compare_credits or 0}, "
-            f"deck={user.extra_deck_credits or 0}"
-        )
+        logger.info("Granted %s for checkout %s to user %s", product, session_id, user_id)
 
     @staticmethod
     async def _handle_subscription_created(subscription: Dict[str, Any], db: AsyncSession):
@@ -739,12 +655,12 @@ class StripeService:
             # Set expiration date from current period end
             current_period_end = subscription.get("current_period_end")
             if current_period_end:
-                user.subscription_expires_at = datetime.utcfromtimestamp(current_period_end)
+                user.subscription_expires_at = datetime.fromtimestamp(current_period_end, tz=timezone.utc)
         elif status in ["canceled", "unpaid", "past_due"]:
             # Keep access until period ends
             current_period_end = subscription.get("current_period_end")
             if current_period_end:
-                user.subscription_expires_at = datetime.utcfromtimestamp(current_period_end)
+                user.subscription_expires_at = datetime.fromtimestamp(current_period_end, tz=timezone.utc)
         
         await db.commit()
         logger.info(f"Updated subscription for user {user.auth0_user_id}: tier={tier}, status={status}")
@@ -780,7 +696,7 @@ class StripeService:
             period_end = lines[0].get("period", {}).get("end")
 
         if period_end:
-            user.subscription_expires_at = datetime.utcfromtimestamp(period_end)
+            user.subscription_expires_at = datetime.fromtimestamp(period_end, tz=timezone.utc)
             await db.commit()
             logger.info(
                 f"Extended subscription expiry for user {user.auth0_user_id} "
@@ -801,7 +717,7 @@ class StripeService:
 
         old_tier = user.subscription_tier
         user.subscription_tier = "free"
-        user.subscription_expires_at = datetime.utcnow()
+        user.subscription_expires_at = utcnow()
         if subscription_id:
             user.stripe_subscription_id = subscription_id
 

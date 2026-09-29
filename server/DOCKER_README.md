@@ -30,7 +30,6 @@ docker build -t ticketstats-api .
 # Run with environment variables
 docker run -p 5000:5000 \
   -e DATABASE_URL="postgresql://user:pass@localhost/db" \
-  -e ASYNC_DATABASE_URL="postgresql+asyncpg://user:pass@localhost/db" \
   -e AUTH0_DOMAIN="domain.auth0.com" \
   -e AUTH0_API_AUDIENCE="https://api-audience" \
   ticketstats-api
@@ -61,7 +60,6 @@ doctl apps logs YOUR_APP_ID --follow
 
 ```bash
 DATABASE_URL=postgresql://user:pass@host:port/database
-ASYNC_DATABASE_URL=postgresql+asyncpg://user:pass@host:port/database
 AUTH0_DOMAIN=your-domain.auth0.com
 AUTH0_API_AUDIENCE=https://your-api-audience
 AUTH0_ALGORITHMS=RS256

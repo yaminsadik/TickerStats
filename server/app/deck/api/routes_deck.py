@@ -6,16 +6,15 @@ from __future__ import annotations
 
 import asyncio
 import os
-from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-from app.core.auth import verifier
+from app.core.auth import upsert_user_from_token, verifier
 from app.core.config import settings
-from app.core.database import SessionLocal
+from app.core.database import AsyncSessionLocal
 from app.core.middleware import request_id_var
 from app.deck.api.schemas import (
     SECTION_METADATA,
@@ -35,11 +34,7 @@ from app.deck.services.deck_generator import DeckGenerator, DeckGeneratorConfig
 from app.deck.utils.logging import get_logger
 from app.deck.utils.ticker_info import enrich_request_with_ticker_info
 from app.models import LLMUsageLog, User
-from app.services.usage_limits import (
-    check_deck_limit_sync,
-    enforce_deck_limit_and_increment_sync,
-    get_plan_tier,
-)
+from app.services.usage_limits import get_plan_tier, refund_deck, reserve_deck
 
 logger = get_logger(__name__)
 
@@ -47,11 +42,6 @@ router = APIRouter(prefix="/api/v1", tags=["deck"])
 
 _deck_generator: DeckGenerator | None = None
 VERTEX_GEMINI_KEY_SENTINEL = "__vertex_adc__"
-
-
-def _utcnow_naive() -> datetime:
-    """Return current UTC time as a naive datetime (UTC semantics)."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def _request_id(request: Request) -> str | None:
@@ -118,67 +108,24 @@ def _get_bearer_token(request: Request) -> str | None:
     return None
 
 
-def _upsert_user_sync(session, user_id: str, payload: dict) -> User:
-    """Sync upsert for deck routes using the shared User model."""
-    email = (
-        payload.get("email")
-        or payload.get(f"https://{settings.AUTH0_DOMAIN}/email")
-        or payload.get("https://tickerstats.com/email")
-        or payload.get("http://tickerstats.com/email")
-    )
-    name = (
-        payload.get("name")
-        or payload.get(f"https://{settings.AUTH0_DOMAIN}/name")
-        or payload.get("https://tickerstats.com/name")
-        or payload.get("http://tickerstats.com/name")
-        or payload.get("nickname")
-    )
-    picture = (
-        payload.get("picture")
-        or payload.get(f"https://{settings.AUTH0_DOMAIN}/picture")
-        or payload.get("https://tickerstats.com/picture")
-        or payload.get("http://tickerstats.com/picture")
-    )
-
-    if not email or not name:
-        logger.warning(
-            "Missing user info from token for %s: email=%s, name=%s. Available claims: %s",
-            user_id,
-            bool(email),
-            bool(name),
-            list(payload.keys()),
-        )
-
-    user = session.get(User, user_id)
-    if user:
-        changed = False
-        if not user.subscription_tier:
-            user.subscription_tier = "free"
-            changed = True
-        if email and user.email != email:
-            user.email = email
-            changed = True
-        if name and user.name != name:
-            user.name = name
-            changed = True
-        if picture and user.picture != picture:
-            user.picture = picture
-            changed = True
-        if changed:
-            user.updated_at = _utcnow_naive()
-            session.flush()
+async def _load_user(user_id: str, payload: dict) -> User:
+    """Create or refresh the user's row in its own short transaction."""
+    async with AsyncSessionLocal() as db:
+        user = await upsert_user_from_token(db, user_id, payload)
+        await db.commit()
         return user
 
-    user = User(
-        auth0_user_id=user_id,
-        email=email,
-        name=name,
-        picture=picture,
-        subscription_tier="free",
-    )
-    session.add(user)
-    session.flush()
-    return user
+
+async def _save_usage_rows(rows: list[LLMUsageLog]) -> None:
+    """Persist LLM usage rows; a logging failure must not fail the request."""
+    if not rows:
+        return
+    try:
+        async with AsyncSessionLocal() as db:
+            db.add_all(rows)
+            await db.commit()
+    except Exception as exc:
+        logger.warning("Failed to record LLM usage: %s", exc)
 
 
 def _resolve_plan_and_models(
@@ -234,11 +181,12 @@ def _infer_provider(model: str, fallback_provider: str) -> str:
     return model_def.provider if model_def is not None else fallback_provider
 
 
-def _record_llm_usage_sync(session, user_id: str, response, thinking_requested: bool) -> None:
-    """Persist one usage-ledger row per successful section generation."""
+def _llm_usage_rows(user_id: str, response, thinking_requested: bool) -> list[LLMUsageLog]:
+    """One usage-ledger row per generated section."""
     default_provider = response.provider_used.provider
     default_model = response.provider_used.model
 
+    rows = []
     for section in response.results:
         metadata = section.generation_metadata or {}
         tokens = metadata.get("tokens") or {}
@@ -249,7 +197,7 @@ def _record_llm_usage_sync(session, user_id: str, response, thinking_requested: 
         reasoning_tokens = _to_int(tokens.get("reasoning_tokens"))
         latency_ms = _to_int(metadata.get("latency_ms"))
 
-        session.add(LLMUsageLog(
+        rows.append(LLMUsageLog(
             user_id=user_id,
             provider=provider,
             model=model or default_model[:50],
@@ -260,6 +208,7 @@ def _record_llm_usage_sync(session, user_id: str, response, thinking_requested: 
             estimated_cost_usd=_estimate_cost_usd(model or default_model, input_tokens, output_tokens),
             latency_ms=latency_ms,
         ))
+    return rows
 
 
 async def _parse_model(model_cls, request: Request):
@@ -351,20 +300,18 @@ async def generate_deck(request: Request):
             detail={"error": "Invalid token: Missing subject", "request_id": _request_id(request)},
         )
 
-    session = SessionLocal()
     try:
-        user = _upsert_user_sync(session, user_id, payload)
+        user = await _load_user(user_id, payload)
         plan_tier = get_plan_tier(user)
-        allowed, limit = check_deck_limit_sync(user, _utcnow_naive())
-        session.commit()
+        # Reserve this month's deck up front; refunded below if anything fails.
+        async with AsyncSessionLocal() as db:
+            allowed, limit = await reserve_deck(db, user_id)
+            await db.commit()
     except Exception as exc:
-        session.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"error": "User lookup failed", "message": str(exc), "request_id": _request_id(request)},
         )
-    finally:
-        session.close()
 
     if not allowed:
         raise HTTPException(
@@ -377,100 +324,79 @@ async def generate_deck(request: Request):
         )
 
     try:
-        company_name, sector = await asyncio.to_thread(
-            enrich_request_with_ticker_info,
-            ticker=deck_request.ticker,
-            company_name=deck_request.company_name,
-            sector=deck_request.sector,
-        )
-        deck_request.company_name = company_name
-        deck_request.sector = sector
-        logger.info("Request enriched: %s -> %s (%s)", deck_request.ticker, company_name, sector)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": str(exc), "request_id": _request_id(request)},
-        )
-
-    api_keys = get_api_keys(request)
-    provider_name, model_name, analysis_depth, model_mode = _resolve_plan_and_models(
-        deck_request,
-        api_keys,
-        plan_tier,
-    )
-    deck_request.plan_tier = PlanTier(plan_tier)
-    deck_request.model_mode = model_mode
-    deck_request.analysis_depth = analysis_depth
-    deck_request.reasoning_level = ReasoningLevel(analysis_depth.value)
-    deck_request.provider = Provider(provider_name)
-    deck_request.model = model_name
-
-    chosen_provider = deck_request.provider.value
-    if not api_keys.get(chosen_provider):
-        if chosen_provider == "gemini" and settings.GOOGLE_GENAI_USE_VERTEXAI:
-            env_hint = "GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION"
-            message = f"{chosen_provider} Vertex AI configuration required. Set {env_hint}."
-        else:
-            env_hint = {"gemini": "GEMINI_API_KEY"}.get(
-                chosen_provider,
-                chosen_provider.upper() + "_API_KEY",
+        try:
+            company_name, sector = await asyncio.to_thread(
+                enrich_request_with_ticker_info,
+                ticker=deck_request.ticker,
+                company_name=deck_request.company_name,
+                sector=deck_request.sector,
             )
-            message = f"{chosen_provider} API key required. Set {env_hint} env var."
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": message,
-                "request_id": _request_id(request),
-            },
-        )
-    if chosen_provider == "gemini" and settings.GOOGLE_GENAI_USE_VERTEXAI and not _is_vertex_gemini_configured():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "Gemini Vertex AI requires GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION.",
-                "request_id": _request_id(request),
-            },
-        )
-
-    generator = get_deck_generator()
-    response = await asyncio.to_thread(
-        generator.generate_deck,
-        request=deck_request,
-        api_keys=api_keys,
-    )
-
-    session = SessionLocal()
-    try:
-        _record_llm_usage_sync(
-            session,
-            user_id,
-            response,
-            thinking_requested=deck_request.reasoning_level == ReasoningLevel.HIGH,
-        )
-        allowed_after_generate, locked_limit = enforce_deck_limit_and_increment_sync(
-            session,
-            user_id,
-            _utcnow_naive(),
-        )
-        if not allowed_after_generate:
-            session.rollback()
+            deck_request.company_name = company_name
+            deck_request.sector = sector
+            logger.info("Request enriched: %s -> %s (%s)", deck_request.ticker, company_name, sector)
+        except ValueError as exc:
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": str(exc), "request_id": _request_id(request)},
+            )
+
+        api_keys = get_api_keys(request)
+        provider_name, model_name, analysis_depth, model_mode = _resolve_plan_and_models(
+            deck_request,
+            api_keys,
+            plan_tier,
+        )
+        deck_request.plan_tier = PlanTier(plan_tier)
+        deck_request.model_mode = model_mode
+        deck_request.analysis_depth = analysis_depth
+        deck_request.reasoning_level = ReasoningLevel(analysis_depth.value)
+        deck_request.provider = Provider(provider_name)
+        deck_request.model = model_name
+
+        chosen_provider = deck_request.provider.value
+        if not api_keys.get(chosen_provider):
+            if chosen_provider == "gemini" and settings.GOOGLE_GENAI_USE_VERTEXAI:
+                env_hint = "GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION"
+                message = f"{chosen_provider} Vertex AI configuration required. Set {env_hint}."
+            else:
+                env_hint = {"gemini": "GEMINI_API_KEY"}.get(
+                    chosen_provider,
+                    chosen_provider.upper() + "_API_KEY",
+                )
+                message = f"{chosen_provider} API key required. Set {env_hint} env var."
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
                 detail={
-                    "error": "Deck limit reached",
-                    "message": f"Your plan is limited to {locked_limit} deck generations per month.",
+                    "error": message,
                     "request_id": _request_id(request),
                 },
             )
-        session.commit()
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.warning("Failed to record deck usage metadata: %s", exc)
-        session.rollback()
-    finally:
-        session.close()
+        if chosen_provider == "gemini" and settings.GOOGLE_GENAI_USE_VERTEXAI and not _is_vertex_gemini_configured():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "Gemini Vertex AI requires GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION.",
+                    "request_id": _request_id(request),
+                },
+            )
 
+        generator = get_deck_generator()
+        response = await asyncio.to_thread(
+            generator.generate_deck,
+            request=deck_request,
+            api_keys=api_keys,
+        )
+    except Exception:
+        async with AsyncSessionLocal() as db:
+            await refund_deck(db, user_id)
+            await db.commit()
+        raise
+
+    await _save_usage_rows(_llm_usage_rows(
+        user_id,
+        response,
+        thinking_requested=deck_request.reasoning_level == ReasoningLevel.HIGH,
+    ))
     return response
 
 
@@ -506,18 +432,13 @@ async def create_pptx_design_spec(request: Request):
             detail={"error": "Invalid token: Missing subject", "request_id": _request_id(request)},
         )
 
-    session = SessionLocal()
     try:
-        _upsert_user_sync(session, user_id, payload)
-        session.commit()
+        await _load_user(user_id, payload)
     except Exception as exc:
-        session.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"error": "User lookup failed", "message": str(exc), "request_id": _request_id(request)},
         )
-    finally:
-        session.close()
 
     api_keys = get_api_keys(request)
     api_key = api_keys.get("gemini")
@@ -566,29 +487,21 @@ async def create_pptx_design_spec(request: Request):
         )
 
     if not result.cached:
-        session = SessionLocal()
-        try:
-            session.add(LLMUsageLog(
-                user_id=user_id,
-                provider="gemini",
-                model=result.model[:50],
-                thinking_enabled=False,
-                input_tokens=result.input_tokens,
-                output_tokens=result.output_tokens,
-                reasoning_tokens=0,
-                estimated_cost_usd=_estimate_cost_usd(
-                    result.model,
-                    result.input_tokens,
-                    result.output_tokens,
-                ),
-                latency_ms=result.latency_ms,
-            ))
-            session.commit()
-        except Exception as exc:
-            logger.warning("Failed to record Gemini export usage metadata: %s", exc)
-            session.rollback()
-        finally:
-            session.close()
+        await _save_usage_rows([LLMUsageLog(
+            user_id=user_id,
+            provider="gemini",
+            model=result.model[:50],
+            thinking_enabled=False,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            reasoning_tokens=0,
+            estimated_cost_usd=_estimate_cost_usd(
+                result.model,
+                result.input_tokens,
+                result.output_tokens,
+            ),
+            latency_ms=result.latency_ms,
+        )])
 
     return JSONResponse(
         content=result.spec,
@@ -623,13 +536,7 @@ async def get_available_models(request: Request):
             payload = verifier.verify_token(token)
             user_id = payload.get("sub")
             if user_id:
-                session = SessionLocal()
-                try:
-                    user = _upsert_user_sync(session, user_id, payload)
-                    tier = get_plan_tier(user)
-                    session.commit()
-                finally:
-                    session.close()
+                tier = get_plan_tier(await _load_user(user_id, payload))
         except Exception:
             pass
 

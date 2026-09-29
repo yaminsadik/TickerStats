@@ -14,15 +14,17 @@ from app.core.auth import (
 )
 from app.core.database import get_db
 from app.core.middleware import request_id_var
-from app.models import User, Watchlist, SavedAnalysis, Deck, DeckExportUnlock, AdminAuditLog
+from app.models import User, Watchlist, SavedAnalysis, Deck, AdminAuditLog, utcnow
 from app.services.usage_limits import (
     get_plan_tier,
     get_user_compare_limit,
     get_user_deck_limit,
     get_daily_thinking_limit,
-    get_daily_thinking_uses_async,
-    get_monthly_model_cost_async,
+    get_daily_thinking_uses,
+    get_monthly_model_cost,
+    lock_user,
     reset_monthly_usage,
+    spend_export_credit,
 )
 
 logger = logging.getLogger(__name__)
@@ -240,18 +242,8 @@ def _has_global_export_access(user: User) -> bool:
     return user.is_paid or user.is_admin
 
 
-async def _has_deck_export_unlock(
-    db: AsyncSession,
-    user_id: str,
-    deck_id: int,
-) -> bool:
-    result = await db.execute(
-        select(DeckExportUnlock.id).where(
-            DeckExportUnlock.user_id == user_id,
-            DeckExportUnlock.deck_id == deck_id,
-        )
-    )
-    return result.scalar_one_or_none() is not None
+def _is_export_unlocked(user: User, deck: Deck) -> bool:
+    return _has_global_export_access(user) or deck.export_unlocked_at is not None
 
 
 def _set_link_headers(
@@ -571,12 +563,7 @@ async def get_deck(
     deck = result.scalar_one_or_none()
     if not deck:
         raise HTTPException(status_code=404, detail="Deck not found")
-    export_unlocked = _has_global_export_access(current_user) or await _has_deck_export_unlock(
-        db,
-        current_user.auth0_user_id,
-        deck.id,
-    )
-    return _deck_full(deck, export_unlocked=export_unlocked)
+    return _deck_full(deck, export_unlocked=_is_export_unlocked(current_user, deck))
 
 
 @router.post("/decks/{deck_id}/unlock-export", response_model=DeckExportUnlockResponse)
@@ -596,43 +583,36 @@ async def unlock_deck_export(
     if not deck:
         raise HTTPException(status_code=404, detail="Deck not found")
 
-    if _has_global_export_access(current_user):
-        return DeckExportUnlockResponse(
-            deck_id=deck.id,
-            export_unlocked=True,
-            remaining_export_credits=current_user.deck_export_credits or 0,
-        )
-
-    existing_unlocked = await _has_deck_export_unlock(
-        db,
-        current_user.auth0_user_id,
-        deck.id,
+    already_unlocked = DeckExportUnlockResponse(
+        deck_id=deck.id,
+        export_unlocked=True,
+        remaining_export_credits=current_user.deck_export_credits,
     )
-    if existing_unlocked:
-        return DeckExportUnlockResponse(
-            deck_id=deck.id,
-            export_unlocked=True,
-            remaining_export_credits=current_user.deck_export_credits or 0,
-        )
+    if _is_export_unlocked(current_user, deck):
+        return already_unlocked
 
-    if (current_user.deck_export_credits or 0) <= 0:
+    # Claim the deck, then spend a credit, in one transaction. If a double-click
+    # already claimed it, the UPDATE matches no row; if there is no credit, the
+    # 402 rolls the claim back.
+    claimed = await db.execute(
+        update(Deck)
+        .where(Deck.id == deck.id, Deck.export_unlocked_at.is_(None))
+        .values(export_unlocked_at=func.now())
+        .returning(Deck.id)
+    )
+    if claimed.scalar_one_or_none() is None:
+        return already_unlocked
+
+    remaining = await spend_export_credit(db, current_user.auth0_user_id)
+    if remaining is None:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail="Deck export requires a $4.99 export credit purchase.",
         )
-
-    current_user.deck_export_credits = (current_user.deck_export_credits or 0) - 1
-    db.add(
-        DeckExportUnlock(
-            user_id=current_user.auth0_user_id,
-            deck_id=deck.id,
-        )
-    )
-    await db.commit()
     return DeckExportUnlockResponse(
         deck_id=deck.id,
         export_unlocked=True,
-        remaining_export_credits=current_user.deck_export_credits or 0,
+        remaining_export_credits=remaining,
     )
 
 
@@ -657,60 +637,52 @@ async def delete_deck(
 # PROFILE ROUTES
 # ---------------------------------------------------------------------------
 
+async def _build_profile(db: AsyncSession, user_id: str) -> ProfileResponse:
+    # Lock the row so the lazy monthly reset cannot race a concurrent reservation.
+    user = await lock_user(db, user_id)
+    reset_monthly_usage(user, utcnow())
+    await db.flush()
+
+    saved_count = (await db.execute(
+        select(func.count()).where(SavedAnalysis.user_id == user_id)
+    )).scalar() or 0
+    plan_tier = get_plan_tier(user)
+    return ProfileResponse(
+        auth0_user_id=user.auth0_user_id,
+        email=user.email,
+        name=user.name,
+        picture=user.picture,
+        subscription_tier=user.subscription_tier,
+        plan_tier=plan_tier,
+        subscription_expires_at=(
+            user.subscription_expires_at.isoformat() if user.subscription_expires_at else None
+        ),
+        is_admin=user.is_admin,
+        created_at=user.created_at.isoformat(),
+        updated_at=user.updated_at.isoformat(),
+        saved_searches_count=saved_count,
+        saved_searches_limit=999 if user.is_paid else FREE_TIER_MAX_SAVED_SEARCHES,
+        compare_count_month=user.compare_count_month,
+        compare_limit=get_user_compare_limit(user),
+        deck_count_month=user.deck_count_month,
+        deck_limit=get_user_deck_limit(user),
+        can_export=_has_global_export_access(user),
+        deck_export_credits=user.deck_export_credits,
+        extra_compare_credits=user.extra_compare_credits,
+        extra_deck_credits=user.extra_deck_credits,
+        daily_thinking_uses=await get_daily_thinking_uses(db, user_id),
+        daily_thinking_limit=get_daily_thinking_limit(plan_tier),
+        monthly_model_cost_usd=await get_monthly_model_cost(db, user_id),
+    )
+
+
 @router.get("/profile", response_model=ProfileResponse)
 async def get_profile(
     current_user: User = Depends(get_current_user_with_upsert),
     db: AsyncSession = Depends(get_db),
 ):
     """Get the current user's profile, including subscription status and usage."""
-    now = datetime.utcnow()
-    if reset_monthly_usage(current_user, now):
-        current_user.updated_at = now
-        await db.flush()
-    count_result = await db.execute(
-        select(func.count()).where(
-            SavedAnalysis.user_id == current_user.auth0_user_id
-        )
-    )
-    saved_count = count_result.scalar() or 0
-
-    is_paid = current_user.is_paid
-    has_global_export_access = _has_global_export_access(current_user)
-    plan_tier = get_plan_tier(current_user)
-    compare_limit = get_user_compare_limit(current_user)
-    deck_limit = get_user_deck_limit(current_user)
-    thinking_uses = await get_daily_thinking_uses_async(db, current_user.auth0_user_id)
-    thinking_limit = get_daily_thinking_limit(plan_tier)
-    model_cost = await get_monthly_model_cost_async(db, current_user.auth0_user_id)
-    return ProfileResponse(
-        auth0_user_id=current_user.auth0_user_id,
-        email=current_user.email,
-        name=current_user.name,
-        picture=current_user.picture,
-        subscription_tier=current_user.subscription_tier,
-        plan_tier=plan_tier,
-        subscription_expires_at=(
-            current_user.subscription_expires_at.isoformat()
-            if current_user.subscription_expires_at
-            else None
-        ),
-        is_admin=current_user.is_admin,
-        created_at=current_user.created_at.isoformat(),
-        updated_at=current_user.updated_at.isoformat(),
-        saved_searches_count=saved_count,
-        saved_searches_limit=999 if is_paid else FREE_TIER_MAX_SAVED_SEARCHES,
-        compare_count_month=current_user.compare_count_month or 0,
-        compare_limit=compare_limit,
-        deck_count_month=current_user.deck_count_month or 0,
-        deck_limit=deck_limit,
-        can_export=has_global_export_access,
-        deck_export_credits=current_user.deck_export_credits or 0,
-        extra_compare_credits=current_user.extra_compare_credits or 0,
-        extra_deck_credits=current_user.extra_deck_credits or 0,
-        daily_thinking_uses=thinking_uses,
-        daily_thinking_limit=thinking_limit,
-        monthly_model_cost_usd=model_cost,
-    )
+    return await _build_profile(db, current_user.auth0_user_id)
 
 
 @router.patch("/profile", response_model=ProfileResponse)
@@ -720,68 +692,12 @@ async def update_profile(
     db: AsyncSession = Depends(get_db),
 ):
     """Update mutable profile fields (name, picture)."""
-    changed = False
-    if body.name is not None and body.name != current_user.name:
+    if body.name is not None:
         current_user.name = body.name
-        changed = True
-    if body.picture is not None and body.picture != current_user.picture:
+    if body.picture is not None:
         current_user.picture = body.picture
-        changed = True
-    if changed:
-        current_user.updated_at = datetime.utcnow()
-        await db.flush()
-        await db.refresh(current_user)
-
-    now = datetime.utcnow()
-    if reset_monthly_usage(current_user, now):
-        current_user.updated_at = now
-        await db.flush()
-
-    # Re-fetch counts for response
-    count_result = await db.execute(
-        select(func.count()).where(
-            SavedAnalysis.user_id == current_user.auth0_user_id
-        )
-    )
-    saved_count = count_result.scalar() or 0
-    is_paid = current_user.is_paid
-    has_global_export_access = _has_global_export_access(current_user)
-    plan_tier = get_plan_tier(current_user)
-    compare_limit = get_user_compare_limit(current_user)
-    deck_limit = get_user_deck_limit(current_user)
-    thinking_uses = await get_daily_thinking_uses_async(db, current_user.auth0_user_id)
-    thinking_limit = get_daily_thinking_limit(plan_tier)
-    model_cost = await get_monthly_model_cost_async(db, current_user.auth0_user_id)
-
-    return ProfileResponse(
-        auth0_user_id=current_user.auth0_user_id,
-        email=current_user.email,
-        name=current_user.name,
-        picture=current_user.picture,
-        subscription_tier=current_user.subscription_tier,
-        plan_tier=plan_tier,
-        subscription_expires_at=(
-            current_user.subscription_expires_at.isoformat()
-            if current_user.subscription_expires_at
-            else None
-        ),
-        is_admin=current_user.is_admin,
-        created_at=current_user.created_at.isoformat(),
-        updated_at=current_user.updated_at.isoformat(),
-        saved_searches_count=saved_count,
-        saved_searches_limit=999 if is_paid else FREE_TIER_MAX_SAVED_SEARCHES,
-        compare_count_month=current_user.compare_count_month or 0,
-        compare_limit=compare_limit,
-        deck_count_month=current_user.deck_count_month or 0,
-        deck_limit=deck_limit,
-        can_export=has_global_export_access,
-        deck_export_credits=current_user.deck_export_credits or 0,
-        extra_compare_credits=current_user.extra_compare_credits or 0,
-        extra_deck_credits=current_user.extra_deck_credits or 0,
-        daily_thinking_uses=thinking_uses,
-        daily_thinking_limit=thinking_limit,
-        monthly_model_cost_usd=model_cost,
-    )
+    await db.flush()
+    return await _build_profile(db, current_user.auth0_user_id)
 
 
 # ---------------------------------------------------------------------------
@@ -911,8 +827,9 @@ async def admin_update_user(
     # --- Expiry change ---
     if body.subscription_expires_at is not None:
         new_expiry_dt = body.subscription_expires_at
-        if new_expiry_dt.tzinfo is not None:
-            new_expiry_dt = new_expiry_dt.astimezone(timezone.utc).replace(tzinfo=None)
+        if new_expiry_dt.tzinfo is None:
+            new_expiry_dt = new_expiry_dt.replace(tzinfo=timezone.utc)
+        new_expiry_dt = new_expiry_dt.astimezone(timezone.utc)
 
         old_expiry = target.subscription_expires_at.isoformat() if target.subscription_expires_at else None
         new_expiry_iso = new_expiry_dt.isoformat()
@@ -932,7 +849,6 @@ async def admin_update_user(
         )
         target.subscription_expires_at = new_expiry_dt
 
-    target.updated_at = datetime.utcnow()
     await db.flush()
     await db.refresh(target)
 
