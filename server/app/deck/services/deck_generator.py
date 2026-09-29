@@ -234,7 +234,7 @@ class DeckGenerator:
         dcf_summary = None
         if getattr(request, 'include_dcf', True) and data_trust_mode not in ("user_only", "narrative_only"):
             try:
-                from app.deck.services.dcf_calculator import calculate_dcf
+                from app.services.dcf import calculate_dcf
                 dcf_result = calculate_dcf(ticker=request.ticker)
                 if not dcf_result.get("error"):
                     dcf_data = dcf_result

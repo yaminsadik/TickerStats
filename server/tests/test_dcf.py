@@ -1,386 +1,133 @@
-"""
-Unit tests for DCF calculator.
-
-Tests the deterministic DCF calculation with fixed inputs to guarantee
-reproducible outputs.
-"""
-
+"""Tests for the DCF valuation (app/services/dcf.py). Yahoo Finance is mocked."""
+import pandas as pd
 import pytest
-from app.deck.services.dcf_calculator import (
-    DCFAssumptions,
-    DCFBreakdown,
-    DCFCalculator,
-    DCFOverrides,
-    calculate_dcf,
-)
-from app.deck.services.dcf_data_provider import DCFInputs, DCFSources
+
+from app.services import dcf
+from app.services.dcf import Assumptions, calculate_dcf, compute
+
+# FCF 20B growing 10% for 5 years, WACC 10%, terminal growth 2%.
+# Each year's PV is exactly 20B (growth = discount rate), the terminal value
+# is worth 20B * 1.02 / 0.08 = 255B today, so EV = 100B + 255B = 355B.
+FIXED_INPUTS = {
+    "market_price": 100.0,
+    "shares_outstanding": 1_000_000_000,
+    "cash": 50_000_000_000,
+    "debt": 30_000_000_000,
+    "fcf_0": 20_000_000_000,
+}
+FIXED_ASSUMPTIONS = Assumptions(forecast_years=5, fcf_growth_rate=0.10, terminal_growth_rate=0.02, wacc=0.10)
 
 
-class TestDCFAssumptions:
-    """Test assumption validation."""
-    
-    def test_default_assumptions_valid(self):
-        """Default assumptions should be valid."""
-        assumptions = DCFAssumptions()
-        errors = assumptions.validate()
-        assert errors == []
-    
-    def test_forecast_years_too_low(self):
-        """Forecast years below 5 should be invalid."""
-        assumptions = DCFAssumptions(forecast_years=3)
-        errors = assumptions.validate()
-        assert "forecast_years must be between 5 and 10" in errors
-    
-    def test_forecast_years_too_high(self):
-        """Forecast years above 10 should be invalid."""
-        assumptions = DCFAssumptions(forecast_years=15)
-        errors = assumptions.validate()
-        assert "forecast_years must be between 5 and 10" in errors
-    
-    def test_terminal_growth_exceeds_wacc(self):
-        """Terminal growth >= WACC should be invalid."""
-        assumptions = DCFAssumptions(terminal_growth_rate=0.10, wacc=0.09)
-        errors = assumptions.validate()
-        assert any("terminal_growth_rate must be less than wacc" in e for e in errors)
-    
-    def test_terminal_growth_equals_wacc(self):
-        """Terminal growth = WACC should be invalid (division by zero)."""
-        assumptions = DCFAssumptions(terminal_growth_rate=0.09, wacc=0.09)
-        errors = assumptions.validate()
-        assert any("terminal_growth_rate must be less than wacc" in e for e in errors)
-    
-    def test_zero_wacc_invalid(self):
-        """WACC = 0 should be invalid."""
-        assumptions = DCFAssumptions(wacc=0)
-        errors = assumptions.validate()
-        assert "wacc must be positive" in errors
-    
-    def test_negative_wacc_invalid(self):
-        """Negative WACC should be invalid."""
-        assumptions = DCFAssumptions(wacc=-0.05)
-        errors = assumptions.validate()
-        assert "wacc must be positive" in errors
-    
-    def test_extreme_growth_rate_invalid(self):
-        """Growth rate > 100% should be invalid."""
-        assumptions = DCFAssumptions(fcf_growth_rate=1.5)
-        errors = assumptions.validate()
-        assert "fcf_growth_rate must be between -50% and 100%" in errors
+class TestAssumptions:
+    def test_defaults_are_valid(self):
+        assert Assumptions().errors() == []
+
+    @pytest.mark.parametrize("kwargs, message", [
+        ({"forecast_years": 4}, "forecast_years"),
+        ({"forecast_years": 11}, "forecast_years"),
+        ({"terminal_growth_rate": 0.09, "wacc": 0.09}, "terminal_growth_rate"),
+        ({"terminal_growth_rate": 0.10, "wacc": 0.09}, "terminal_growth_rate"),
+        ({"wacc": 0}, "wacc must be positive"),
+        ({"wacc": -0.05}, "wacc must be positive"),
+        ({"fcf_growth_rate": 1.5}, "fcf_growth_rate"),
+    ])
+    def test_invalid(self, kwargs, message):
+        assert any(message in error for error in Assumptions(**kwargs).errors())
+
+    def test_from_dict_uses_defaults_for_missing_keys(self):
+        a = Assumptions.from_dict({"wacc": 0.11})
+        assert (a.wacc, a.forecast_years, a.fcf_growth_rate) == (0.11, 5, 0.08)
 
 
-class TestDCFCalculatorDeterministic:
-    """
-    Test DCF calculation with fixed inputs to guarantee deterministic outputs.
-    
-    These tests verify the exact formulas:
-    - FCF_t = FCF_0 * (1 + g)^t
-    - PV_FCF_t = FCF_t / (1 + WACC)^t
-    - TV_N = FCF_(N+1) / (WACC - g)
-    - PV_TV = TV_N / (1 + WACC)^N
-    - EV = sum(PV_FCF_t) + PV_TV
-    - Equity = EV + Cash - Debt
-    - TargetPrice = Equity / Shares
-    - Upside = (TargetPrice / MarketPrice) - 1
-    """
-    
-    @pytest.fixture
-    def fixed_inputs(self) -> DCFInputs:
-        """Fixed inputs for deterministic testing."""
-        return DCFInputs(
-            market_price=100.0,
-            shares_outstanding=1_000_000_000,  # 1B shares
-            cash=50_000_000_000,  # $50B cash
-            debt=30_000_000_000,  # $30B debt
-            fcf_0=20_000_000_000,  # $20B FCF
-            currency="USD",
-        )
-    
-    @pytest.fixture
-    def fixed_assumptions(self) -> DCFAssumptions:
-        """Fixed assumptions for deterministic testing."""
-        return DCFAssumptions(
-            forecast_years=5,
-            fcf_growth_rate=0.10,  # 10% FCF growth
-            terminal_growth_rate=0.02,  # 2% terminal growth
-            wacc=0.10,  # 10% WACC
-        )
-    
-    def test_fcf_forecast(self, fixed_inputs, fixed_assumptions):
-        """Test FCF forecast calculation."""
-        calc = DCFCalculator()
-        
-        # Manually apply inputs (bypass yfinance)
-        breakdown = calc._compute_dcf(fixed_inputs, fixed_assumptions)
-        
-        # FCF_t = FCF_0 * (1 + g)^t
-        fcf_0 = 20_000_000_000
-        g = 0.10
-        
-        expected_fcf = [
-            fcf_0 * (1 + g) ** 1,  # Year 1: 22B
-            fcf_0 * (1 + g) ** 2,  # Year 2: 24.2B
-            fcf_0 * (1 + g) ** 3,  # Year 3: 26.62B
-            fcf_0 * (1 + g) ** 4,  # Year 4: 29.282B
-            fcf_0 * (1 + g) ** 5,  # Year 5: 32.2102B
-        ]
-        
-        for i, (actual, expected) in enumerate(zip(breakdown.fcf_forecast, expected_fcf)):
-            assert abs(actual - expected) < 0.01, f"Year {i+1} FCF mismatch"
-    
-    def test_pv_fcf(self, fixed_inputs, fixed_assumptions):
-        """Test present value of FCF calculation."""
-        calc = DCFCalculator()
-        breakdown = calc._compute_dcf(fixed_inputs, fixed_assumptions)
-        
-        # PV_FCF_t = FCF_t / (1 + WACC)^t
-        wacc = 0.10
-        
-        for i, (fcf, pv) in enumerate(zip(breakdown.fcf_forecast, breakdown.pv_fcf)):
-            t = i + 1
-            expected_pv = fcf / ((1 + wacc) ** t)
-            assert abs(pv - expected_pv) < 0.01, f"Year {t} PV mismatch"
-    
-    def test_terminal_value(self, fixed_inputs, fixed_assumptions):
-        """Test terminal value calculation."""
-        calc = DCFCalculator()
-        breakdown = calc._compute_dcf(fixed_inputs, fixed_assumptions)
-        
-        # FCF_(N+1) = FCF_N * (1 + g_terminal)
-        fcf_n = breakdown.fcf_forecast[-1]
-        g_terminal = 0.02
-        expected_fcf_n_plus_1 = fcf_n * (1 + g_terminal)
-        
-        assert abs(breakdown.fcf_n_plus_1 - expected_fcf_n_plus_1) < 0.01
-        
-        # TV_N = FCF_(N+1) / (WACC - g)
-        wacc = 0.10
-        expected_tv = expected_fcf_n_plus_1 / (wacc - g_terminal)
-        
-        assert abs(breakdown.terminal_value - expected_tv) < 0.01
-    
-    def test_pv_terminal(self, fixed_inputs, fixed_assumptions):
-        """Test present value of terminal value calculation."""
-        calc = DCFCalculator()
-        breakdown = calc._compute_dcf(fixed_inputs, fixed_assumptions)
-        
-        # PV_TV = TV_N / (1 + WACC)^N
-        wacc = 0.10
-        n = 5
-        expected_pv_tv = breakdown.terminal_value / ((1 + wacc) ** n)
-        
-        assert abs(breakdown.pv_terminal - expected_pv_tv) < 0.01
-    
-    def test_enterprise_value(self, fixed_inputs, fixed_assumptions):
-        """Test enterprise value calculation."""
-        calc = DCFCalculator()
-        breakdown = calc._compute_dcf(fixed_inputs, fixed_assumptions)
-        
-        # EV = sum(PV_FCF_t) + PV_TV
-        expected_ev = sum(breakdown.pv_fcf) + breakdown.pv_terminal
-        
-        assert abs(breakdown.enterprise_value - expected_ev) < 0.01
-        assert breakdown.sum_pv_fcf == sum(breakdown.pv_fcf)
-    
-    def test_equity_value(self, fixed_inputs, fixed_assumptions):
-        """Test equity value calculation."""
-        calc = DCFCalculator()
-        breakdown = calc._compute_dcf(fixed_inputs, fixed_assumptions)
-        
-        # Equity = EV + Cash - Debt
-        expected_equity = breakdown.enterprise_value + 50_000_000_000 - 30_000_000_000
-        
-        assert abs(breakdown.equity_value - expected_equity) < 0.01
-    
-    def test_target_price(self, fixed_inputs, fixed_assumptions):
-        """Test target price calculation."""
-        calc = DCFCalculator()
-        breakdown = calc._compute_dcf(fixed_inputs, fixed_assumptions)
-        
-        # TargetPrice = Equity / Shares
-        expected_target = breakdown.equity_value / 1_000_000_000
-        
-        assert abs(breakdown.target_price - expected_target) < 0.01
-    
-    def test_upside_calculation(self, fixed_inputs, fixed_assumptions):
-        """Test upside percentage calculation."""
-        calc = DCFCalculator()
-        breakdown = calc._compute_dcf(fixed_inputs, fixed_assumptions)
-        
-        # Upside = (TargetPrice / MarketPrice) - 1
-        expected_upside = (breakdown.target_price / 100.0) - 1
-        
-        assert abs(breakdown.upside_pct - expected_upside) < 0.0001
-    
-    def test_full_calculation_reproducible(self, fixed_inputs, fixed_assumptions):
-        """
-        Full DCF calculation should produce consistent results.
-        
-        With the fixed inputs above, we can verify the exact expected values.
-        """
-        calc = DCFCalculator()
-        breakdown = calc._compute_dcf(fixed_inputs, fixed_assumptions)
-        
-        # Verify key metrics (calculated manually for verification)
-        # FCF_0 = 20B, g_fcf = 10%, g_term = 2%, WACC = 10%, N = 5
-        
-        # Year 5 FCF = 20B * 1.1^5 = 32.2102B
-        assert abs(breakdown.fcf_forecast[4] - 32210200000) < 1000
-        
-        # FCF_6 = 32.2102B * 1.02 = 32854404000
-        assert abs(breakdown.fcf_n_plus_1 - 32854404000) < 1000
-        
-        # TV = 32854404000 / (0.10 - 0.02) = 410680050000
-        assert abs(breakdown.terminal_value - 410680050000) < 1000
-        
-        # Verify breakdown object has all required fields
-        assert breakdown.fcf_0 == 20_000_000_000
-        assert breakdown.forecast_years == 5
-        assert len(breakdown.fcf_forecast) == 5
-        assert len(breakdown.pv_fcf) == 5
-        assert breakdown.cash == 50_000_000_000
-        assert breakdown.debt == 30_000_000_000
-        assert breakdown.shares_outstanding == 1_000_000_000
-        assert breakdown.market_price == 100.0
+class TestCompute:
+    def test_known_answer(self):
+        b = compute(FIXED_INPUTS, FIXED_ASSUMPTIONS)
+        assert [round(y["pvFcf"]) for y in b["fcfForecast"]] == [20_000_000_000] * 5
+        assert b["pvTerminal"] == pytest.approx(255e9)
+        assert b["enterpriseValue"] == pytest.approx(355e9)
+        assert b["equityValue"] == pytest.approx(375e9)  # EV + 50B cash - 30B debt
+        assert b["targetPrice"] == pytest.approx(375.0)
+        assert b["upsidePct"] == pytest.approx(2.75)
+
+    def test_formulas(self):
+        b = compute(FIXED_INPUTS, FIXED_ASSUMPTIONS)
+        for year in b["fcfForecast"]:
+            t = year["year"]
+            assert year["fcf"] == pytest.approx(20e9 * 1.1 ** t)
+            assert year["pvFcf"] == pytest.approx(year["fcf"] / 1.1 ** t)
+        assert b["fcfNPlus1"] == pytest.approx(20e9 * 1.1 ** 5 * 1.02)
+        assert b["terminalValue"] == pytest.approx(b["fcfNPlus1"] / 0.08)
 
 
-class TestDCFOverrides:
-    """Test manual override functionality."""
-    
-    def test_overrides_from_dict(self):
-        """Test parsing overrides from dict."""
-        data = {
-            "sharesOutstanding": 1000000,
-            "cash": 5000000,
-            "debt": 2000000,
-            "fcf0": 1000000,
-            "marketPrice": 50.0,
-        }
-        overrides = DCFOverrides.from_dict(data)
-        
-        assert overrides.shares_outstanding == 1000000
-        assert overrides.cash == 5000000
-        assert overrides.debt == 2000000
-        assert overrides.fcf_0 == 1000000
-        assert overrides.market_price == 50.0
-    
-    def test_overrides_from_empty_dict(self):
-        """Test parsing overrides from empty dict."""
-        overrides = DCFOverrides.from_dict({})
-        
-        assert overrides.shares_outstanding is None
-        assert overrides.cash is None
-        assert overrides.debt is None
-        assert overrides.fcf_0 is None
-        assert overrides.market_price is None
-    
-    def test_overrides_from_none(self):
-        """Test parsing overrides from None."""
-        overrides = DCFOverrides.from_dict(None)
-        
-        assert overrides.shares_outstanding is None
+@pytest.fixture
+def yahoo(monkeypatch):
+    """Fake Yahoo data; tests edit `info` and `cashflow` in place."""
+    data = {
+        "info": {
+            "currency": "USD",
+            "financialCurrency": "USD",
+            "currentPrice": 100.0,
+            "sharesOutstanding": 400_000_000,           # one share class only
+            "impliedSharesOutstanding": 1_000_000_000,  # all classes
+            "totalCash": 50_000_000_000,
+            "totalDebt": 30_000_000_000,
+            "freeCashflow": 99_000_000_000,             # Yahoo's estimate: must be ignored
+        },
+        "cashflow": pd.Series({"Operating Cash Flow": 26e9, "Capital Expenditure": -6e9}),
+    }
+    monkeypatch.setattr(dcf, "get_info", lambda ticker: data["info"])
+    monkeypatch.setattr(dcf, "get_ttm_cashflow", lambda ticker: data["cashflow"])
+    return data
 
 
-class TestCalculateDCFFunction:
-    """Test the convenience calculate_dcf function."""
-    
-    def test_returns_dict(self):
-        """Result should be a dict."""
-        # This will fail due to missing yfinance data, but should return a dict
-        result = calculate_dcf("INVALID_TICKER_XYZ123")
-        
-        assert isinstance(result, dict)
-        assert "meta" in result
-        assert "inputs" in result
-        assert "sources" in result
-    
-    def test_with_full_overrides(self):
-        """Test calculation with all values overridden (no yfinance needed)."""
-        result = calculate_dcf(
-            ticker="TEST",
-            assumptions={
-                "forecastYears": 5,
-                "fcfGrowthRate": 0.10,
-                "terminalGrowthRate": 0.02,
-                "wacc": 0.10,
-            },
-            overrides={
-                "sharesOutstanding": 1_000_000_000,
-                "cash": 50_000_000_000,
-                "debt": 30_000_000_000,
-                "fcf0": 20_000_000_000,
-                "marketPrice": 100.0,
-            },
-        )
-        
+class TestCalculateDcf:
+    def test_uses_statement_fcf_and_all_share_classes(self, yahoo):
+        result = calculate_dcf("goog", assumptions=FIXED_ASSUMPTIONS.to_dict())
         assert result["error"] is None
-        assert "valuation" in result
-        assert "targetPrice" in result["valuation"]
-        assert "marketPrice" in result["valuation"]
-        assert "upsidePct" in result["valuation"]
-        assert result["valuation"]["marketPrice"] == 100.0
-        
-        # Verify sources show overrides
-        sources = result["sources"]
-        assert sources["market_price"] == "manual_override"
-        assert sources["shares_outstanding"] == "manual_override"
-        assert sources["cash"] == "manual_override"
-        assert sources["debt"] == "manual_override"
-        assert sources["fcf_0"] == "manual_override"
-    
-    def test_invalid_assumptions_returns_error(self):
-        """Invalid assumptions should return error."""
-        result = calculate_dcf(
-            ticker="TEST",
-            assumptions={
-                "forecastYears": 5,
-                "terminalGrowthRate": 0.15,  # > WACC
-                "wacc": 0.10,
-            },
-            overrides={
-                "sharesOutstanding": 1000,
-                "cash": 1000,
-                "debt": 500,
-                "fcf0": 100,
-                "marketPrice": 10.0,
-            },
-        )
-        
-        assert result["error"] is not None
-        assert "terminal_growth_rate must be less than wacc" in result["error"]
+        assert result["inputs"]["fcf_0"] == 20e9                     # 26B OCF - 6B capex
+        assert result["inputs"]["shares_outstanding"] == 1_000_000_000
+        assert result["valuation"] == {"targetPrice": 375.0, "marketPrice": 100.0, "upsidePct": 2.75}
+        assert result["meta"]["ticker"] == "GOOG"
 
+    def test_falls_back_to_shares_outstanding(self, yahoo):
+        del yahoo["info"]["impliedSharesOutstanding"]
+        result = calculate_dcf("X")
+        assert result["sources"]["shares_outstanding"] == "yfinance info.sharesOutstanding"
 
-class TestDCFBreakdownSerialization:
-    """Test breakdown object serialization."""
-    
-    def test_to_dict(self):
-        """Test breakdown serialization to dict."""
-        breakdown = DCFBreakdown(
-            fcf_0=1000,
-            forecast_years=5,
-            fcf_growth_rate=0.08,
-            terminal_growth_rate=0.025,
-            wacc=0.09,
-            fcf_forecast=[1080, 1166.4, 1259.7, 1360.5, 1469.3],
-            pv_fcf=[990.8, 981.7, 972.6, 963.6, 954.7],
-            fcf_n_plus_1=1506.0,
-            terminal_value=23169.2,
-            pv_terminal=15060.7,
-            sum_pv_fcf=4863.4,
-            enterprise_value=19924.1,
-            cash=500,
-            debt=200,
-            equity_value=20224.1,
-            shares_outstanding=100,
-            target_price=202.24,
-            market_price=150.0,
-            upside_pct=0.3483,
-        )
-        
-        result = breakdown.to_dict()
-        
-        assert result["fcf0"] == 1000
-        assert result["forecastYears"] == 5
-        assert len(result["fcfForecast"]) == 5
-        assert result["fcfForecast"][0]["year"] == 1
-        assert result["targetPrice"] == 202.24
-        assert result["upsidePct"] == 0.3483
+    def test_negative_fcf_gives_error_not_price(self, yahoo):
+        yahoo["cashflow"] = pd.Series({"Operating Cash Flow": 5e9, "Capital Expenditure": -8e9})
+        result = calculate_dcf("X")
+        assert "negative" in result["error"] and result["valuation"] == {}
+
+    def test_negative_equity_gives_error_not_price(self, yahoo):
+        yahoo["info"]["totalDebt"] = 900e9
+        result = calculate_dcf("X")
+        assert "equity value is negative" in result["error"] and result["valuation"] == {}
+
+    def test_missing_statement_asks_for_override(self, yahoo):
+        yahoo["cashflow"] = pd.Series(dtype=float)
+        result = calculate_dcf("X")
+        assert "fcf_0" in result["error"] and result["sources"]["fcf_0"] == "missing"
+
+    def test_currency_mismatch_needs_overrides(self, yahoo):
+        yahoo["info"]["financialCurrency"] = "TWD"
+        assert "TWD" in calculate_dcf("TSM")["error"]
+
+        overrides = {"fcf0": 20e9, "cash": 50e9, "debt": 30e9}
+        result = calculate_dcf("TSM", assumptions=FIXED_ASSUMPTIONS.to_dict(), overrides=overrides)
+        assert result["error"] is None and result["valuation"]["targetPrice"] == 375.0
+
+    def test_overrides_win_and_are_labelled(self, yahoo):
+        result = calculate_dcf("X", overrides={"marketPrice": 250.0})
+        assert result["inputs"]["market_price"] == 250.0
+        assert result["sources"]["market_price"] == "manual_override"
+
+    def test_invalid_assumptions(self, yahoo):
+        result = calculate_dcf("X", assumptions={"wacc": 0.02, "terminalGrowthRate": 0.03})
+        assert result["error"].startswith("Invalid assumptions")
+
+    def test_data_failure_is_reported_not_raised(self, monkeypatch):
+        def fail(ticker):
+            raise ConnectionError("Yahoo down")
+        monkeypatch.setattr(dcf, "get_info", fail)
+        assert "Yahoo down" in calculate_dcf("X")["error"]

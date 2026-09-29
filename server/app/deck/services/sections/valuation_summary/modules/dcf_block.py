@@ -75,11 +75,7 @@ def _from_dcf_result(dcf_result: dict[str, Any]) -> DcfResultOut:
 
 def _run_calculator(inputs: dict[str, Any]) -> DcfResultOut:
     """Run the deterministic DCF calculator."""
-    try:
-        from app.deck.services.dcf_calculator import calculate_dcf
-    except ImportError:
-        logger.warning("dcf_calculator not available")
-        return DcfResultOut(included=False, notes="DCF calculator unavailable")
+    from app.services.dcf import calculate_dcf
 
     ticker = inputs.get("ticker", "")
 

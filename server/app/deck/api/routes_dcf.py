@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from app.core.middleware import request_id_var
-from app.deck.services.dcf_calculator import calculate_dcf
+from app.services.dcf import calculate_dcf, fetch_inputs
 from app.deck.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -127,16 +127,13 @@ async def calculate_dcf_valuation(request: Request):
 @router.get("/dcf/inputs/{ticker}")
 async def get_dcf_inputs(ticker: str):
     """Get DCF inputs for a ticker without calculating valuation."""
-    from app.deck.services.dcf_data_provider import get_dcf_data_provider
-
     normalized_ticker = ticker.upper().strip()
-    provider = get_dcf_data_provider()
-    inputs, sources, warnings = await asyncio.to_thread(provider.get_inputs, normalized_ticker)
+    inputs, sources, warnings = await asyncio.to_thread(fetch_inputs, normalized_ticker)
 
     return {
         "ticker": normalized_ticker,
-        "inputs": inputs.to_dict(),
-        "sources": sources.to_dict(),
+        "inputs": inputs,
+        "sources": sources,
         "warnings": warnings,
     }
 

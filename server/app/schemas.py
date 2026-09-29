@@ -51,7 +51,7 @@ class DcfData(BaseModel):
     """DCF valuation metrics."""
 
     dcfPrice: Optional[float] = Field(default=None, description="DCF fair value per share")
-    dcfUpside: Optional[float] = Field(default=None, description="Upside/downside percentage vs current price")
+    dcfUpside: Optional[float] = Field(default=None, description="Upside vs current price as a decimal (0.12 = +12%)")
 
 
 class RequestedParams(BaseModel):

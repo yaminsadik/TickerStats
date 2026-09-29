@@ -1,444 +1,205 @@
-"""
-YFinance service for fetching stock data with caching, concurrency limiting,
-and in-flight request coalescing.
+"""Market data from Yahoo Finance (via yfinance), cached in memory.
+
+Every Yahoo call goes through ``_cached``:
+
+1. Cache hit: return it.
+2. Otherwise take the lock for that key, so ten requests for AAPL at the
+   same moment make one Yahoo call; the other nine wait and then read the cache.
+3. A semaphore caps concurrent Yahoo calls, because Yahoo throttles bursts.
+
+Only successes are cached. If Yahoo fails, the error goes back to the caller
+and the next request tries again, instead of serving an empty row for minutes.
+
+Three caches, one per kind of data:
+- info       quote + fundamentals (price, multiples, cash, debt, shares)  2 min
+- history    return / volatility / drawdown per (symbol, period)          2 min
+- cashflow   trailing-twelve-month cash flow statement (DCF only)          1 hour
 """
 
 import logging
-import threading
-import time
-from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
-from datetime import datetime, timezone
-from typing import Any, Optional
 import math
+import threading
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError, as_completed
+from datetime import datetime, timezone
+from typing import Any, Callable, Optional
 
 import numpy as np
+import pandas as pd
 import yfinance as yf
 from cachetools import TTLCache
 
 from app.core.config import (
     CACHE_TTL_SECONDS,
+    FETCH_TIMEOUT_SECONDS,
     MAX_WORKERS,
     SNAPSHOT_FIELDS_ALLOWLIST,
-    FETCH_TIMEOUT_SECONDS,
-    DCF_METRICS,
+    STATEMENT_CACHE_TTL_SECONDS,
     YFINANCE_MAX_CONCURRENCY,
 )
 
 logger = logging.getLogger(__name__)
 
+TRADING_DAYS_PER_YEAR = 252
 
-def safe_float(val) -> Optional[float]:
-    """Convert value to float safely, returning None for invalid values."""
-    if val is None:
-        return None
+_info_cache: TTLCache = TTLCache(maxsize=2000, ttl=CACHE_TTL_SECONDS)
+_history_cache: TTLCache = TTLCache(maxsize=2000, ttl=CACHE_TTL_SECONDS)
+_cashflow_cache: TTLCache = TTLCache(maxsize=2000, ttl=STATEMENT_CACHE_TTL_SECONDS)
+
+_cache_lock = threading.Lock()                       # TTLCache is not thread-safe
+_key_locks: defaultdict = defaultdict(threading.Lock)  # one per cache key (bounded by tickers x periods)
+_yahoo_slots = threading.Semaphore(YFINANCE_MAX_CONCURRENCY)
+
+
+def safe_float(value: Any) -> Optional[float]:
+    """float(value), or None for missing, NaN or infinite values."""
     try:
-        f = float(val)
-        if math.isnan(f) or math.isinf(f):
-            return None
-        return f
-    except (ValueError, TypeError):
+        result = float(value)
+    except (TypeError, ValueError):
         return None
+    return None if math.isnan(result) or math.isinf(result) else result
+
+
+def _cache_get(cache: TTLCache, key: Any) -> Any:
+    with _cache_lock:
+        return cache.get(key)
+
+
+def _cached(cache: TTLCache, key: Any, fetch: Callable[[], Any]) -> Any:
+    value = _cache_get(cache, key)
+    if value is not None:
+        return value
+    with _cache_lock:
+        key_lock = _key_locks[(id(cache), key)]
+    with key_lock:
+        value = _cache_get(cache, key)  # another thread may have fetched it while we waited
+        if value is not None:
+            return value
+        with _yahoo_slots:
+            value = fetch()
+        with _cache_lock:
+            cache[key] = value
+        return value
 
 
 # ---------------------------------------------------------------------------
-# Global concurrency limiter + in-flight coalescing
+# Raw data, one Yahoo call each
 # ---------------------------------------------------------------------------
 
-# Semaphore limits how many yfinance API calls run simultaneously.
-_yf_semaphore = threading.Semaphore(YFINANCE_MAX_CONCURRENCY)
-
-# In-flight coalescing: prevents "cache stampede" when multiple threads
-# request the same cache key simultaneously.  Instead of N redundant
-# yfinance calls, only 1 runs and the rest await its result.
-_inflight_lock = threading.Lock()
-_inflight: dict[str, threading.Event] = {}
-_inflight_results: dict[str, Any] = {}
-_inflight_errors: dict[str, Optional[Exception]] = {}
+def get_info(symbol: str) -> dict:
+    """Yahoo's quote + fundamentals payload for one symbol ({} if unknown)."""
+    return _cached(_info_cache, symbol, lambda: yf.Ticker(symbol).info or {})
 
 
-def _fetch_with_coalescing(
-    key: str,
-    fetch_fn,
-    cache: TTLCache,
-    label: str,
-) -> Any:
+def get_ttm_cashflow(symbol: str) -> pd.Series:
+    """Most recent trailing-twelve-month cash flow statement (empty if unavailable)."""
+    def fetch() -> pd.Series:
+        statement = yf.Ticker(symbol).ttm_cashflow
+        if statement is None or statement.empty:
+            return pd.Series(dtype=float)
+        return statement.iloc[:, 0]  # columns are periods, newest first
+    return _cached(_cashflow_cache, symbol, fetch)
+
+
+def get_performance(symbol: str, period: str) -> dict[str, Optional[float]]:
+    """Total return, annualised volatility and max drawdown over a period.
+
+    Uses dividend- and split-adjusted closes (yfinance's default), so return
+    is total return and a split does not look like a crash.
     """
-    Fetch data for `key` with:
-    1) Cache check (fast path)
-    2) In-flight coalescing (if another thread is already fetching the same key)
-    3) Semaphore-limited yfinance call
-    4) Stale-on-error: if fetch fails and there WAS a cached value, return stale
+    def fetch() -> dict[str, Optional[float]]:
+        close = yf.Ticker(symbol).history(period=period, interval="1d")["Close"].dropna()
+        if len(close) < 3:
+            raise ValueError(f"not enough price history for {period}")
+        daily_returns = close.pct_change().dropna()
+        return {
+            "return": safe_float(close.iloc[-1] / close.iloc[0] - 1),
+            "volatility": safe_float(np.std(daily_returns, ddof=1) * np.sqrt(TRADING_DAYS_PER_YEAR)),
+            "maxDrawdown": safe_float((close / close.cummax() - 1).min()),
+        }
+    return _cached(_history_cache, (symbol, period), fetch)
 
-    Args:
-        key: cache key
-        fetch_fn: callable() -> result  (the actual yfinance work)
-        cache: the TTLCache to read/write
-        label: human-readable label for logging (e.g. "snapshot", "perf:1y")
-    """
-    # 1) Fast path: cache hit
-    if key in cache:
-        logger.debug("yfinance cache HIT: %s key=%s", label, key)
-        return cache[key]
 
-    # 2) Check if another thread is already fetching this key
-    with _inflight_lock:
-        if key in _inflight:
-            event = _inflight[key]
-            logger.debug("yfinance coalescing: waiting on in-flight %s key=%s", label, key)
-        else:
-            # We are the first -- register ourselves
-            event = threading.Event()
-            _inflight[key] = event
-            _inflight_results.pop(key, None)
-            _inflight_errors.pop(key, None)
-            event = None  # signal that WE should do the fetch
+# ---------------------------------------------------------------------------
+# Derived views
+# ---------------------------------------------------------------------------
 
-    if event is not None:
-        # Another thread is fetching -- wait for it
-        completed = event.wait(timeout=FETCH_TIMEOUT_SECONDS)
-        if not completed:
-            raise TimeoutError(f"In-flight fetch timeout for {label} key={key}")
-        if key in _inflight_results:
-            return _inflight_results[key]
-        # The leader failed; try cache (maybe stale) or raise
-        if key in cache:
-            return cache[key]
-        err = _inflight_errors.get(key)
-        if err:
-            raise err
-        raise TimeoutError(f"In-flight fetch had no result for {label} key={key}")
+def get_snapshot(symbol: str) -> dict[str, Optional[float]]:
+    """All snapshot fields for a symbol, from its info payload."""
+    info = get_info(symbol)
+    snapshot = {}
+    for field, yahoo_keys in SNAPSHOT_FIELDS_ALLOWLIST.items():
+        values = (safe_float(info.get(key)) for key in yahoo_keys)
+        snapshot[field] = next((v for v in values if v is not None), None)
+    return snapshot
 
-    # 3) We are the leader -- acquire semaphore and fetch
-    start = time.perf_counter()
-    semaphore_wait_start = time.perf_counter()
-    acquired = _yf_semaphore.acquire(timeout=FETCH_TIMEOUT_SECONDS)
-    semaphore_wait_ms = round((time.perf_counter() - semaphore_wait_start) * 1000, 1)
 
-    if semaphore_wait_ms > 500:
-        logger.warning(
-            "yfinance semaphore wait: %.0fms for %s key=%s",
-            semaphore_wait_ms, label, key,
-        )
+def _empty_row(symbol, fields, perf_metrics, include_dcf, error: str) -> dict:
+    return {
+        "symbol": symbol,
+        "snapshot": {f: None for f in fields},
+        "performance": {m: None for m in perf_metrics} if perf_metrics else None,
+        "dcf": {"dcfPrice": None, "dcfUpside": None} if include_dcf else None,
+        "missingFields": list(fields),
+        "missingPerf": list(perf_metrics) if perf_metrics else None,
+        "error": error,
+    }
 
-    if not acquired:
-        logger.error("yfinance semaphore timeout for %s key=%s", label, key)
-        # Clean up inflight and signal waiters
-        with _inflight_lock:
-            evt = _inflight.pop(key, None)
-            _inflight_errors[key] = TimeoutError(f"Semaphore timeout for {label}")
-        if evt:
-            evt.set()
-        raise TimeoutError(f"yfinance concurrency limit reached for {key}")
+
+def _fetch_row(
+    symbol: str,
+    fields: list[str],
+    perf_metrics: Optional[list[str]],
+    perf_period: Optional[str],
+    include_dcf: bool,
+) -> dict:
+    """One table row. A failing part is reported in `error`; the rest still shows."""
+    errors = []
 
     try:
-        logger.info("yfinance fetch START: %s key=%s", label, key)
-        result = fetch_fn()
-        duration_ms = round((time.perf_counter() - start) * 1000, 1)
-        logger.info(
-            "yfinance fetch DONE: %s key=%s duration=%.0fms",
-            label, key, duration_ms,
-        )
-
-        # Store in cache
-        cache[key] = result
-
-        # Signal waiters
-        with _inflight_lock:
-            _inflight_results[key] = result
-            evt = _inflight.pop(key, None)
-        if evt:
-            evt.set()
-
-        return result
-
+        snapshot = get_snapshot(symbol)
     except Exception as exc:
-        duration_ms = round((time.perf_counter() - start) * 1000, 1)
-        logger.error(
-            "yfinance fetch FAIL: %s key=%s duration=%.0fms error=%s",
-            label, key, duration_ms, exc,
-        )
+        logger.warning("Snapshot failed for %s: %s", symbol, exc)
+        errors.append(f"quote unavailable: {exc}")
+        snapshot = {}
+    row_snapshot = {f: snapshot.get(f) for f in fields}
 
-        # Stale-on-error: if there was a cached value, return it
-        if key in cache:
-            logger.warning(
-                "yfinance returning stale cache for %s key=%s after error",
-                label, key,
-            )
-            stale = cache[key]
-            with _inflight_lock:
-                _inflight_results[key] = stale
-                evt = _inflight.pop(key, None)
-            if evt:
-                evt.set()
-            return stale
+    performance = None
+    if perf_metrics and perf_period:
+        try:
+            metrics = get_performance(symbol, perf_period)
+        except Exception as exc:
+            logger.warning("Performance failed for %s %s: %s", symbol, perf_period, exc)
+            errors.append(f"performance unavailable: {exc}")
+            metrics = {}
+        performance = {m: metrics.get(m) for m in perf_metrics}
 
-        # No cached value -- propagate the error
-        with _inflight_lock:
-            _inflight_errors[key] = exc
-            evt = _inflight.pop(key, None)
-        if evt:
-            evt.set()
-        raise
+    dcf = None
+    if include_dcf:
+        from app.services.dcf import calculate_dcf
 
-    finally:
-        _yf_semaphore.release()
-        # Deferred cleanup of result/error dicts (avoid memory leak)
-        # The waiters have already read by now.
-        _inflight_results.pop(key, None)
-        _inflight_errors.pop(key, None)
+        result = calculate_dcf(symbol)
+        valuation = result.get("valuation") or {}
+        dcf = {"dcfPrice": valuation.get("targetPrice"), "dcfUpside": valuation.get("upsidePct")}
+        if result.get("error"):
+            errors.append(f"DCF: {result['error']}")
+
+    return {
+        "symbol": symbol,
+        "snapshot": row_snapshot,
+        "performance": performance,
+        "dcf": dcf,
+        "missingFields": [f for f in fields if row_snapshot[f] is None],
+        "missingPerf": [m for m in perf_metrics if performance[m] is None] if performance else None,
+        "error": "; ".join(errors) or None,
+    }
 
 
 class YFinanceService:
-    """Service for fetching stock data from yfinance with caching."""
+    """Builds comparison-table rows for many symbols in parallel."""
 
     def __init__(self):
-        # Separate caches for snapshot, performance, and DCF data
-        self._snapshot_cache: TTLCache = TTLCache(maxsize=1000, ttl=CACHE_TTL_SECONDS)
-        self._perf_cache: TTLCache = TTLCache(maxsize=1000, ttl=CACHE_TTL_SECONDS)
-        self._dcf_cache: TTLCache = TTLCache(maxsize=1000, ttl=CACHE_TTL_SECONDS * 5)  # DCF cached 5x longer
         self._executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
-
-    def _get_cache_key(self, symbol: str, perf_period: Optional[str] = None) -> str:
-        """Generate cache key."""
-        if perf_period:
-            return f"{symbol}:{perf_period}"
-        return symbol
-
-    def _is_cache_hit(
-        self,
-        symbols: list[str],
-        perf_metrics: Optional[list[str]],
-        perf_period: Optional[str],
-    ) -> bool:
-        """Check if all requested data is in cache."""
-        for symbol in symbols:
-            # Check snapshot cache
-            if symbol not in self._snapshot_cache:
-                return False
-            # Check perf cache if performance is requested
-            if perf_metrics and perf_period:
-                perf_key = self._get_cache_key(symbol, perf_period)
-                if perf_key not in self._perf_cache:
-                    return False
-        return True
-
-    def _raw_fetch_snapshot(self, symbol: str) -> dict[str, Optional[float]]:
-        """Raw yfinance snapshot fetch (no cache, no semaphore)."""
-        result = {field: None for field in SNAPSHOT_FIELDS_ALLOWLIST}
-
-        try:
-            ticker = yf.Ticker(symbol)
-            info = ticker.info
-
-            if not info:
-                logger.warning(f"No info data found for {symbol}")
-                return result
-
-            # Special handling for sharePrice with extended fallback
-            share_price = None
-            share_price = safe_float(info.get("currentPrice"))
-            if share_price is None:
-                share_price = safe_float(info.get("regularMarketPrice"))
-            if share_price is None:
-                try:
-                    fast_info = ticker.fast_info
-                    if hasattr(fast_info, "last_price"):
-                        share_price = safe_float(fast_info.last_price)
-                except Exception:
-                    pass
-            result["sharePrice"] = share_price
-
-            # Map other yfinance fields to our schema
-            for field, yf_keys in SNAPSHOT_FIELDS_ALLOWLIST.items():
-                if field == "sharePrice":
-                    continue
-                value = None
-                for yf_key in yf_keys:
-                    val = info.get(yf_key)
-                    value = safe_float(val)
-                    if value is not None:
-                        break
-                result[field] = value
-
-        except Exception as e:
-            logger.error(f"Error fetching snapshot for {symbol}: {e}")
-
-        return result
-
-    def get_snapshot(self, symbol: str) -> dict[str, Optional[float]]:
-        """
-        Fetch snapshot metrics for a single symbol.
-        Uses cache -> coalescing -> semaphore-limited yfinance call.
-        """
-        return _fetch_with_coalescing(
-            key=symbol,
-            fetch_fn=lambda: self._raw_fetch_snapshot(symbol),
-            cache=self._snapshot_cache,
-            label="snapshot",
-        )
-
-    def _raw_fetch_performance(
-        self, symbol: str, period: str,
-    ) -> dict:
-        """Raw yfinance performance fetch (no cache, no semaphore)."""
-        result = {"return": None, "volatility": None, "maxDrawdown": None}
-        error_msg = None
-
-        try:
-            ticker = yf.Ticker(symbol)
-            hist = ticker.history(period=period, interval="1d")
-
-            if hist.empty or len(hist) < 2:
-                error_msg = f"Insufficient price history for {period} period (<2 data points)"
-                logger.warning(f"{error_msg} for {symbol}")
-                return {"data": result, "error": error_msg}
-
-            close = hist["Close"].dropna()
-
-            if len(close) < 2:
-                error_msg = f"Insufficient close prices for {period} period (<2 data points)"
-                logger.warning(f"{error_msg} for {symbol}")
-                return {"data": result, "error": error_msg}
-
-            # Compute return
-            first_close = float(close.iloc[0])
-            last_close = float(close.iloc[-1])
-            if first_close > 0:
-                total_return = (last_close / first_close) - 1
-                result["return"] = safe_float(total_return)
-
-            # Compute daily returns
-            daily_returns = close.pct_change().dropna()
-
-            if len(daily_returns) > 1:
-                volatility = float(np.std(daily_returns, ddof=1) * np.sqrt(252))
-                result["volatility"] = safe_float(volatility)
-
-                cummax = close.cummax()
-                drawdown = (close / cummax) - 1
-                max_drawdown = float(drawdown.min())
-                result["maxDrawdown"] = safe_float(max_drawdown)
-
-        except Exception as e:
-            error_msg = f"Error computing performance: {str(e)}"
-            logger.error(f"Error fetching performance for {symbol}: {e}")
-
-        return {"data": result, "error": error_msg}
-
-    def get_performance(
-        self, symbol: str, period: str, metrics: list[str]
-    ) -> tuple[dict[str, Optional[float]], Optional[str]]:
-        """
-        Compute performance metrics for a symbol over a period.
-        Uses cache -> coalescing -> semaphore-limited yfinance call.
-        """
-        cache_key = self._get_cache_key(symbol, period)
-
-        cached = _fetch_with_coalescing(
-            key=cache_key,
-            fetch_fn=lambda: self._raw_fetch_performance(symbol, period),
-            cache=self._perf_cache,
-            label=f"perf:{period}",
-        )
-
-        if not isinstance(cached, dict) or "data" not in cached:
-            return {m: None for m in metrics}, "Performance data unavailable"
-
-        return {m: cached["data"].get(m) for m in metrics}, cached.get("error")
-
-    def _raw_fetch_dcf(self, symbol: str) -> dict[str, Optional[float]]:
-        """Raw DCF calculation (no cache, no semaphore)."""
-        result = {"dcfPrice": None, "dcfUpside": None}
-
-        try:
-            from app.services.dcf_service import calculate_simple_dcf
-
-            dcf_result = calculate_simple_dcf(symbol)
-            result["dcfPrice"] = dcf_result.dcf_price
-            result["dcfUpside"] = dcf_result.upside
-
-            if dcf_result.error:
-                logger.warning(f"DCF calculation warning for {symbol}: {dcf_result.error}")
-
-        except Exception as e:
-            logger.error(f"Error calculating DCF for {symbol}: {e}")
-
-        return result
-
-    def get_dcf(self, symbol: str) -> dict[str, Optional[float]]:
-        """
-        Fetch DCF valuation for a single symbol.
-        Uses cache -> coalescing -> semaphore-limited yfinance call.
-        """
-        return _fetch_with_coalescing(
-            key=symbol,
-            fetch_fn=lambda: self._raw_fetch_dcf(symbol),
-            cache=self._dcf_cache,
-            label="dcf",
-        )
-
-    def _fetch_symbol_data(
-        self,
-        symbol: str,
-        fields: list[str],
-        perf_metrics: Optional[list[str]],
-        perf_period: Optional[str],
-        include_dcf: bool = False,
-    ) -> dict:
-        """Fetch all data for a single symbol."""
-        result = {
-            "symbol": symbol,
-            "snapshot": {},
-            "performance": None,
-            "dcf": None,
-            "missingFields": [],
-            "missingPerf": None,
-            "error": None,
-        }
-
-        errors = []
-
-        try:
-            # Get snapshot data
-            full_snapshot = self.get_snapshot(symbol)
-            # Filter to requested fields only
-            result["snapshot"] = {f: full_snapshot.get(f) for f in fields}
-
-            # Track missing snapshot fields
-            result["missingFields"] = [f for f in fields if result["snapshot"].get(f) is None]
-
-            # Get performance data if requested
-            if perf_metrics and perf_period:
-                perf_data, perf_error = self.get_performance(symbol, perf_period, perf_metrics)
-                result["performance"] = perf_data
-
-                # Track missing perf metrics
-                result["missingPerf"] = [m for m in perf_metrics if perf_data.get(m) is None]
-
-                if perf_error:
-                    errors.append(perf_error)
-
-            # Get DCF data if requested
-            if include_dcf:
-                dcf_data = self.get_dcf(symbol)
-                result["dcf"] = dcf_data
-
-        except Exception as e:
-            logger.error(f"Error fetching data for {symbol}: {e}")
-            errors.append(str(e))
-            # Ensure snapshot has all requested fields as None
-            result["snapshot"] = {f: None for f in fields}
-            result["missingFields"] = fields.copy()
-            if perf_metrics:
-                result["performance"] = {m: None for m in perf_metrics}
-                result["missingPerf"] = perf_metrics.copy()
-            if include_dcf:
-                result["dcf"] = {"dcfPrice": None, "dcfUpside": None}
-
-        if errors:
-            result["error"] = "; ".join(errors)
-
-        return result
 
     def get_relative(
         self,
@@ -448,76 +209,41 @@ class YFinanceService:
         perf_period: Optional[str] = None,
         include_dcf: bool = False,
     ) -> tuple[list[dict], bool]:
-        """
-        Fetch relative table data for multiple symbols concurrently.
-        Returns (rows, cache_hit_all).
+        """Rows in the requested order, plus whether everything came from cache."""
+        cache_hit = all(
+            _cache_get(_info_cache, s) is not None
+            and (not perf_period or _cache_get(_history_cache, (s, perf_period)) is not None)
+            for s in symbols
+        )
 
-        Thread safety: individual yfinance calls inside _fetch_symbol_data
-        are guarded by the global semaphore and coalescing layer, so even
-        though we launch up to MAX_WORKERS threads here, the actual
-        concurrent yfinance API calls are limited to YFINANCE_MAX_CONCURRENCY.
-        """
-        # Check cache status before fetching
-        cache_hit = self._is_cache_hit(symbols, perf_metrics, perf_period)
-
-        rows = []
-        futures_map = {}
-
-        # Submit all fetch tasks
-        for symbol in symbols:
-            future = self._executor.submit(
-                self._fetch_symbol_data, symbol, fields, perf_metrics, perf_period, include_dcf
-            )
-            futures_map[future] = symbol
-
-        # Collect results preserving order
-        results_by_symbol = {}
+        futures = {
+            self._executor.submit(_fetch_row, s, fields, perf_metrics, perf_period, include_dcf): s
+            for s in symbols
+        }
+        rows_by_symbol = {}
         try:
-            for future in as_completed(futures_map, timeout=FETCH_TIMEOUT_SECONDS):
-                symbol = futures_map[future]
+            for future in as_completed(futures, timeout=FETCH_TIMEOUT_SECONDS):
+                symbol = futures[future]
                 try:
-                    result = future.result()
-                    results_by_symbol[symbol] = result
-                except Exception as e:
-                    logger.error(f"Future error for {symbol}: {e}")
-                    results_by_symbol[symbol] = {
-                        "symbol": symbol,
-                        "snapshot": {f: None for f in fields},
-                        "performance": {m: None for m in perf_metrics} if perf_metrics else None,
-                        "dcf": {"dcfPrice": None, "dcfUpside": None} if include_dcf else None,
-                        "missingFields": fields.copy(),
-                        "missingPerf": perf_metrics.copy() if perf_metrics else None,
-                        "error": str(e),
-                    }
+                    rows_by_symbol[symbol] = future.result()
+                except Exception as exc:
+                    logger.error("Row failed for %s: %s", symbol, exc)
+                    rows_by_symbol[symbol] = _empty_row(symbol, fields, perf_metrics, include_dcf, str(exc))
         except FuturesTimeoutError:
-            logger.error("Timed out waiting for yfinance worker futures after %ss", FETCH_TIMEOUT_SECONDS)
+            logger.error("Comparison timed out after %ss", FETCH_TIMEOUT_SECONDS)
 
-        # Fill in any symbols that never completed (timeout/cancellation path)
-        for future, symbol in futures_map.items():
-            if symbol in results_by_symbol:
-                continue
-            future.cancel()
-            results_by_symbol[symbol] = {
-                "symbol": symbol,
-                "snapshot": {f: None for f in fields},
-                "performance": {m: None for m in perf_metrics} if perf_metrics else None,
-                "dcf": {"dcfPrice": None, "dcfUpside": None} if include_dcf else None,
-                "missingFields": fields.copy(),
-                "missingPerf": perf_metrics.copy() if perf_metrics else None,
-                "error": f"Request timed out after {FETCH_TIMEOUT_SECONDS}s",
-            }
+        for future, symbol in futures.items():
+            if symbol not in rows_by_symbol:
+                future.cancel()
+                rows_by_symbol[symbol] = _empty_row(
+                    symbol, fields, perf_metrics, include_dcf,
+                    f"Request timed out after {FETCH_TIMEOUT_SECONDS}s",
+                )
 
-        # Preserve original symbol order
-        for symbol in symbols:
-            if symbol in results_by_symbol:
-                rows.append(results_by_symbol[symbol])
-
-        return rows, cache_hit
+        return [rows_by_symbol[s] for s in symbols], cache_hit
 
     def get_as_of_timestamp(self) -> str:
-        """Return current UTC timestamp in ISO format."""
         return datetime.now(timezone.utc).isoformat()
 
 
-# Singleton instance
 yfinance_service = YFinanceService()

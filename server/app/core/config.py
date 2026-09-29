@@ -179,8 +179,9 @@ settings = Settings()
 # Request limits
 MAX_SYMBOLS_PER_REQUEST = 100  # Increased from 30 to support larger relative tables
 
-# Cache TTL in seconds
+# Cache TTLs in seconds: quotes move constantly, financial statements quarterly
 CACHE_TTL_SECONDS = 120
+STATEMENT_CACHE_TTL_SECONDS = 3600
 
 # Snapshot field allowlist with yfinance mappings (fallback order)
 SNAPSHOT_FIELDS_ALLOWLIST = {
@@ -219,9 +220,6 @@ DEFAULT_SNAPSHOT_FIELDS = [
 # Performance metrics allowlist
 PERF_METRICS_ALLOWLIST = ["return", "volatility", "maxDrawdown"]
 
-# DCF metrics
-DCF_METRICS = ["dcfPrice", "dcfUpside"]
-
 # Valid performance periods
 VALID_PERF_PERIODS = ["1mo", "3mo", "6mo", "ytd", "1y", "2y", "5y", "10y", "max"]
 
@@ -258,5 +256,5 @@ UNITS_METADATA = {
     "maxDrawdown": "decimal",
     # DCF metrics
     "dcfPrice": "currency",
-    "dcfUpside": "ratio",  # Already in percentage form (e.g., -40.65 = -40.65%)
+    "dcfUpside": "decimal",  # 0.12 = +12%, like every other percentage
 }
